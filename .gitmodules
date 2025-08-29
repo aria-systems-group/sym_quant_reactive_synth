@@ -1,12 +1,12 @@
 [submodule "regret_synthesis_toolbox"]
 	path = regret_synthesis_toolbox
-	url = git@github.com:aria-systems-group/regret_synthesis_toolbox.git
+	url = https://github.com/aria-systems-group/regret_synthesis_toolbox.git
 [submodule "src/gridworld_visualizer"]
 	path = src/gridworld_visualizer
-	url = git@github.com:MuvvalaKaran/gridworld_visualizer.git
+	url = https://github.com/MuvvalaKaran/gridworld_visualizer.git
 [submodule "src/LTLf2DFA"]
 	path = src/LTLf2DFA
 	url = https://github.com/whitemech/LTLf2DFA.git
 [submodule "cudd_and_wrapper"]
 	path = cudd_and_wrapper
-	url = git@github.com:MuvvalaKaran/cudd_and_wrapper.git
+	url = https://github.com/MuvvalaKaran/cudd_and_wrapper.git
