@@ -17,7 +17,6 @@ from cudd import Cudd, BDD, ADD
 
 from src.algorithms.base import BaseSymbolicSearch
 from src.symbolic_graphs import ADDPartitionedDFA
-from src.simulate_strategy.run_rviz_sim import run_rviz_sim
 from src.symbolic_graphs import DynWeightedPartitionedFrankaAbs
 from src.symbolic_graphs.hybrid_regret_graphs import HybridGraphOfUtility, HybridGraphOfBR
 
@@ -646,9 +645,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
         # ADD that keeps track of the optimal values of state at each iteration
         self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
         
-        # rviz sim handle
-        self.rviz_handle = run_rviz_sim()
-        
         # get the bdd version of the transition function as vectorComposition only works with
         for act in self.prod_trans_func_list:
             act_ls = []
@@ -851,9 +847,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
             print("Human Moved: ")
             self.get_state_value_from_dd(dd_func=next_prod_sym, sym_lbl_cubes=sym_lbl_cubes, state_val='')
             print(f"Act: {hact_name}")
-
-            # execut intervention in sim
-            self.rviz_handle.send_command(act_name=hact_name)
         
             return next_prod_sym
         
@@ -896,9 +889,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
             while nxt_state_idx > len(sym_prod_list):
                 print("Please enter a valid index")
                 nxt_state_idx = int(input("Enter Next state id: "))
-
-            # simulate huaman action 
-            self.rviz_handle.send_command(act_name=hact_list[nxt_state_idx])
 
             return sym_prod_list[nxt_state_idx]
         
@@ -1048,8 +1038,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
         """
          A helper function to roll out the optimal regret minimizing strategy.
         """
-        self.rviz_handle.spin_up_sim()
-        
         counter = 0
         max_layer: int = max(self.winning_states.keys())
         ract_name: str = ''
@@ -1109,20 +1097,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
                 ts_tuple = self.get_state_value_from_dd(dd_func=curr_prod_state, sym_lbl_cubes=sym_lbl_cubes, state_val=curr_prod_state_sval)
                 print(f"Act: {ract_name}")
 
-            # send the command to sim
-            if 'transit' in ract_name:
-                box_number = re.search(r"b(\d+)", ract_name).group(1)
-                for e in ts_tuple:
-                    conf: str = self.ts_handle.get_state_from_tuple([e])
-                    if f'b{box_number}' in conf:
-                        break
-                box_loc = conf.split()[2][:-1]
-            
-                self.rviz_handle.send_command(act_name=ract_name, loc=box_loc) 
-            else:
-                self.rviz_handle.send_command(act_name=ract_name)
-                
-            
             # look up the next tuple 
             next_prod_tuple = self.prod_gbr_handle.prod_adj_map[(curr_ts_tuple, curr_dfa_tuple, curr_prod_utl, curr_prod_ba)][ract_name]['r']
             next_prod_sym = self.get_sym_prod_state_from_tuple(next_prod_tuple)
@@ -1149,9 +1123,6 @@ class GraphofBRAdvGame(BaseSymbolicSearch):
             curr_prod_state = next_prod_sym
             
             counter += 1
-        
-        # kill the sim
-        self.rviz_handle.terminate_sim()
 
         # need to delete this dict that holds cudd object to avoid segfaults after exiting python code
         del self.winning_states
