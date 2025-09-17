@@ -2,8 +2,9 @@
 cudd/
 PyDD/
 
-# ignore pdf files generated
+# ignore pdf and txt files generated
 *.pdf
+*.txt
 
 # ignore benchmark scripts
 # iros23_pddl_files/
