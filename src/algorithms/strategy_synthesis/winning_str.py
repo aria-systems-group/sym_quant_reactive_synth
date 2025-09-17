@@ -304,9 +304,7 @@ class ReachabilityGame(BaseSymbolicSearch):
     def solve(self, verbose: bool = False) -> BDD:
         """
          This function compute the set of winning states and winnign strategies. 
-        """
-
-        
+        """        
         closed = self.manager.bddZero()  # BDD to keep track of winning states explore till now
 
         layer: int = 0

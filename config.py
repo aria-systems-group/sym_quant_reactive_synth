@@ -7,8 +7,8 @@ EXPLICIT_GRAPH: bool = False  # set this flag to true when you want to construct
 
 GRIDWORLD: bool = False   # Set this flag to true when using gridworld example for graph search 
 FRANKAWORLD: bool = False  # Set this flag to true when using manipulator scenarios for graph search
-STRATEGY_SYNTHESIS: bool = False  # Set this flag to true when  when using manipulator scenarios for Strategy synthesis
-REGRET_SYNTHESIS: bool = True  # Set this flag to true when you want compute regret minimizing strategies
+STRATEGY_SYNTHESIS: bool = True  # Set this flag to true when  when using manipulator scenarios for Strategy synthesis
+REGRET_SYNTHESIS: bool = False  # Set this flag to true when you want compute regret minimizing strategies
 REGRET_HYBRID: bool = False  # Set this flag to true when you contruct graph of utility and best response explicitly
 
 MONOLITHIC_TR: bool = True  # Set this flag to true when using Monolithic TR during regret str synthesis

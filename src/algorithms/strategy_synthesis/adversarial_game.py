@@ -280,17 +280,72 @@ class AdversarialGame(BaseSymbolicSearch):
                 print(f"({_ts_name}, {_dfa_name})  ----{ract_name} & {hact_name}")
     
 
+    def get_pre_states_bdd_compose(self, ts_action: List[BDD], From: BDD, prod_curr_list=None, **kwargs) -> BDD:
+        """
+         This method implement the predecessor computation using BDD's compose operation
+        """
+        # DFA's predecessor computation - sequential compose version
+        for var, bdd_func in zip(self.dfa_bdd_x_list, self.dfa_bdd_transition_fun_list):
+            index = self.manager.bddVariables().index(var)
+            From: BDD = From.compose(bdd_func, index)
+        
+        dfa_win_states: BDD = From
+        game_dfa_win_states: BDD = dfa_win_states
+        # Game's predecessor computation using BDD's compose
+        # for var, bdd_func in zip(prod_curr_list, ts_action):
+        #     index = self.manager.bddVariables().index(var)
+        #     # game_dfa_win_states: BDD = game_dfa_win_states.compose(bdd_func, index)
+        
+
+        # hard coding and testing them out
+        # for var, bdd_func in zip(prod_curr_list, ts_action):
+            # index = self.manager.bddVariables().index(var)
+            # game_dfa_win_states: BDD = game_dfa_win_states.compose(bdd_func, index)
+        game_dfa_win_states: BDD = game_dfa_win_states.vectorCompose(prod_curr_list[0:3], ts_action[0:3])
+        game_dfa_win_states: BDD = game_dfa_win_states.vectorCompose(prod_curr_list[3:], ts_action[3:])
+        
+        return dfa_win_states, game_dfa_win_states
+
+
+    def get_pre_states_add_compose(self, ts_action: List[BDD], From: BDD, prod_curr_list=None, **kwargs) -> ADD:
+        """
+         This method implement the predecessor computation using ADD's compose operation
+        """
+        FromADD: ADD = From.toADD()
+        # DFA's predecessor computation - sequential compose version
+        for var, bdd_func in zip(self.dfa_bdd_x_list, self.dfa_bdd_transition_fun_list):
+            index = self.manager.bddVariables().index(var)
+            FromADD: ADD = FromADD.compose(bdd_func.toADD(), index)
+        
+        dfa_win_states: ADD = FromADD
+        game_dfa_win_states: ADD = dfa_win_states
+        # Game's predecessor computation using BDD's compose
+        for var, bdd_func in zip(prod_curr_list, ts_action):
+            # TODO: check if the index is the same when the variable is BDD and ADD. 
+            index = self.manager.bddVariables().index(var)
+            game_dfa_win_states: ADD = game_dfa_win_states.compose(bdd_func.toADD, index)
+        
+        return dfa_win_states, game_dfa_win_states
+
+
+    def print_stuff(self, states: BDD, **kwargs) -> None:
+        # testing_add = states
+        if isinstance(states, BDD):
+            states = states.toADD()
+        t1 = states.existAbstract(self.env_cube)
+        self.get_prod_states_from_dd(dd_func=t1.existAbstract(self.sys_cube), sym_lbl_cubes=kwargs['sym_lbl_cubes'], prod_curr_list=kwargs['prod_dfa_bdd_curr_list'])
+    
+
     def get_pre_states(self, ts_action: List[BDD], From: BDD, prod_curr_list=None, **kwargs) -> BDD:
         """
          Compute the predecessors using the compositional approach. From is a collection of 0-1 ADD.
-          As vectorCompose functionality only works for bdd, we have to first comvert From to 0-1 BDD, 
+          As vectorCompose functionality only works for bdd, we have to first convert From to 0-1 BDD, 
         """
         # first evolve over DFA and then evolve over the TS
-        mod_win_state: BDD = From.vectorCompose(self.dfa_bdd_x_list, self.dfa_bdd_transition_fun_list)
-        
-        pre_prod_state: BDD = mod_win_state.vectorCompose(prod_curr_list, ts_action)
+        mod_win_state: BDD = From.vectorCompose(self.dfa_bdd_x_list, self.dfa_bdd_transition_fun_list)  
+        pre_prod_state: BDD = mod_win_state.vectorCompose(prod_curr_list, ts_action) 
             
-        return pre_prod_state
+        return mod_win_state, pre_prod_state
     
     
     def evolve_as_per_human(self, curr_state_tuple: tuple, curr_dfa_state: ADD, ract_name: str, valid_human_act: str) -> ADD:
@@ -401,7 +456,6 @@ class AdversarialGame(BaseSymbolicSearch):
 
             _win_state_bucket: Dict[BDD] = defaultdict(lambda: self.manager.bddZero())
 
-            
             # convert the winning states into buckets of BDD
             _max_interval_val = layer * c_max
             for sval in range(_max_interval_val + 1):
@@ -416,10 +470,30 @@ class AdversarialGame(BaseSymbolicSearch):
             # compute the predecessor and store them by action cost + successor cost
             if self.monolithic_tr:
                 for tr_idx, tr_action in enumerate(self.ts_bdd_transition_fun_list):
-                    # we get from the new weightr dictionary
+                    # we get from the new weight dictionary
                     act_val = self.mono_ts_action_idx_wgt_map[tr_idx]
                     for sval, succ_states in _win_state_bucket.items():
-                        pre_states: BDD = self.get_pre_states(ts_action=tr_action, From=succ_states, prod_curr_list=prod_bdd_curr_list)
+                        vCompose_pre_dfa_states, vCompose_pre_states = self.get_pre_states(ts_action=tr_action, From=succ_states, prod_curr_list=prod_bdd_curr_list)
+                        # prod_dfa_bdd_curr_list=prod_dfa_bdd_curr_list, sym_lbl_cubes=sym_lbl_cubes)
+
+                        # call BDD's compose operation 
+                        compose_pre_dfa_states_bdd, compose_pre_states_bdd = self.get_pre_states_bdd_compose(ts_action=tr_action, From=succ_states, prod_curr_list=prod_bdd_curr_list)
+                        print("************************** BDD Compose States **************************")
+                        self.print_stuff(states=compose_pre_dfa_states_bdd, prod_dfa_bdd_curr_list=prod_dfa_bdd_curr_list, sym_lbl_cubes=sym_lbl_cubes)
+
+                        print("************************** BDD Vector Compose States **************************")
+                        self.print_stuff(states=vCompose_pre_dfa_states, prod_dfa_bdd_curr_list=prod_dfa_bdd_curr_list, sym_lbl_cubes=sym_lbl_cubes)
+                        # # call ADD's compose operation
+                        # compose_pre_dfa_states_add, compose_pre_states_add = self.get_pre_states_add_compose(ts_action=tr_action, From=succ_states, prod_curr_list=prod_bdd_curr_list)
+
+                        # # sanity checking - BDD version
+                        assert vCompose_pre_dfa_states == compose_pre_dfa_states_bdd, "[Error] Result of Vector Compose is different from BDD Compose for DFA predecessor computation." 
+                        # assert vCompose_pre_dfa_state == compose_pre_dfa_states_add.bddInterval(1, 1), "[Error] Result of Vector Compose is different from ADD Compose for DFA predecessor computation."
+                        
+                        # assert vCompose_pre_states == compose_pre_states_bdd, "[Error] Result of Vector Compose is different from Compose for BDD version predecessor computation"
+                        # assert vCompose_pre_states == compose_pre_states_add.bddInterval(1, 1), "[Error] Result of Vector Compose is different from Compose for ADD version DFA predecessor computation."
+
+                        pre_states = vCompose_pre_states
 
                         if not pre_states.isZero():
                             _pre_buckets[act_val + sval] |= pre_states.toADD()
