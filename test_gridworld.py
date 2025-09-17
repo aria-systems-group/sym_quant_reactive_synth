@@ -1,20 +1,33 @@
 import math
+import warnings
 
 from typing import List, Tuple
+from collections import defaultdict
 
 from bidict import bidict
 from cudd import Cudd, ADD, BDD
 
 class AddGridWorld:
 
-    def __init__(self, rows: int, columns: int):
+    def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
         self.rows = rows
         self.columns = columns
+        self.init = init if (0 < init[0] < self.rows and 0 < init[1] < self.columns) else warnings.warn("Make sure init state in within the bounds of the gridworld.")
+        self.goal = goal if (0 < goal[0] < self.rows and 0 < goal[1] < self.columns) else warnings.warn("Make sure goal state in within the bounds of the gridworld.")
         self.manager: Cudd = Cudd()
         self.iVars: List[ADD] = self.create_input_cube()
         self.oVars: List[ADD] = self.create_output_cube()
         self.xVars, self.yVars = self.create_latches()
         self.latches  = self.xVars + self.yVars
+
+        self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
+
+        # creat var maps for rows and column vars
+        self.xVar_map = defaultdict(lambda: None)
+        self.yVar_map = defaultdict(lambda: None)
+
+        self.init_latch = None
+        self.goal_latch = None
 
         # create mapping for robot and env actions
         self.raction_map = bidict({act: self.oVars[idx // 2] if idx % 2 == 0 else ~self.oVars[idx // 2] for idx, act in enumerate(['east', 'west', 'north', 'south'])})
@@ -120,6 +133,41 @@ class AddGridWorld:
                         
                         if y_sign == 0:
                             self.transition_relation[prime_cVar.bddPattern().__str__()] |= cVar & self.raction_map[rAct] & self.eaction_map[eAct]
+    
+    
+    def preimage(self, From: BDD) -> BDD:
+        return From.vectorComposr(self.latches, self.transition_relation)
+    
+    def solve(self):
+        """
+        Given a goal state, compute the optimal winning strategy that ensures reaching goal for all possible non-determinism.
+
+        # initialize winning state = self.goals
+        # while True:
+            compute preimage using vectorCompose()
+            # take max over env actions
+            # take min over sys actions
+            # add the state to winning region
+            # if fixpoint then break
+        """
+        goal = self.goal.ite(self.manager.addZero(), self.manager.plusInfinity())
+        self.winning_states[0] |= self.winning_states[0].min(goal)
+        layer = 0
+        while True:
+            if self.winning_states[layer].compare(self.winning_states[layer - 1]):
+                break
+
+            # if print_layers:
+            print(f"**************************Layer: {layer}**************************")
+            # compute preimage
+            pre: BDD = self.preimage(From=self.winning_states[layer])
+
+
+            # take max over env actions
+            # take min over sys actions
+            
+            # update the counter
+            layer += 1
 
 
 if __name__ == "__main__":
