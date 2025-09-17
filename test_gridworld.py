@@ -12,12 +12,16 @@ class AddGridWorld:
     def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
         self.rows = rows
         self.columns = columns
+        self.robot_actions: set = frozenset(['east', 'west', 'north', 'south'])
+        self.env_actions: set = frozenset(['north-east', 'north-west', 'south-east', 'south-west'])
         self.init = init if (0 < init[0] < self.rows and 0 < init[1] < self.columns) else warnings.warn("Make sure init state in within the bounds of the gridworld.")
         self.goal = goal if (0 < goal[0] < self.rows and 0 < goal[1] < self.columns) else warnings.warn("Make sure goal state in within the bounds of the gridworld.")
         self.manager: Cudd = Cudd()
         self.iVars: List[ADD] = self.create_input_cube()
         self.oVars: List[ADD] = self.create_output_cube()
         self.xVars, self.yVars = self.create_latches()
+        self.xVars_bdd: List[BDD] = [var.bddPattern() for var in self.xVars]
+        self.yVars_bdd: List[BDD] = [var.bddPattern() for var in self.yVars]
         self.latches  = self.xVars + self.yVars
 
         self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
@@ -25,13 +29,17 @@ class AddGridWorld:
         # creat var maps for rows and column vars
         self.xVar_map = defaultdict(lambda: None)
         self.yVar_map = defaultdict(lambda: None)
+        self.rAction_map = defaultdict(lambda: None)
+        self.eAction_map = defaultdict(lambda: None)
 
-        self.init_latch = None
-        self.goal_latch = None
+        self.create_xVar_map()
+        self.create_yVar_map()
+
+        self.init_latch: ADD = self.cube_to_add(self.xVar_map[init[0]], self.xVars) & self.cube_to_add(self.yVar_map[init[1]], self.yVars) 
+        self.goal_latch: ADD = self.cube_to_add(self.xVar_map[goal[0]], self.xVars) & self.cube_to_add(self.yVar_map[goal[1]], self.yVars)
 
         # create mapping for robot and env actions
-        self.raction_map = bidict({act: self.oVars[idx // 2] if idx % 2 == 0 else ~self.oVars[idx // 2] for idx, act in enumerate(['east', 'west', 'north', 'south'])})
-        self.eaction_map = bidict({act: self.iVars[idx // 2] if idx % 2 == 0 else ~self.iVars[idx // 2] for idx, act in enumerate(['north-east', 'north-west', 'south-east', 'south-west'])})
+        self.create_action_map()
 
         # create a list that will hold the funcitonal ADDs.
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
@@ -100,43 +108,68 @@ class AddGridWorld:
             return rPos + 1, cPos + 1
         elif act == "south-west":
             return rPos + 1, cPos - 1
+    
+    def create_xVar_map(self) -> None:
+        for r in range(self.rows):
+            bit_str = f"{r:0{len(self.xVars)}b}"
+            self.xVar_map[r] = bit_str
+    
 
+    def create_yVar_map(self) -> None:
+        for c in range(self.columns):
+            bit_str = f"{c:0{len(self.yVars)}b}"
+            self.yVar_map[c] = bit_str
+    
+    def create_action_map(self) -> None:
+        for ridx, ract in enumerate(self.robot_actions):
+            rbit_str = f"{ridx:0{len(self.oVars)}b}" 
+            self.rAction_map[ract] = rbit_str
+        
+        for eidx, eact in enumerate(self.env_actions):
+            ebit_str = f"{eidx:0{len(self.iVars)}b}"
+            self.eAction_map[eact] = ebit_str
+
+    def cube_to_add(self, cube: str, vars_list: List) -> ADD:
+        assert len(cube) == len(vars_list), "Make sure the length of the cube is the same as the number of latches"
+        add = self.manager.addOne()
+        for idx, val in enumerate(cube):
+            add &= vars_list[idx] if val == '1' else ~vars_list[idx]
+        return add
+    
 
     def create_transition_relation(self):
         """
          Create the transition Relation. TR: l x i x o x l' -> 1 for valid transitions.
         """
         for r in range(self.rows):
-            # get the booleans variable 
-            xVar_idx, x_sign = divmod(r, 2)
-            rVar: ADD = self.xVars[xVar_idx] if x_sign == 0 else ~self.xVars[xVar_idx]
+            rVar_add: ADD = self.cube_to_add(self.xVar_map[r], self.xVars)
+
             for c in range(self.columns):
-                yVar_idx, y_sign = divmod(c, 2)
-                cVar: ADD = self.yVars[yVar_idx] if y_sign == 0 else ~self.yVars[yVar_idx]
+                cVar_add: ADD = self.cube_to_add(self.yVar_map[c], self.yVars)
                 
-                # grid position (r, c)
+                # get valid robot acts for grid position (r, c)
                 valid_robot_actions = self.get_valid_robot_transitions(rPos=r, cPos=c)
                 for rAct in valid_robot_actions:
-                    # for every robot act and gridworld position
+                    # get valied env actions for every robot act and gridworld position (r,c)
                     valid_env_actions = self.get_valid_env_transitions(rPos=r, cPos=c, robot_act=rAct)
+                    rAct_cube: str = self.rAction_map[rAct]
                     for eAct in valid_env_actions:
                         # create the transition relation
                         next_rPos, next_cPos = self.get_next_state(rPos=r, cPos=c, act=eAct)
-                        xVar_idx, x_sign = divmod(next_rPos, 2)
-                        yVar_idx, y_sign = divmod(next_cPos, 2)
-                        prime_rVar: ADD = self.xVars[xVar_idx] if x_sign == 0 else ~self.xVars[xVar_idx]
-                        prime_cVar: ADD = self.yVars[yVar_idx] if y_sign == 0 else ~self.yVars[yVar_idx]
                         
+                        eAct_cube: str = self.eAction_map[eAct]
                         # if next state var is positive 
-                        if x_sign == 0:
-                            self.transition_relation[prime_rVar.bddPattern().__str__()] |= rVar & self.raction_map[rAct] & self.eaction_map[eAct]
+                        for idx, prime_rVar in enumerate(self.xVar_map[next_rPos]):
+                            if prime_rVar == '1':
+                                self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
                         
-                        if y_sign == 0:
-                            self.transition_relation[prime_cVar.bddPattern().__str__()] |= cVar & self.raction_map[rAct] & self.eaction_map[eAct]
+                        for idx, prime_cVar in enumerate(self.yVar_map[next_cPos]):
+                            if prime_cVar == '1':
+                                self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
     
     
     def preimage(self, From: BDD) -> BDD:
-        return From.vectorComposr(self.latches, self.transition_relation)
+        return From.vectorCompose(self.latches, self.transition_relation)
     
     def solve(self):
         """
@@ -169,13 +202,12 @@ class AddGridWorld:
             # update the counter
             layer += 1
 
-
 if __name__ == "__main__":
-    game = AddGridWorld(rows=5, columns=10)
+    game = AddGridWorld(rows=2, columns=2, init = (0, 0), goal=(1, 1))
     game.create_transition_relation()
 
     for var, f in game.transition_relation.items():
-        print(f"Var: {var} and f: {f}")
+        print(f"f_{var}: \n {f}")
 
 
 
