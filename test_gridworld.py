@@ -1,3 +1,4 @@
+import sys
 import math
 import warnings
 
@@ -21,10 +22,9 @@ class AddGridWorld:
     def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
         self.rows = rows
         self.columns = columns
+        # self.robot_actions: set = frozenset(['EAST', 'WEST', 'NORTH', 'SOUTH', 'STAY'])
         self.robot_actions: set = frozenset(['EAST', 'WEST', 'NORTH', 'SOUTH'])
         self.env_actions: List[str] = ['north-east', 'north-west', 'south-east', 'south-west', 'no-int']
-        self.init = init if (0 <= init[0] < self.rows and 0 <= init[1] < self.columns) else warnings.warn("Make sure init state in within the bounds of the gridworld.")
-        self.goal = goal if (0 <= goal[0] < self.rows and 0 <= goal[1] < self.columns) else warnings.warn("Make sure goal state in within the bounds of the gridworld.")
         self.manager: Cudd = Cudd()
         self.iVars: List[ADD] = self.create_input_vars()
         self.oVars: List[ADD] = self.create_output_vars()
@@ -37,14 +37,15 @@ class AddGridWorld:
         self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
 
         # creat var maps for rows and column vars
-        self.xVar_map = defaultdict(lambda: None)
-        self.yVar_map = defaultdict(lambda: None)
-        self.rAction_map = defaultdict(lambda: None)
-        self.eAction_map = defaultdict(lambda: None)
+        self.xVar_map = bidict({})
+        self.yVar_map = bidict({})
+        self.rAction_map = bidict({})
+        self.eAction_map = bidict({})
 
         self.create_xVar_map()
         self.create_yVar_map()
-
+        self.set_init_state(init)
+        self.set_goal_state(goal)
         self.init_latch: ADD = self.cube_to_add(self.xVar_map[init[0]], self.xVars) & self.cube_to_add(self.yVar_map[init[1]], self.yVars) 
         self.goal_latch: ADD = self.cube_to_add(self.xVar_map[goal[0]], self.xVars) & self.cube_to_add(self.yVar_map[goal[1]], self.yVars)
 
@@ -56,6 +57,22 @@ class AddGridWorld:
 
         # create a list that will hold the funcitonal ADDs.
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+    
+
+    def set_init_state(self, init: tuple):
+        if (0 <= init[0] < self.rows and 0 <= init[1] < self.columns):
+            self.init = init
+        else:
+            warnings.warn("Make sure init state in within the bounds of the gridworld.")
+            sys.exit()
+    
+    def set_goal_state(self, goal: tuple):
+        if (0 <= goal[0] < self.rows and 0 <= goal[1] < self.columns):
+            self.goal = goal
+        else:
+            warnings.warn("Make sure Goal state in within the bounds of the gridworld.")
+            sys.exit()
+
     
     def create_input_vars(self) -> List[ADD]:
         varsize = self.manager.size()
@@ -87,7 +104,9 @@ class AddGridWorld:
         """
          Returns a list valid agent actions you can take given  row and column position
         """
-        valid_actions = set()
+        # sys can always choose to stay
+        # valid_actions = set({'STAY'})
+        valid_actions = set({})
         if rPos + 1 < self.rows:
             valid_actions.add('SOUTH')
         if rPos - 1 >= 0:
@@ -224,6 +243,37 @@ class AddGridWorld:
     def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
         return From.vectorCompose(self.latches_bdd, ts_action)
     
+
+    def roll_out(self, strategy: ADD):
+        """
+         Give a strategy ADD, roll it out from the initial state until you reach the goal state.
+        """
+        # act = self.init_latch & strategy
+        curr_state: ADD = self.init_latch
+        max_steps: int = max(self.winning_states.keys())
+        
+        while (self.goal_latch & curr_state).isZero():
+            # get the current position from the ADD
+            curr_state_cube_str = curr_state.bddInterval(1, 1).cubeString()
+            curr_state_cube_str_support: str = [a for a in curr_state_cube_str if a != '-']
+            rpos = self.xVar_map.inv[''.join(curr_state_cube_str_support[:len(self.xVars)])]
+            cpos = self.yVar_map.inv[''.join(curr_state_cube_str_support[len(self.xVars):])]
+            print(f"Current Position: ({rpos}, {cpos})")
+            
+            # get the act
+            opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
+            act_cube_string: str = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).cubeString()
+            #extract the relevanrt of the cube string and then look up the actual name
+            act_cube_string_support = [a for a in act_cube_string if a != '-']
+            ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
+
+            # next based on action, get the next state
+            next_state: tuple = self.get_next_state(rPos=rpos, cPos=cpos, eAct='no-int', rAct=ract_name)
+            
+            # update current state to be next state and repeat
+            curr_state: ADD = self.cube_to_add(self.xVar_map[next_state[0]], self.xVars) & self.cube_to_add(self.yVar_map[next_state[1]], self.yVars)
+
+    
     def solve(self):
         """
         Given a goal state, compute the optimal winning strategy that ensures reaching goal for all possible non-determinism.
@@ -259,7 +309,7 @@ class AddGridWorld:
                     init_val: int = list((self.init_latch & self.winning_states[layer]).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     return strategy
-                return
+                return None
 
             # if print_layers:
             print(f"**************************Layer: {layer}**************************")
@@ -306,13 +356,17 @@ class AddGridWorld:
             layer += 1
 
 if __name__ == "__main__":
-    game = AddGridWorld(rows=4, columns=4, init = (0, 0), goal=(3, 3))
+    game = AddGridWorld(rows=2, columns=2, init=(0, 1), goal=(1, 0))
     game.create_transition_relation()
 
     # for var, f in game.transition_relation.items():
     #     print(f"f_{var}: \n {f}")
     
-    game.solve()
+    strategy = game.solve()
+    if strategy:
+        game.roll_out(strategy=strategy)
+
+    # del game
 
 
 
