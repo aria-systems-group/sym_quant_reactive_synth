@@ -15,6 +15,7 @@ class Moves(Enum):
     SOUTH = (1, 0)
     WEST = (0, -1)
     EAST = (0, 1)
+    STAY = (0, 0)
 
 
 class AddGridWorld:
@@ -79,6 +80,8 @@ class AddGridWorld:
         # We not create the no-int action
         iVars_size = math.ceil(math.log2(len(self.env_actions))) - 1
         iVars: List[ADD] =  [self.manager.addVar(k + varsize , 'i' + str(k)) for k in range(iVars_size)]
+        # manually create a add var for no-int
+        iVars += [self.manager.addVar(self.manager.size(), 'i'+ str(iVars_size + 1))]
         return iVars
     
     def create_output_vars(self) -> List[ADD]:
@@ -167,8 +170,9 @@ class AddGridWorld:
         for eidx, eact in enumerate(self.env_actions):
             # skip the no-int action
             if eact != "no-int": 
-                ebit_str = f"{eidx:0{len(self.iVars)}b}"
-                self.eAction_map[eact] = ebit_str
+                ebit_str = f"{eidx:0{len(self.iVars) - 1}b}"
+                # the last bit is always 0 to represent no-int
+                self.eAction_map[eact] = ebit_str + '0'
 
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         assert len(cube) == len(vars_list), "Make sure the length of the cube is the same as the number of latches"
@@ -204,6 +208,8 @@ class AddGridWorld:
                 
                 # get valid robot acts for grid position (r, c)
                 valid_robot_actions = self.get_valid_robot_transitions(rPos=r, cPos=c)
+                # if r == 1 and c == 0:
+                #     valid_robot_actions = valid_robot_actions- {'NORTH'}
                 for rAct in valid_robot_actions:
                     # get valied env actions for every robot act and gridworld position (r,c)
                     valid_env_actions = self.get_valid_env_transitions(rPos=r, cPos=c, robot_act=rAct)
@@ -357,81 +363,6 @@ class AddGridWorld:
             layer += 1
 
 
-def test_things_bdd():
-    m = Cudd()
-    i0 = m.bddVar(0, 'i0')
-    o = [m.bddVar(1 + i , 'o' + str(i)) for i in range(2)]
-    x0 = m.bddVar(3, 'x0')
-    y0 = m.bddVar(4, 'y0')
-
-    # care region
-    # care_region: ADD = (x0 & y0) | (x0 & ~y0) | (~x0 & y0) | (~x0 & ~y0)
-    # dont_care_region: ADD = ~care_region
-    # print(dont_care_region)
-
-    # creat eempty TR List. 
-    tr = [m.bddZero(), m.bddZero()]
-    robot_north: ADD = o[0] & o[1]
-    robot_east: ADD = ~o[0] & o[1]
-    robot_west: ADD = ~o[0] & ~o[1]
-    robot_south: ADD = o[0] & ~o[1]
-    env_move: ADD = i0
-    # (1, 0) -> N & No Env move (0, 0)
-    # tr[0] |=  x0 & ~y0 & robot_north & ~env_move
-    # as succ state is zero I don't need to add this TR to the list
-    
-    # (1, 0) -> N & Env move (0, 1)
-    tr[1] |= x0 & ~y0 & robot_north & env_move
-
-    #(1, 0) -> E & !Env move (1, 1)
-    tr[0] |= x0 & ~y0 & robot_east & ~env_move
-    tr[0] |= x0 & ~y0 & robot_east & env_move
-
-    tr[1] |= x0 & ~y0 & robot_east & ~env_move
-    tr[1] |= x0 & ~y0 & robot_east & env_move
-
-    # now lets add (1, 1) to (0, 1) 
-    tr[1] |= x0 & y0 & robot_north & ~env_move
-    tr[1] |= x0 & y0 & robot_north & env_move
-
-    # now lets add (1, 1) to (1, 0) - no env move
-    tr[0] |= x0 & y0 & robot_west & ~env_move
-
-    # now lets add (1, 1) to (0, 0) - if env moves; dont need to add as successort states are 0
-    # tr[0] |= x0 & y0 & robot_west & env_move
-
-    # now lets add (0, 0) to (0, 1) - no env move
-    tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
-
-    # now lets add (0, 0) to (1, 1)  env move
-    tr[0] |= ~x0 & ~y0 & robot_east & env_move
-    tr[1] |= ~x0 & ~y0 & robot_east & env_move
-
-    # finally lets add (0, 0) to (1, 0) - no env move
-    tr[0] |= ~x0 & ~y0 & robot_south
-    # tr[0] |= ~x0 & ~y0 & robot_south & env_move
-
-
-    # tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
-    
-    # restrict youself to states you care about
-    # tr_bdd = [e.restrict(care_region.bddPattern()) for e in tr_bdd]
-
-    print('function ADD for x0: ', tr[0])
-    print('function ADD for x1: ', tr[1])
-
-    # compute pre image of (x, y)
-    From = (~x0 & ~y0)
-    pre = From.vectorCompose([x0, y0], tr)
-    upre = pre.existAbstract(i0 & o[0] & o[1])
-    cpre = pre.univAbstract(i0)
-
-    print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
-    print(f"Existential Pre image of {From.cubeString()[-2:]} : {upre}")
-    print(f"Universal Pre image of {From.cubeString()[-2:]} : {cpre.existAbstract(o[0] & o[1])}")
-
-
-
 def test_things_add():
     m = Cudd()
     i0 = m.addVar(0, 'i0')
@@ -486,6 +417,16 @@ def test_things_add():
     tr[0] |= ~x0 & ~y0 & robot_south
     # tr[0] |= ~x0 & ~y0 & robot_south & env_move
 
+    # lets add (0, 1) to (0, 0) - env and no env move
+    # as the succ values are zero, I don't need to add it.
+
+    # lets add (0, 1) to (1, 1) - no env move
+    tr[0] |= ~x0 & y0 & robot_south & ~env_move
+    tr[1] |= ~x0 & y0 & robot_south & ~env_move
+
+    # add (0, 1) to (1, 0) - env move
+    tr[0] |= ~x0 & y0 & robot_south & env_move
+
 
     tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
     
@@ -496,7 +437,10 @@ def test_things_add():
     print('function ADD for x1: ', tr[1])
 
     # compute pre image of (x, y)
-    From = (~x0 & ~y0).bddPattern()
+    # iter 1: (~x0 & y0)
+    # iter 2: (~x0 & y0) | (x0 & y0) ## equiv y0
+    # iter 3: (x0 | ~y0) |  (~x0 & y0) | (x0 & y0)
+    From = ( (x0 | ~y0) | (~x0 & y0) ).bddPattern()
     pre = From.vectorCompose([x0.bddPattern(), y0.bddPattern()], tr_bdd)
     upre = pre.existAbstract(i0.bddPattern() & (o[0] & o[1]).bddPattern())
     cpre = pre.univAbstract(i0.bddPattern())
@@ -504,6 +448,7 @@ def test_things_add():
     print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
     print(f"Existential Pre image of {From.cubeString()[-2:]} : {upre}")
     print(f"Universal Pre image of {From.cubeString()[-2:]} : {cpre.existAbstract((o[0] & o[1]).bddPattern())}")
+    print(f"Strategy : {cpre}")
 
 
 
@@ -521,9 +466,7 @@ if __name__ == "__main__":
     #     game.roll_out(strategy=strategy)
 
     # del game
-    # test_things_add()
-
-    test_things_bdd()
+    test_things_add()
 
 
 
