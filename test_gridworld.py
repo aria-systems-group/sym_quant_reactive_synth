@@ -215,6 +215,7 @@ class AddGridWorld:
                         next_rPos, next_cPos = self.get_next_state(rPos=r, cPos=c, eAct=eAct, rAct=rAct)
                         eAct_cube_string: str = self.eAction_map.get(eAct, None)
                         eAct_cube: ADD = no_human_int
+                        # when the env does intervene
                         if isinstance(eAct_cube_string, str):
                             eAct_cube = self.cube_to_add(eAct_cube_string, self.iVars)
                         
@@ -355,18 +356,174 @@ class AddGridWorld:
             # update the counter
             layer += 1
 
-if __name__ == "__main__":
-    game = AddGridWorld(rows=2, columns=2, init=(0, 1), goal=(1, 0))
-    game.create_transition_relation()
 
-    # for var, f in game.transition_relation.items():
-    #     print(f"f_{var}: \n {f}")
+def test_things_bdd():
+    m = Cudd()
+    i0 = m.bddVar(0, 'i0')
+    o = [m.bddVar(1 + i , 'o' + str(i)) for i in range(2)]
+    x0 = m.bddVar(3, 'x0')
+    y0 = m.bddVar(4, 'y0')
+
+    # care region
+    # care_region: ADD = (x0 & y0) | (x0 & ~y0) | (~x0 & y0) | (~x0 & ~y0)
+    # dont_care_region: ADD = ~care_region
+    # print(dont_care_region)
+
+    # creat eempty TR List. 
+    tr = [m.bddZero(), m.bddZero()]
+    robot_north: ADD = o[0] & o[1]
+    robot_east: ADD = ~o[0] & o[1]
+    robot_west: ADD = ~o[0] & ~o[1]
+    robot_south: ADD = o[0] & ~o[1]
+    env_move: ADD = i0
+    # (1, 0) -> N & No Env move (0, 0)
+    # tr[0] |=  x0 & ~y0 & robot_north & ~env_move
+    # as succ state is zero I don't need to add this TR to the list
     
-    strategy = game.solve()
-    if strategy:
-        game.roll_out(strategy=strategy)
+    # (1, 0) -> N & Env move (0, 1)
+    tr[1] |= x0 & ~y0 & robot_north & env_move
+
+    #(1, 0) -> E & !Env move (1, 1)
+    tr[0] |= x0 & ~y0 & robot_east & ~env_move
+    tr[0] |= x0 & ~y0 & robot_east & env_move
+
+    tr[1] |= x0 & ~y0 & robot_east & ~env_move
+    tr[1] |= x0 & ~y0 & robot_east & env_move
+
+    # now lets add (1, 1) to (0, 1) 
+    tr[1] |= x0 & y0 & robot_north & ~env_move
+    tr[1] |= x0 & y0 & robot_north & env_move
+
+    # now lets add (1, 1) to (1, 0) - no env move
+    tr[0] |= x0 & y0 & robot_west & ~env_move
+
+    # now lets add (1, 1) to (0, 0) - if env moves; dont need to add as successort states are 0
+    # tr[0] |= x0 & y0 & robot_west & env_move
+
+    # now lets add (0, 0) to (0, 1) - no env move
+    tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
+
+    # now lets add (0, 0) to (1, 1)  env move
+    tr[0] |= ~x0 & ~y0 & robot_east & env_move
+    tr[1] |= ~x0 & ~y0 & robot_east & env_move
+
+    # finally lets add (0, 0) to (1, 0) - no env move
+    tr[0] |= ~x0 & ~y0 & robot_south
+    # tr[0] |= ~x0 & ~y0 & robot_south & env_move
+
+
+    # tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
+    
+    # restrict youself to states you care about
+    # tr_bdd = [e.restrict(care_region.bddPattern()) for e in tr_bdd]
+
+    print('function ADD for x0: ', tr[0])
+    print('function ADD for x1: ', tr[1])
+
+    # compute pre image of (x, y)
+    From = (~x0 & ~y0)
+    pre = From.vectorCompose([x0, y0], tr)
+    upre = pre.existAbstract(i0 & o[0] & o[1])
+    cpre = pre.univAbstract(i0)
+
+    print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
+    print(f"Existential Pre image of {From.cubeString()[-2:]} : {upre}")
+    print(f"Universal Pre image of {From.cubeString()[-2:]} : {cpre.existAbstract(o[0] & o[1])}")
+
+
+
+def test_things_add():
+    m = Cudd()
+    i0 = m.addVar(0, 'i0')
+    o = [m.addVar(1 + i , 'o' + str(i)) for i in range(2)]
+    x0 = m.addVar(3, 'x0')
+    y0 = m.addVar(4, 'y0')
+
+    # care region
+    # care_region: ADD = (x0 & y0) | (x0 & ~y0) | (~x0 & y0) | (~x0 & ~y0)
+    # dont_care_region: ADD = ~care_region
+    # print(dont_care_region)
+
+    # creat eempty TR List. 
+    tr = [m.addZero(), m.addZero()]
+    robot_north: ADD = o[0] & o[1]
+    robot_east: ADD = ~o[0] & o[1]
+    robot_west: ADD = ~o[0] & ~o[1]
+    robot_south: ADD = o[0] & ~o[1]
+    env_move: ADD = i0
+    # (1, 0) -> N & No Env move (0, 0)
+    # tr[0] |=  x0 & ~y0 & robot_north & ~env_move
+    # as succ state is zero I don't need to add this TR to the list
+    
+    # (1, 0) -> N & Env move (0, 1)
+    tr[1] |= x0 & ~y0 & robot_north & env_move
+
+    #(1, 0) -> E & !Env move (1, 1)
+    tr[0] |= x0 & ~y0 & robot_east & ~env_move
+    tr[0] |= x0 & ~y0 & robot_east & env_move
+
+    tr[1] |= x0 & ~y0 & robot_east & ~env_move
+    tr[1] |= x0 & ~y0 & robot_east & env_move
+
+    # now lets add (1, 1) to (0, 1) 
+    tr[1] |= x0 & y0 & robot_north & ~env_move
+    tr[1] |= x0 & y0 & robot_north & env_move
+
+    # now lets add (1, 1) to (1, 0) - no env move
+    tr[0] |= x0 & y0 & robot_west & ~env_move
+
+    # now lets add (1, 1) to (0, 0) - if env moves; dont need to add as successort states are 0
+    # tr[0] |= x0 & y0 & robot_west & env_move
+
+    # now lets add (0, 0) to (0, 1) - no env move
+    tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
+
+    # now lets add (0, 0) to (1, 1)  env move
+    tr[0] |= ~x0 & ~y0 & robot_east & env_move
+    tr[1] |= ~x0 & ~y0 & robot_east & env_move
+
+    # finally lets add (0, 0) to (1, 0) - no env move
+    tr[0] |= ~x0 & ~y0 & robot_south
+    # tr[0] |= ~x0 & ~y0 & robot_south & env_move
+
+
+    tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
+    
+    # restrict youself to states you care about
+    # tr_bdd = [e.restrict(care_region.bddPattern()) for e in tr_bdd]
+
+    print('function ADD for x0: ', tr[0])
+    print('function ADD for x1: ', tr[1])
+
+    # compute pre image of (x, y)
+    From = (~x0 & ~y0).bddPattern()
+    pre = From.vectorCompose([x0.bddPattern(), y0.bddPattern()], tr_bdd)
+    upre = pre.existAbstract(i0.bddPattern() & (o[0] & o[1]).bddPattern())
+    cpre = pre.univAbstract(i0.bddPattern())
+
+    print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
+    print(f"Existential Pre image of {From.cubeString()[-2:]} : {upre}")
+    print(f"Universal Pre image of {From.cubeString()[-2:]} : {cpre.existAbstract((o[0] & o[1]).bddPattern())}")
+
+
+
+
+
+if __name__ == "__main__":
+    # game = AddGridWorld(rows=2, columns=2, init=(0, 1), goal=(1, 0))
+    # game.create_transition_relation()
+
+    # # for var, f in game.transition_relation.items():
+    # #     print(f"f_{var}: \n {f}")
+    
+    # strategy = game.solve()
+    # if strategy:
+    #     game.roll_out(strategy=strategy)
 
     # del game
+    # test_things_add()
+
+    test_things_bdd()
 
 
 
