@@ -4,7 +4,7 @@ import warnings
 
 from enum import Enum
 from functools import reduce
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
 
 from bidict import bidict
@@ -278,9 +278,17 @@ class AddGridWorld:
             # get the act
             opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
             act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[2:4]
-            # extract the relevanrt of the cube string and then look up the actual name
+            
+            # extract the relevant cube string and then look up the actual name
             act_cube_string_support = [str(a) for a in act_cube_string if a != '-']
             ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
+
+            # ask human for Env move input
+            # valid_env_moves = self.get_valid_env_transitions(rPos=rpos, cPos=cpos, robot_act=ract_name)
+            # valid_env_moves.append('no-int')
+            # for idx, hm in enumerate(valid_env_moves):
+            #     print(f"Env Move: {idx} : {hm}")
+            # hmove = int(input("Enter move: "))
 
             # next based on action, get the next state
             next_state: tuple = self.get_next_state(rPos=rpos, cPos=cpos, eAct='no-int', rAct=ract_name)
@@ -289,7 +297,7 @@ class AddGridWorld:
             curr_state: ADD = self.cube_to_add(self.xVar_map[next_state[0]], self.xVars) & self.cube_to_add(self.yVar_map[next_state[1]], self.yVars)
 
     
-    def solve(self):
+    def solve(self) -> Optional[ADD]:
         """
         Given a goal state, compute the optimal winning strategy that ensures reaching goal for all possible non-determinism.
 
@@ -543,17 +551,17 @@ def test_things_add():
 
 
 if __name__ == "__main__":
-    test_things_add()
+    # test_things_add()
     
-    # game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
-    # game.create_transition_relation()
+    game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
+    game.create_transition_relation()
 
     # for var, f in game.transition_relation.items():
     #     print(f"f_{var}: \n {f}")
     
-    # strategy = game.solve()
-    # if strategy:
-    #     game.roll_out(strategy=strategy)
+    strategy = game.solve()
+    if strategy:
+        game.roll_out(strategy=strategy)
     
 
 
