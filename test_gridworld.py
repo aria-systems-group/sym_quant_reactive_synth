@@ -95,6 +95,10 @@ class AddGridWorld:
          Given a gridworld of size n x m create log(n) x vars and log(m) y vars that represent the x and y position respectively. 
         """
         x_size, y_size = math.ceil(math.log2(self.rows)), math.ceil(math.log2(self.columns))
+        # the x_size and y_size match then, we need to an extra boolean vairables to offset the all 0-vector latch
+        if pow(2, x_size) == self.rows and pow(2, y_size) == self.columns:
+            # we need creat an additional boolean variable. I will create one addiiotnal variable for x
+            x_size += 1
         varsize = self.manager.size()
         xVars: List[ADD] = [self.manager.addVar(k + varsize, 'x' + str(k)) for k in range(x_size)]
         varsize = self.manager.size()
@@ -154,7 +158,8 @@ class AddGridWorld:
     
     def create_xVar_map(self) -> None:
         for r in range(self.rows):
-            bit_str = f"{r:0{len(self.xVars)}b}"
+            # offset is to avoid the 0-vector
+            bit_str = f"{r + 1:0{len(self.xVars)}b}"
             self.xVar_map[r] = bit_str
     
 
@@ -553,7 +558,7 @@ def test_things_add():
 if __name__ == "__main__":
     # test_things_add()
     
-    game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
+    game = AddGridWorld(rows=2, columns=2, init=(0, 0), goal=(1, 1))
     game.create_transition_relation()
 
     # for var, f in game.transition_relation.items():
