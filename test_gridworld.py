@@ -24,7 +24,7 @@ class AddGridWorld:
         self.rows = rows
         self.columns = columns
         # self.robot_actions: set = frozenset(['EAST', 'WEST', 'NORTH', 'SOUTH', 'STAY'])
-        self.robot_actions: set = frozenset(['EAST', 'WEST', 'NORTH', 'SOUTH'])
+        self.robot_actions: List[str] = ['WEST', 'EAST', 'SOUTH', 'NORTH']  # making this a List to keep the order consistent across runs
         self.env_actions: List[str] = ['north-east', 'north-west', 'south-east', 'south-west', 'no-int']
         self.manager: Cudd = Cudd()
         self.iVars: List[ADD] = self.create_input_vars()
@@ -81,7 +81,7 @@ class AddGridWorld:
         iVars_size = math.ceil(math.log2(len(self.env_actions))) - 1
         iVars: List[ADD] =  [self.manager.addVar(k + varsize , 'i' + str(k)) for k in range(iVars_size)]
         # manually create a add var for no-int
-        iVars += [self.manager.addVar(self.manager.size(), 'i'+ str(iVars_size + 1))]
+        # iVars += [self.manager.addVar(self.manager.size(), 'i'+ str(iVars_size + 1))]
         return iVars
     
     def create_output_vars(self) -> List[ADD]:
@@ -126,7 +126,8 @@ class AddGridWorld:
          Returns a list valid env actions you can take given row and column position
         """
         # env can always choose to not intervene
-        valid_actions = set({'no-int'})
+        # valid_actions = set({'no-int'})
+        valid_actions = set({})
         if robot_act == 'NORTH' and cPos + 1 < self.columns:
             valid_actions.add('north-east')
         if robot_act == 'SOUTH'and cPos - 1 >= 0:
@@ -136,7 +137,7 @@ class AddGridWorld:
         if robot_act == 'WEST' and rPos - 1 >= 0:
             valid_actions.add('north-west')
         
-        return valid_actions
+        return list(valid_actions)
 
     def get_next_state(self, rPos: int, cPos: int, eAct: str, rAct: str) -> Tuple[int, int]:
         assert eAct in self.env_actions, "Make sure the action is valid"
@@ -170,9 +171,11 @@ class AddGridWorld:
         for eidx, eact in enumerate(self.env_actions):
             # skip the no-int action
             if eact != "no-int": 
-                ebit_str = f"{eidx:0{len(self.iVars) - 1}b}"
+                # ebit_str = f"{eidx:0{len(self.iVars) - 1}b}"
                 # the last bit is always 0 to represent no-int
-                self.eAction_map[eact] = ebit_str + '0'
+                # self.eAction_map[eact] = ebit_str + '0'
+                ebit_str = f"{eidx:0{len(self.iVars)}b}"
+                self.eAction_map[eact] = ebit_str
 
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         assert len(cube) == len(vars_list), "Make sure the length of the cube is the same as the number of latches"
@@ -208,31 +211,43 @@ class AddGridWorld:
                 
                 # get valid robot acts for grid position (r, c)
                 valid_robot_actions = self.get_valid_robot_transitions(rPos=r, cPos=c)
-                # if r == 1 and c == 0:
-                #     valid_robot_actions = valid_robot_actions- {'NORTH'}
+
                 for rAct in valid_robot_actions:
                     # get valied env actions for every robot act and gridworld position (r,c)
-                    valid_env_actions = self.get_valid_env_transitions(rPos=r, cPos=c, robot_act=rAct)
+                    valid_env_actions: List[str] = self.get_valid_env_transitions(rPos=r, cPos=c, robot_act=rAct)
                     rAct_cube: str = self.rAction_map[rAct]
-                    no_human_int: ADD = self.get_no_int_cube(valid_env_actions=valid_env_actions)
-                    
-                    for eAct in valid_env_actions:
+                    # no_human_int: ADD = self.get_no_int_cube(valid_env_actions=valid_env_actions)
+                    new_tmp_list = valid_env_actions + ['no-int']
+                    for eAct in new_tmp_list:
+                        assert len(valid_env_actions) <= 1 , "Make sure the valid env actions are either no-int or one intervention"
+                        if eAct == 'no-int':
+                            # eAct_cube: ADD = self.get_no_int_cube(valid_env_actions=[eAct])
+                            if len(valid_env_actions) == 1:
+                                eAct_cube_string: str = self.eAction_map.get(valid_env_actions[0], None)
+                                eAct_cube: ADD = ~self.cube_to_add(eAct_cube_string, self.iVars)
+                            else:
+                                eAct_cube = self.manager.addOne()
+                            # if len(valid_env_actions) == 1 else self.manager.addOne()
+                        else:
+                            eAct_cube_string: str = self.eAction_map.get(eAct, None)
+                            eAct_cube: ADD = self.cube_to_add(eAct_cube_string, self.iVars)
+                        
                         # create the transition relation
                         next_rPos, next_cPos = self.get_next_state(rPos=r, cPos=c, eAct=eAct, rAct=rAct)
-                        eAct_cube_string: str = self.eAction_map.get(eAct, None)
-                        eAct_cube: ADD = no_human_int
+                        
+                        # eAct_cube: ADD = no_human_int
                         # when the env does intervene
-                        if isinstance(eAct_cube_string, str):
-                            eAct_cube = self.cube_to_add(eAct_cube_string, self.iVars)
+                        # if isinstance(eAct_cube_string, str):
+                        #     eAct_cube = self.cube_to_add(eAct_cube_string, self.iVars)
                         
                         # if next state var is positive 
                         for idx, prime_rVar in enumerate(self.xVar_map[next_rPos]):
                             if prime_rVar == '1':
-                                self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & cVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
                         
                         for idx, prime_cVar in enumerate(self.yVar_map[next_cPos]):
                             if prime_cVar == '1':
-                                self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & rVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
     
 
     def get_buckets_of_BDD(self, max_interval_val: int, layer: int) -> Dict[int, BDD]:
@@ -269,9 +284,10 @@ class AddGridWorld:
             
             # get the act
             opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
-            act_cube_string: str = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).cubeString()
+            act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[2:4]
             #extract the relevanrt of the cube string and then look up the actual name
-            act_cube_string_support = [a for a in act_cube_string if a != '-']
+            # act_cube_string: List[]
+            act_cube_string_support = [str(a) for a in act_cube_string if a != '-']
             ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
 
             # next based on action, get the next state
@@ -315,7 +331,7 @@ class AddGridWorld:
                 if self.init_latch & self.winning_states[layer] != self.manager.plusInfinity():
                     init_val: int = list((self.init_latch & self.winning_states[layer]).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-                    return strategy
+                    return strategy if init_val < math.inf else None
                 return None
 
             # if print_layers:
@@ -364,11 +380,37 @@ class AddGridWorld:
 
 
 def test_things_add():
+    """
+    function ADD for x0:  000011 1
+    000110 1
+    00100- 1
+    010011 1
+    0101-0 1
+    01100- 1
+    100110 1
+    10100- 1
+    110011 1
+    110110 1
+    11100- 1
+
+    function ADD for y0:  0001-0 1
+    001001 1
+    00111- 1
+    0101-0 1
+    011001 1
+    011111 1
+    1001-0 1
+    101001 1
+    101111 1
+    1101-0 1
+    111111 1
+    """
     m = Cudd()
-    i0 = m.addVar(0, 'i0')
-    o = [m.addVar(1 + i , 'o' + str(i)) for i in range(2)]
-    x0 = m.addVar(3, 'x0')
-    y0 = m.addVar(4, 'y0')
+    # i0 = m.addVar(0, 'i0')
+    i = [m.addVar(0 + n, 'i' + str(n)) for  n in range(2)]
+    o = [m.addVar(2 + k , 'o' + str(k)) for k in range(2)]
+    x0 = m.addVar(4, 'x0')
+    y0 = m.addVar(5, 'y0')
 
     # care region
     # care_region: ADD = (x0 & y0) | (x0 & ~y0) | (~x0 & y0) | (~x0 & ~y0)
@@ -381,37 +423,62 @@ def test_things_add():
     robot_east: ADD = ~o[0] & o[1]
     robot_west: ADD = ~o[0] & ~o[1]
     robot_south: ADD = o[0] & ~o[1]
-    env_move: ADD = i0
+    # env_move: ADD = i0
+    
+    # now lets make it a little more complicated by adding explicit boolean function for various env moves
+    env_ne: ADD = ~i[0] & ~i[1]
+    env_nw: ADD = ~i[0] & i[1]
+    env_se: ADD = i[0] & ~i[1]
+    env_sw: ADD = i[0] & i[1]
+
+    
     # (1, 0) -> N & No Env move (0, 0)
     # tr[0] |=  x0 & ~y0 & robot_north & ~env_move
     # as succ state is zero I don't need to add this TR to the list
     
     # (1, 0) -> N & Env move (0, 1)
-    tr[1] |= x0 & ~y0 & robot_north & env_move
+    # tr[1] |= x0 & ~y0 & robot_north & env_move
+    tr[1] |= x0 & ~y0 & robot_north & env_ne
 
     #(1, 0) -> E & !Env move (1, 1)
-    tr[0] |= x0 & ~y0 & robot_east & ~env_move
-    tr[0] |= x0 & ~y0 & robot_east & env_move
+    # tr[0] |= x0 & ~y0 & robot_east & ~env_move
+    # tr[0] |= x0 & ~y0 & robot_east & env_move
+    # tr[0] |= x0 & ~y0 & robot_east & ~env_se
+    # tr[0] |= x0 & ~y0 & robot_east & env_se
+    tr[0] |= x0 & ~y0 & robot_east
 
-    tr[1] |= x0 & ~y0 & robot_east & ~env_move
-    tr[1] |= x0 & ~y0 & robot_east & env_move
+    # copy of the above for the y var
+    # tr[1] |= x0 & ~y0 & robot_east & ~env_move
+    # tr[1] |= x0 & ~y0 & robot_east & env_move
+    
+    # tr[1] |= x0 & ~y0 & robot_east & ~env_se
+    # tr[1] |= x0 & ~y0 & robot_east & env_se
+    tr[1] |= x0 & ~y0 & robot_east
 
     # now lets add (1, 1) to (0, 1) 
-    tr[1] |= x0 & y0 & robot_north & ~env_move
-    tr[1] |= x0 & y0 & robot_north & env_move
+    # tr[1] |= x0 & y0 & robot_north & ~env_move
+    # tr[1] |= x0 & y0 & robot_north & env_move
+
+    tr[1] |= x0 & y0 & robot_north & ~env_nw
+    tr[1] |= x0 & y0 & robot_north & env_nw
 
     # now lets add (1, 1) to (1, 0) - no env move
-    tr[0] |= x0 & y0 & robot_west & ~env_move
+    # tr[0] |= x0 & y0 & robot_west & ~env_move
+
+    tr[0] |= x0 & y0 & robot_west & ~env_nw
 
     # now lets add (1, 1) to (0, 0) - if env moves; dont need to add as successort states are 0
     # tr[0] |= x0 & y0 & robot_west & env_move
 
     # now lets add (0, 0) to (0, 1) - no env move
-    tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
+    # tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
+    tr[1] |= ~x0 & ~y0 & robot_east & ~env_se
 
     # now lets add (0, 0) to (1, 1)  env move
-    tr[0] |= ~x0 & ~y0 & robot_east & env_move
-    tr[1] |= ~x0 & ~y0 & robot_east & env_move
+    # tr[0] |= ~x0 & ~y0 & robot_east & env_move
+    # tr[1] |= ~x0 & ~y0 & robot_east & env_move
+    tr[0] |= ~x0 & ~y0 & robot_east & env_se
+    tr[1] |= ~x0 & ~y0 & robot_east & env_se
 
     # finally lets add (0, 0) to (1, 0) - no env move
     tr[0] |= ~x0 & ~y0 & robot_south
@@ -421,11 +488,15 @@ def test_things_add():
     # as the succ values are zero, I don't need to add it.
 
     # lets add (0, 1) to (1, 1) - no env move
-    tr[0] |= ~x0 & y0 & robot_south & ~env_move
-    tr[1] |= ~x0 & y0 & robot_south & ~env_move
+    # tr[0] |= ~x0 & y0 & robot_south & ~env_move
+    # tr[1] |= ~x0 & y0 & robot_south & ~env_move
+
+    tr[0] |= ~x0 & y0 & robot_south & ~env_sw
+    tr[1] |= ~x0 & y0 & robot_south & ~env_sw
 
     # add (0, 1) to (1, 0) - env move
-    tr[0] |= ~x0 & y0 & robot_south & env_move
+    # tr[0] |= ~x0 & y0 & robot_south & env_move
+    tr[0] |= ~x0 & y0 & robot_south & env_sw
 
 
     tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
@@ -434,40 +505,47 @@ def test_things_add():
     # tr_bdd = [e.restrict(care_region.bddPattern()) for e in tr_bdd]
 
     print('function ADD for x0: ', tr[0])
-    print('function ADD for x1: ', tr[1])
+    print('function ADD for y0: ', tr[1])
 
     # compute pre image of (x, y)
     # iter 1: (~x0 & y0)
     # iter 2: (~x0 & y0) | (x0 & y0) ## equiv y0
     # iter 3: (x0 | ~y0) |  (~x0 & y0) | (x0 & y0)
-    From = ( (x0 | ~y0) | (~x0 & y0) ).bddPattern()
+    # From = ( (x0 | ~y0) | (~x0 & y0) ).bddPattern()
+    # From = (~x0 & y0).bddPattern()
+    # From = (x0 | ~y0).bddPattern()
+    From = (y0).bddPattern()
     pre = From.vectorCompose([x0.bddPattern(), y0.bddPattern()], tr_bdd)
-    upre = pre.existAbstract(i0.bddPattern() & (o[0] & o[1]).bddPattern())
-    cpre = pre.univAbstract(i0.bddPattern())
+    upre = pre.existAbstract((i[0]& i[1]).bddPattern() & (o[0] & o[1]).bddPattern())
+    cpre = pre.univAbstract((i[0]& i[1]).bddPattern())
 
-    print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
-    print(f"Existential Pre image of {From.cubeString()[-2:]} : {upre}")
-    print(f"Universal Pre image of {From.cubeString()[-2:]} : {cpre.existAbstract((o[0] & o[1]).bddPattern())}")
+    # print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
+    try: 
+        string_form = From.cubeString()[-2:]
+    except:
+        string_form = From
+    print(f"Pre image of {string_form} : {pre}")
+    print(f"Existential Pre image of {string_form} : {upre}")
+    print(f"Universal Pre image of {string_form} : {cpre.existAbstract((o[0] & o[1]).bddPattern())}")
     print(f"Strategy : {cpre}")
 
 
 
-
-
 if __name__ == "__main__":
-    # game = AddGridWorld(rows=2, columns=2, init=(0, 1), goal=(1, 0))
-    # game.create_transition_relation()
-
-    # # for var, f in game.transition_relation.items():
-    # #     print(f"f_{var}: \n {f}")
+    # test_things_add()
     
-    # strategy = game.solve()
-    # if strategy:
-    #     game.roll_out(strategy=strategy)
+    game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
+    game.create_transition_relation()
+
+    # for var, f in game.transition_relation.items():
+    #     print(f"f_{var}: \n {f}")
+    
+    strategy = game.solve()
+    if strategy:
+        game.roll_out(strategy=strategy)
 
     # del game
-    test_things_add()
-
+    
 
 
 
