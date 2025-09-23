@@ -227,18 +227,12 @@ class AddGridWorld:
                                 eAct_cube: ADD = ~self.cube_to_add(eAct_cube_string, self.iVars)
                             else:
                                 eAct_cube = self.manager.addOne()
-                            # if len(valid_env_actions) == 1 else self.manager.addOne()
                         else:
                             eAct_cube_string: str = self.eAction_map.get(eAct, None)
                             eAct_cube: ADD = self.cube_to_add(eAct_cube_string, self.iVars)
                         
                         # create the transition relation
                         next_rPos, next_cPos = self.get_next_state(rPos=r, cPos=c, eAct=eAct, rAct=rAct)
-                        
-                        # eAct_cube: ADD = no_human_int
-                        # when the env does intervene
-                        # if isinstance(eAct_cube_string, str):
-                        #     eAct_cube = self.cube_to_add(eAct_cube_string, self.iVars)
                         
                         # if next state var is positive 
                         for idx, prime_rVar in enumerate(self.xVar_map[next_rPos]):
@@ -270,7 +264,6 @@ class AddGridWorld:
         """
          Give a strategy ADD, roll it out from the initial state until you reach the goal state.
         """
-        # act = self.init_latch & strategy
         curr_state: ADD = self.init_latch
         max_steps: int = max(self.winning_states.keys())
         
@@ -285,8 +278,7 @@ class AddGridWorld:
             # get the act
             opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
             act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[2:4]
-            #extract the relevanrt of the cube string and then look up the actual name
-            # act_cube_string: List[]
+            # extract the relevanrt of the cube string and then look up the actual name
             act_cube_string_support = [str(a) for a in act_cube_string if a != '-']
             ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
 
@@ -380,37 +372,14 @@ class AddGridWorld:
 
 
 def test_things_add():
-    """
-    function ADD for x0:  000011 1
-    000110 1
-    00100- 1
-    010011 1
-    0101-0 1
-    01100- 1
-    100110 1
-    10100- 1
-    110011 1
-    110110 1
-    11100- 1
-
-    function ADD for y0:  0001-0 1
-    001001 1
-    00111- 1
-    0101-0 1
-    011001 1
-    011111 1
-    1001-0 1
-    101001 1
-    101111 1
-    1101-0 1
-    111111 1
-    """
     m = Cudd()
     # i0 = m.addVar(0, 'i0')
     i = [m.addVar(0 + n, 'i' + str(n)) for  n in range(2)]
     o = [m.addVar(2 + k , 'o' + str(k)) for k in range(2)]
+    # x0 = m.addVar(4, 'x0')
     x0 = m.addVar(4, 'x0')
-    y0 = m.addVar(5, 'y0')
+    x1 = m.addVar(5, 'x1')
+    y0 = m.addVar(6, 'y0')
 
     # care region
     # care_region: ADD = (x0 & y0) | (x0 & ~y0) | (~x0 & y0) | (~x0 & ~y0)
@@ -418,7 +387,7 @@ def test_things_add():
     # print(dont_care_region)
 
     # creat eempty TR List. 
-    tr = [m.addZero(), m.addZero()]
+    tr = [m.addZero(), m.addZero(), m.addZero()]
     robot_north: ADD = o[0] & o[1]
     robot_east: ADD = ~o[0] & o[1]
     robot_west: ADD = ~o[0] & ~o[1]
@@ -431,21 +400,30 @@ def test_things_add():
     env_se: ADD = i[0] & ~i[1]
     env_sw: ADD = i[0] & i[1]
 
-    
+    # row 0 = ~x0 & x1
+    # row 1 = x0 & ~x1 
+
     # (1, 0) -> N & No Env move (0, 0)
-    # tr[0] |=  x0 & ~y0 & robot_north & ~env_move
-    # as succ state is zero I don't need to add this TR to the list
+    tr[1] |=  x0 & ~x1 & ~y0 & robot_north & ~env_ne
+    
     
     # (1, 0) -> N & Env move (0, 1)
     # tr[1] |= x0 & ~y0 & robot_north & env_move
-    tr[1] |= x0 & ~y0 & robot_north & env_ne
+    # tr[1] |= x0 & ~y0 & robot_north & env_ne
+    
+    ###########################################
+    tr[1] |= x0 & ~x1 & ~y0 & robot_north & env_ne
+    tr[2] |= x0 & ~x1 & ~y0 & robot_north & env_ne
 
     #(1, 0) -> E & !Env move (1, 1)
     # tr[0] |= x0 & ~y0 & robot_east & ~env_move
     # tr[0] |= x0 & ~y0 & robot_east & env_move
     # tr[0] |= x0 & ~y0 & robot_east & ~env_se
     # tr[0] |= x0 & ~y0 & robot_east & env_se
-    tr[0] |= x0 & ~y0 & robot_east
+    # tr[0] |= x0 & ~y0 & robot_east
+
+    ###########################################
+    tr[0] |= x0 & ~x1 & ~y0 & robot_east
 
     # copy of the above for the y var
     # tr[1] |= x0 & ~y0 & robot_east & ~env_move
@@ -453,50 +431,82 @@ def test_things_add():
     
     # tr[1] |= x0 & ~y0 & robot_east & ~env_se
     # tr[1] |= x0 & ~y0 & robot_east & env_se
-    tr[1] |= x0 & ~y0 & robot_east
+    # tr[1] |= x0 & ~y0 & robot_east
+
+    ###########################################
+    tr[2] |= x0 & ~x1 & ~y0 & robot_east
 
     # now lets add (1, 1) to (0, 1) 
     # tr[1] |= x0 & y0 & robot_north & ~env_move
     # tr[1] |= x0 & y0 & robot_north & env_move
 
-    tr[1] |= x0 & y0 & robot_north & ~env_nw
-    tr[1] |= x0 & y0 & robot_north & env_nw
+    # tr[1] |= x0 & y0 & robot_north & ~env_nw
+    # tr[1] |= x0 & y0 & robot_north & env_nw
+
+    ###########################################
+    tr[1] |= x0 & ~x1 & y0 & robot_north & ~env_nw
+    tr[1] |= x0 & ~x1 & y0 & robot_north & env_nw
+    tr[2] |= x0 & ~x1 & y0 & robot_north & ~env_nw
+    tr[2] |= x0 & ~x1 & y0 & robot_north & env_nw
 
     # now lets add (1, 1) to (1, 0) - no env move
     # tr[0] |= x0 & y0 & robot_west & ~env_move
 
-    tr[0] |= x0 & y0 & robot_west & ~env_nw
+    # tr[0] |= x0 & y0 & robot_west & ~env_nw
+
+    ###########################################
+    tr[0] |= x0 & ~x1 & y0 & robot_west & ~env_nw
 
     # now lets add (1, 1) to (0, 0) - if env moves; dont need to add as successort states are 0
     # tr[0] |= x0 & y0 & robot_west & env_move
+    tr[1] |= x0 & ~x1 & y0 & robot_west & env_nw
 
     # now lets add (0, 0) to (0, 1) - no env move
     # tr[1] |= ~x0 & ~y0 & robot_east & ~env_move
-    tr[1] |= ~x0 & ~y0 & robot_east & ~env_se
+    # tr[1] |= ~x0 & ~y0 & robot_east & ~env_se
+
+    ###########################################
+    tr[1] |= ~x0 & x1 & ~y0 & robot_east & ~env_se
+    tr[2] |= ~x0 & x1 & ~y0 & robot_east & ~env_se
 
     # now lets add (0, 0) to (1, 1)  env move
     # tr[0] |= ~x0 & ~y0 & robot_east & env_move
     # tr[1] |= ~x0 & ~y0 & robot_east & env_move
-    tr[0] |= ~x0 & ~y0 & robot_east & env_se
-    tr[1] |= ~x0 & ~y0 & robot_east & env_se
+    # tr[0] |= ~x0 & ~y0 & robot_east & env_se
+    # tr[1] |= ~x0 & ~y0 & robot_east & env_se
+
+    ###########################################
+    tr[0] |= ~x0 & x1 & ~y0 & robot_east & env_se
+    tr[2] |= ~x0 & x1 & ~y0 & robot_east & env_se
 
     # finally lets add (0, 0) to (1, 0) - no env move
-    tr[0] |= ~x0 & ~y0 & robot_south
+    # tr[0] |= ~x0 & ~y0 & robot_south
     # tr[0] |= ~x0 & ~y0 & robot_south & env_move
+
+    ###########################################
+    tr[0] |= ~x0 & x1 & ~y0 & robot_south
 
     # lets add (0, 1) to (0, 0) - env and no env move
     # as the succ values are zero, I don't need to add it.
+    tr[1] |= ~x0 & x1 & y0 & robot_west
 
     # lets add (0, 1) to (1, 1) - no env move
     # tr[0] |= ~x0 & y0 & robot_south & ~env_move
     # tr[1] |= ~x0 & y0 & robot_south & ~env_move
 
-    tr[0] |= ~x0 & y0 & robot_south & ~env_sw
-    tr[1] |= ~x0 & y0 & robot_south & ~env_sw
+    # tr[0] |= ~x0 & y0 & robot_south & ~env_sw
+    # tr[1] |= ~x0 & y0 & robot_south & ~env_sw
+
+    ###########################################
+    tr[0] |= ~x0 & x1 & y0 & robot_south & ~env_sw
+    tr[2] |= ~x0 & x1 & y0 & robot_south & ~env_sw
 
     # add (0, 1) to (1, 0) - env move
     # tr[0] |= ~x0 & y0 & robot_south & env_move
-    tr[0] |= ~x0 & y0 & robot_south & env_sw
+    # tr[0] |= ~x0 & y0 & robot_south & env_sw
+
+    ###########################################
+    tr[0] |= ~x0 & x1 & y0 & robot_south & env_sw
 
 
     tr_bdd: List[BDD] = [e.bddPattern() for e in tr]
@@ -505,23 +515,24 @@ def test_things_add():
     # tr_bdd = [e.restrict(care_region.bddPattern()) for e in tr_bdd]
 
     print('function ADD for x0: ', tr[0])
-    print('function ADD for y0: ', tr[1])
+    print('function ADD for x1: ', tr[1])
+    print('function ADD for y0: ', tr[2])
 
     # compute pre image of (x, y)
     # iter 1: (~x0 & y0)
     # iter 2: (~x0 & y0) | (x0 & y0) ## equiv y0
     # iter 3: (x0 | ~y0) |  (~x0 & y0) | (x0 & y0)
     # From = ( (x0 | ~y0) | (~x0 & y0) ).bddPattern()
-    # From = (~x0 & y0).bddPattern()
+    From = (x0 & ~x1 | ~x0 & x1 & y0).bddPattern()
     # From = (x0 | ~y0).bddPattern()
-    From = (y0).bddPattern()
-    pre = From.vectorCompose([x0.bddPattern(), y0.bddPattern()], tr_bdd)
+    # From = (y0).bddPattern()
+    pre = From.vectorCompose([x0.bddPattern(), x1.bddPattern(), y0.bddPattern()], tr_bdd)
     upre = pre.existAbstract((i[0]& i[1]).bddPattern() & (o[0] & o[1]).bddPattern())
     cpre = pre.univAbstract((i[0]& i[1]).bddPattern())
 
     # print(f"Pre image of {From.cubeString()[-2:]} : {pre}")
     try: 
-        string_form = From.cubeString()[-2:]
+        string_form = From.cubeString()[-3:]
     except:
         string_form = From
     print(f"Pre image of {string_form} : {pre}")
@@ -532,19 +543,17 @@ def test_things_add():
 
 
 if __name__ == "__main__":
-    # test_things_add()
+    test_things_add()
     
-    game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
-    game.create_transition_relation()
+    # game = AddGridWorld(rows=3, columns=3, init=(0, 0), goal=(1, 2))
+    # game.create_transition_relation()
 
     # for var, f in game.transition_relation.items():
     #     print(f"f_{var}: \n {f}")
     
-    strategy = game.solve()
-    if strategy:
-        game.roll_out(strategy=strategy)
-
-    # del game
+    # strategy = game.solve()
+    # if strategy:
+    #     game.roll_out(strategy=strategy)
     
 
 
