@@ -22,7 +22,7 @@ class EnvMoves(Enum):
     NE = (-1, 1)
     NW = (-1, -1)
     SE = (1, 1)
-    SW = (1, 1)
+    SW = (1, -1)
 
 
 
@@ -467,7 +467,7 @@ class CompAddGridWorld(AddGridWorld):
                 else:
                     for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
                         if prime_rVar == '1':
-                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
 
         
 
@@ -499,7 +499,7 @@ class CompAddGridWorld(AddGridWorld):
                     # nxt_cPos in self.yVar_map:
                     for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
                         if prime_rVar == '1':
-                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
 
 
 
@@ -677,15 +677,22 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    
-    game = AddGridWorld(rows=2, columns=2, init=(0, 0), goal=(1, 1))
-    game.create_transition_relation()
-
-    # game = CompAddGridWorld(rows=2, columns=2, init=(0, 0), goal=(1, 1))
+    rows = columns = 10000
+    import time
+    # start = time.time()
+    # game = AddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 1))
     # game.create_transition_relation()
+    # stop = time.time()
+    # print(f"Time to create TR: {stop - start} seconds")
 
-    for var, f in game.transition_relation.items():
-        print(f"f_{var}: \n {f}")
+    start = time.time()
+    game = CompAddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(2, 9))
+    game.create_transition_relation()
+    stop = time.time()
+    print(f"Time to create Compositional TR: {stop - start} seconds")
+
+    # for var, f in game.transition_relation.items():
+    #     print(f"f_{var}: \n {f}")
     
     # strategy = game.solve()
     # if strategy:
