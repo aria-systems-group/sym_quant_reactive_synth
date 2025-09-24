@@ -18,6 +18,14 @@ class Moves(Enum):
     STAY = (0, 0)
 
 
+class EnvMoves(Enum):
+    NE = (-1, 1)
+    NW = (-1, -1)
+    SE = (1, 1)
+    SW = (1, 1)
+
+
+
 class AddGridWorld:
 
     def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
@@ -242,11 +250,13 @@ class AddGridWorld:
                         # if next state var is positive 
                         for idx, prime_rVar in enumerate(self.xVar_map[next_rPos]):
                             if prime_rVar == '1':
-                                self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & cVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                # self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & cVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
                         
                         for idx, prime_cVar in enumerate(self.yVar_map[next_cPos]):
                             if prime_cVar == '1':
-                                self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & rVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                # self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & rVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
+                                self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & eAct_cube
     
 
     def get_buckets_of_BDD(self, max_interval_val: int, layer: int) -> Dict[int, BDD]:
@@ -382,6 +392,116 @@ class AddGridWorld:
 
             # update the counter
             layer += 1
+
+
+class CompAddGridWorld(AddGridWorld):
+    """
+     Let's avoid the explicit construciton of Transition Relation. Instead, we will construct the TR in a compositional manner.
+    """
+
+    def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
+        super().__init__(rows, columns, init, goal)
+        self.action_paired_dict = {'NORTH': 'NE',
+                                   'SOUTH': 'SW', 
+                                   'EAST': 'SE',
+                                   'WEST': 'NW'}
+
+        # tmp map from abbreviation to full form of env actions
+        self.env_action_abbr_map = {'NE': 'north-east',
+                                    'NW': 'north-west',
+                                    'SE': 'south-east',
+                                    'SW': 'south-west'}
+        
+    
+    def get_valid_row_transitions(self, rPos: int) -> List[str]:
+        # sys can always choose to stay
+        # valid_actions = set({'STAY'})
+        valid_actions = set({'EAST', 'WEST'})
+        if rPos + 1 < self.rows:
+            valid_actions.add('SOUTH')
+        if rPos - 1 >= 0:
+            valid_actions.add('NORTH')
+        
+        return valid_actions
+
+    def get_valid_column_transitions(self, cPos: int) -> List[str]:
+        # sys can always choose to stay
+        # valid_actions = set({'STAY'})
+        valid_actions = set({'NORTH', 'SOUTH'})
+        if cPos + 1 < self.columns:
+            valid_actions.add('EAST')
+        if cPos - 1 >= 0:
+            valid_actions.add('WEST')
+        
+        return valid_actions
+
+    def create_transition_relation(self):
+        """
+         Build the TR in a compositional manner. 
+         I will create the TR for row vars variables separately. Then, I will then create the TR for column vars separately.
+        """
+        for r in range(self.rows):
+            rVar_add: ADD = self.cube_to_add(self.xVar_map[r], self.xVars)
+            valid_robot_actions = self.get_valid_row_transitions(rPos=r)
+            for rAct in valid_robot_actions:
+                rAct_cube: str = self.rAction_map[rAct]
+                eAct_abbr: str = self.action_paired_dict[rAct]
+                eAct: str = self.env_action_abbr_map[eAct_abbr]
+                
+                eAct_cube = self.eAction_map[eAct]
+
+                nxt_rPos = r + Moves[rAct].value[0]
+                Env_nxt_rPos = r + EnvMoves[eAct_abbr].value[0]
+                
+                if nxt_rPos in self.xVar_map:
+                    for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    print("Hi, Mom!")
+                
+                if Env_nxt_rPos in self.xVar_map:
+                    for idx, prime_rVar in enumerate(self.xVar_map[Env_nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+
+        
+
+        for c in range(self.columns):
+            cVar_add: ADD = self.cube_to_add(self.yVar_map[c], self.yVars)
+            valid_robot_actions = self.get_valid_column_transitions(cPos=c)
+            for rAct in valid_robot_actions:
+                rAct_cube: str = self.rAction_map[rAct]
+                eAct_abbr: str = self.action_paired_dict[rAct]
+                eAct: str = self.env_action_abbr_map[eAct_abbr]
+                
+                eAct_cube = self.eAction_map[eAct]
+
+                nxt_cPos = c + Moves[rAct].value[1]
+                Env_nxt_cPos = c + EnvMoves[eAct_abbr].value[1]
+                
+                if nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    print("Hi, Mom!")
+                
+                if Env_nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[Env_nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    # nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+
+
 
 
 def test_things_add():
@@ -561,12 +681,15 @@ if __name__ == "__main__":
     game = AddGridWorld(rows=2, columns=2, init=(0, 0), goal=(1, 1))
     game.create_transition_relation()
 
-    # for var, f in game.transition_relation.items():
-    #     print(f"f_{var}: \n {f}")
+    # game = CompAddGridWorld(rows=2, columns=2, init=(0, 0), goal=(1, 1))
+    # game.create_transition_relation()
+
+    for var, f in game.transition_relation.items():
+        print(f"f_{var}: \n {f}")
     
-    strategy = game.solve()
-    if strategy:
-        game.roll_out(strategy=strategy)
+    # strategy = game.solve()
+    # if strategy:
+    #     game.roll_out(strategy=strategy)
     
 
 
