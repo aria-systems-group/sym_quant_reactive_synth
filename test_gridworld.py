@@ -421,6 +421,7 @@ class CompAddGridWorld(AddGridWorld):
                                     'NW': 'north-west',
                                     'SE': 'south-east',
                                     'SW': 'south-west'}
+        self.comp_winning_states: ADD = self.manager.plusInfinity()
         
     
     def get_valid_row_transitions(self, rPos: int) -> List[str]:
@@ -510,6 +511,114 @@ class CompAddGridWorld(AddGridWorld):
                     for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+
+
+    def get_buckets_of_BDD(self, max_interval_val: int, winning_states: ADD) -> Dict[int, BDD]:
+        """
+         Overide the base approach and remove the dependency on layer.
+        """
+        _win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in range(max_interval_val + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval: BDD = winning_states.bddInterval(sval, sval)
+            
+            if not win_sval.isZero():
+                _win_state_bucket[sval] |= win_sval
+        
+        return _win_state_bucket        
+
+    
+    
+    def solve(self) -> Optional[ADD]:
+        """
+         Override the base method and delete the old winning state layers
+        """
+        # strategy - optimal (state & robot-action) pair stored in the ADD
+        strategy: ADD  = self.manager.plusInfinity()
+        
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states, next_winning_states  =  self.manager.plusInfinity(), self.manager.plusInfinity()
+        curr_winning_states |= curr_winning_states.min(goal)
+        
+        # self.winning_states[0] |= self.winning_states[0].min(goal)
+        strategy = strategy.min(goal)
+        
+        # intialize the iteration counter and hardcode the action cost
+        layer = 0
+        c_max = 1 # hardcoded for now. Make it general in future
+        act_val = 1 # hardcoded action cost for now. Make it general in future
+
+        # preprocess the transition relation to be list of functional BDDs as CUDD's vectorCompsoe only accepts list of functional BDDs
+        partitioned_tr_bdd = [tr.bddPattern() for tr in self.transition_relation.values()]
+        while True:
+            # if print_layers:
+            print(f"**************************Layer: {layer}**************************")
+
+            # convert the winning states into buckets of BDD
+            max_interval_val = layer * c_max
+            win_state_bucket: Dict[int, BDD] = self.get_buckets_of_BDD(max_interval_val, curr_winning_states)
+
+            pre_buckets: Dict[ADD] = defaultdict(lambda: self.manager.addZero())
+            for sval, succ_states in win_state_bucket.items():
+                pre_states: BDD = self.preimage(ts_action=partitioned_tr_bdd, From=succ_states)
+
+                if not pre_states.isZero():
+                    pre_buckets[sval + act_val] |= pre_states.toADD()       
+            
+            del win_state_bucket
+
+            # unions of all predecessors
+            pre_states: ADD = reduce(lambda x, y: x | y, pre_buckets.values())
+
+            # now take univ abstraction to remove edges to states with infinity value
+            upre_states: ADD = pre_states.univAbstract(self.iVars_cube)
+            tmp_strategy: ADD = upre_states.ite(self.manager.addZero(), self.manager.plusInfinity())
+
+            for sval, apre_s in pre_buckets.items():
+                # we skip the zero states
+                if sval != 0:
+                    tmp_strategy = tmp_strategy.max(apre_s.ite(self.manager.addConst(int(sval)), self.manager.addZero()))
+            
+            del pre_buckets
+            
+            new_tmp_strategy: ADD = tmp_strategy
+
+            # go over all the env actions and preserve the maximum one
+            for env_tr_dd in self.eAction_map.values():
+                new_tmp_strategy = new_tmp_strategy.max(tmp_strategy.restrict(self.cube_to_add(env_tr_dd, self.iVars)))
+            
+            del tmp_strategy
+
+            # compute the minimum of state action pairs
+            strategy = strategy.min(new_tmp_strategy)
+
+            # self.winning_states[layer + 1] |= self.winning_states[layer]
+            next_winning_states = curr_winning_states
+
+            for robot_tr_dd in self.rAction_map.values():
+                # remove the dependency for that action and preserve the minimum value for every state
+                # self.winning_states[layer + 1] = self.winning_states[layer  + 1].min(strategy.restrict(self.cube_to_add(robot_tr_dd, self.oVars)))
+                next_winning_states = next_winning_states.min(strategy.restrict(self.cube_to_add(robot_tr_dd, self.oVars)))
+
+            # if oyu reach a fix point then break
+            # if self.winning_states[layer].compare(self.winning_states[layer - 1], 2):
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                # if self.init_latch & self.winning_states[layer] != self.manager.plusInfinity():
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return strategy if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
 
 
 
