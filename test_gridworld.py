@@ -4,7 +4,7 @@ import warnings
 
 from enum import Enum
 from functools import reduce
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Union
 from collections import defaultdict
 
 from bidict import bidict
@@ -31,26 +31,21 @@ class AddGridWorld:
     def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
         self.rows = rows
         self.columns = columns
-        # self.robot_actions: set = frozenset(['EAST', 'WEST', 'NORTH', 'SOUTH', 'STAY'])
         self.robot_actions: List[str] = ['WEST', 'EAST', 'SOUTH', 'NORTH']  # making this a List to keep the order consistent across runs
         self.env_actions: List[str] = ['north-east', 'north-west', 'south-east', 'south-west', 'no-int']
         self.manager: Cudd = Cudd()
-        self.xVars, self.yVars = self.create_latches()
-        self.iVars: List[ADD] = self.create_input_vars()
-        self.oVars: List[ADD] = self.create_output_vars()
-        
-        self.xVars_bdd: List[BDD] = [var.bddPattern() for var in self.xVars]
-        self.yVars_bdd: List[BDD] = [var.bddPattern() for var in self.yVars]
+
+        self.setup_vars()
+
+        self.xVars_bdd: List[BDD] = self.convert_add_vars_to_bdd(self.xVars)
+        self.yVars_bdd: List[BDD] = self.convert_add_vars_to_bdd(self.yVars)
         self.latches: List[ADD]  = self.xVars + self.yVars
         self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
 
-        self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
-
         # creat var maps for rows and column vars
-        self.xVar_map = bidict({})
-        self.yVar_map = bidict({})
-        self.rAction_map = bidict({})
-        self.eAction_map = bidict({})
+        self.xVar_map, self.yVar_map = bidict({}), bidict({})
+        self.xVar_prime_map, self.yVar_prime_map = bidict({}), bidict({})
+        self.rAction_map, self.eAction_map = bidict({}), bidict({})  
 
         self.create_xVar_map()
         self.create_yVar_map()
@@ -67,9 +62,23 @@ class AddGridWorld:
 
         # create a list that will hold the funcitonal ADDs.
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.winning_states: ADD = defaultdict(lambda: self.manager.plusInfinity())
 
         # enable reordering
         # self.manager.reduceHeap()
+    
+
+    def setup_vars(self):
+        self.xVars, self.yVars = self.create_latches()
+        # self.xVars_prime, self.yVars_prime = self.create_prime_latches()
+        self.iVars: List[ADD] = self.create_input_vars()
+        self.oVars: List[ADD] = self.create_output_vars()
+        
+        
+        # self.xVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.xVars_prime)
+        # self.yVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.yVars_prime)
+        
+
     
 
     def set_init_state(self, init: tuple):
@@ -85,6 +94,11 @@ class AddGridWorld:
         else:
             warnings.warn("Make sure Goal state in within the bounds of the gridworld.")
             sys.exit()
+
+    def convert_add_vars_to_bdd(self, add_vars: Union[List[ADD], ADD]) -> Union[List[BDD], BDD]:
+        if isinstance(add_vars, list):
+            return [var.bddPattern() for var in add_vars]
+        return add_vars.bddPattern()
 
     
     def create_input_vars(self) -> List[ADD]:
@@ -102,7 +116,20 @@ class AddGridWorld:
         oVars: List[ADD] =  [self.manager.addVar(k + varsize, 'o' + str(k)) for k in range(oVars_size)]
         return oVars
     
-    def create_latches(self):
+
+    def create_prime_latches(self) -> Tuple[List[ADD], List[ADD]]:
+        """
+         Create a copy of prime variables for the latches.
+        """
+        varsize = self.manager.size()
+        xVars_prime: List[ADD] = [self.manager.addVar(k + varsize, 'px' + str(k)) for k in range(len(self.xVars))]
+        varsize = self.manager.size()
+        yVars_prime: List[ADD] = [self.manager.addVar(k + varsize, 'py' + str(k)) for k in range(len(self.yVars))]
+
+        return xVars_prime, yVars_prime
+
+    
+    def create_latches(self) -> Tuple[List[ADD], List[ADD]]:
         """
          Given a gridworld of size n x m create log(n) x vars and log(m) y vars that represent the x and y position respectively. 
         """
@@ -173,12 +200,14 @@ class AddGridWorld:
             # offset is to avoid the 0-vector
             bit_str = f"{r + 1:0{len(self.xVars)}b}"
             self.xVar_map[r] = bit_str
+            # self.xVar_prime_map[r] = bit_str
     
 
     def create_yVar_map(self) -> None:
         for c in range(self.columns):
             bit_str = f"{c:0{len(self.yVars)}b}"
             self.yVar_map[c] = bit_str
+            # self.yVar_prime_map[c] = bit_str
     
     def create_action_map(self) -> None:
         for ridx, ract in enumerate(self.robot_actions):
@@ -297,8 +326,6 @@ class AddGridWorld:
             
             # get the act
             opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
-            # opt_sval =  list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
-            # act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[-2:]
             act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd).cube()[-2:]
             
             # extract the relevant cube string and then look up the actual name
@@ -369,6 +396,9 @@ class AddGridWorld:
             pre_buckets: Dict[ADD] = defaultdict(lambda: self.manager.addZero())
             for sval, succ_states in win_state_bucket.items():
                 pre_states: BDD = self.preimage(ts_action=partitioned_tr_bdd, From=succ_states)
+                # pre_states_test:  BDD = self.preimage_compose(ts_action=partitioned_tr_bdd, From=succ_states)
+
+                # assert pre_states.compare(pre_states_test, 2), "Make sure both preimage computations match"
 
                 if not pre_states.isZero():
                     pre_buckets[sval + act_val] |= pre_states.toADD()       
@@ -621,6 +651,48 @@ class CompAddGridWorld(AddGridWorld):
             curr_winning_states = next_winning_states
 
 
+class ADDGridWorldTwoSets(AddGridWorld):
+    
+    def __init__(self, rows: int, columns: int, init: tuple, goal: tuple):
+        super().__init__(rows, columns, init, goal)
+        self.xVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.xVars_prime)
+        self.yVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.yVars_prime)
+    
+
+    def setup_vars(self):
+        """
+         Override the base method to create two sets of latches for x and y vars.
+        """
+        self.xVars, self.yVars = self.create_latches()
+        self.xVars_prime, self.yVars_prime = self.create_prime_latches()
+        self.iVars: List[ADD] = self.create_input_vars()
+        self.oVars: List[ADD] = self.create_output_vars()
+    
+    def create_xVar_map(self) -> None:
+        for r in range(self.rows):
+            # offset is to avoid the 0-vector
+            bit_str = f"{r + 1:0{len(self.xVars)}b}"
+            self.xVar_map[r] = bit_str
+            self.xVar_prime_map[r] = bit_str
+    
+    def create_yVar_map(self) -> None:
+        for c in range(self.columns):
+            bit_str = f"{c:0{len(self.yVars)}b}"
+            self.yVar_map[c] = bit_str
+            self.yVar_prime_map[c] = bit_str
+    
+
+    def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
+        """
+         Compute the preimage using Compose operation rather than the VectorComposer.
+        """
+        fromY = From.swapVariables(self.xVars_bdd + self.yVars_bdd, self.xVars_prime_bdd + self.yVars_prime_bdd)
+        for var, bdd_func in zip(self.xVars_prime_bdd + self.yVars_prime_bdd, ts_action):
+            index = self.manager.bddVariables().index(var)
+            fromY: BDD = fromY.compose(bdd_func, index)
+        return fromY
+        
+
 
 
 def test_things_add():
@@ -796,21 +868,30 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 10
+    rows = columns = 100
+    init = (0, 0)
+    goal = (1, 99)
+
+    ALGO = 'two-set' # 'base', 'comp', 'two-set'
+    
     import time
     start = time.time()
-    game = AddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 9))
+    if ALGO == 'base':
+        # base algorithm from IROS 23
+        game = AddGridWorld(rows=rows, columns=columns, init=init, goal=goal)
+    elif ALGO == 'comp':
+        # for constructing TR in compositional manner
+        game = CompAddGridWorld(rows=rows, columns=columns, init=init, goal=goal)
+    elif ALGO == 'two-set':
+        # for preimage computation using compose operation
+        game = ADDGridWorldTwoSets(rows=rows, columns=columns, init=init, goal=goal)
+    
     game.create_transition_relation()
     stop = time.time()
-    # print(f"Time to create TR: {stop - start} seconds")
 
-    # start = time.time()
-    # game = CompAddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 9))
-    # game.create_transition_relation()
-    # stop = time.time()
-
-    # # for var, f in game.transition_relation.items():
-    # #     print(f"f_{var}: \n {f}")
+    # for var, f in game.transition_relation.items():
+    #     print(f"f_{var}: \n {f}")
+    
     synth_start = time.time() 
     strategy = game.solve()
     synth_stop = time.time()
