@@ -35,9 +35,10 @@ class AddGridWorld:
         self.robot_actions: List[str] = ['WEST', 'EAST', 'SOUTH', 'NORTH']  # making this a List to keep the order consistent across runs
         self.env_actions: List[str] = ['north-east', 'north-west', 'south-east', 'south-west', 'no-int']
         self.manager: Cudd = Cudd()
+        self.xVars, self.yVars = self.create_latches()
         self.iVars: List[ADD] = self.create_input_vars()
         self.oVars: List[ADD] = self.create_output_vars()
-        self.xVars, self.yVars = self.create_latches()
+        
         self.xVars_bdd: List[BDD] = [var.bddPattern() for var in self.xVars]
         self.yVars_bdd: List[BDD] = [var.bddPattern() for var in self.yVars]
         self.latches: List[ADD]  = self.xVars + self.yVars
@@ -66,6 +67,9 @@ class AddGridWorld:
 
         # create a list that will hold the funcitonal ADDs.
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+
+        # enable reordering
+        # self.manager.reduceHeap()
     
 
     def set_init_state(self, init: tuple):
@@ -275,12 +279,13 @@ class AddGridWorld:
         return From.vectorCompose(self.latches_bdd, ts_action)
     
 
-    def roll_out(self, strategy: ADD):
+    def roll_out(self, strategy: ADD, env_move: bool = False):
         """
          Give a strategy ADD, roll it out from the initial state until you reach the goal state.
         """
         curr_state: ADD = self.init_latch
         max_steps: int = max(self.winning_states.keys())
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
         
         while (self.goal_latch & curr_state).isZero():
             # get the current position from the ADD
@@ -292,21 +297,26 @@ class AddGridWorld:
             
             # get the act
             opt_sval =  list((curr_state & self.winning_states[max_steps]).generate_cubes())[0][1]
-            act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[2:4]
+            # opt_sval =  list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+            # act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneCube()[-2:]
+            act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd).cube()[-2:]
             
             # extract the relevant cube string and then look up the actual name
             act_cube_string_support = [str(a) for a in act_cube_string if a != '-']
             ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
 
             # ask human for Env move input
-            # valid_env_moves = self.get_valid_env_transitions(rPos=rpos, cPos=cpos, robot_act=ract_name)
-            # valid_env_moves.append('no-int')
-            # for idx, hm in enumerate(valid_env_moves):
-            #     print(f"Env Move: {idx} : {hm}")
-            # hmove = int(input("Enter move: "))
+            eAct: str = 'no-int'
+            if env_move:
+                valid_env_moves = self.get_valid_env_transitions(rPos=rpos, cPos=cpos, robot_act=ract_name)
+                valid_env_moves.append('no-int')
+                for idx, hm in enumerate(valid_env_moves):
+                    print(f"Env Move: {idx} : {hm}")
+                hmove = int(input("Enter move: "))
+                eAct: str = valid_env_moves[hmove]
 
             # next based on action, get the next state
-            next_state: tuple = self.get_next_state(rPos=rpos, cPos=cpos, eAct='no-int', rAct=ract_name)
+            next_state: tuple = self.get_next_state(rPos=rpos, cPos=cpos, eAct=eAct, rAct=ract_name)
             
             # update current state to be next state and repeat
             curr_state: ADD = self.cube_to_add(self.xVar_map[next_state[0]], self.xVars) & self.cube_to_add(self.yVar_map[next_state[1]], self.yVars)
@@ -677,27 +687,29 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 10000
+    rows = columns = 10
     import time
-    # start = time.time()
-    # game = AddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 1))
-    # game.create_transition_relation()
-    # stop = time.time()
-    # print(f"Time to create TR: {stop - start} seconds")
-
     start = time.time()
-    game = CompAddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(2, 9))
+    game = AddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 9))
     game.create_transition_relation()
     stop = time.time()
-    print(f"Time to create Compositional TR: {stop - start} seconds")
+    # print(f"Time to create TR: {stop - start} seconds")
 
-    # for var, f in game.transition_relation.items():
-    #     print(f"f_{var}: \n {f}")
+    # start = time.time()
+    # game = CompAddGridWorld(rows=rows, columns=columns, init=(0, 0), goal=(1, 9))
+    # game.create_transition_relation()
+    # stop = time.time()
+
+    # # for var, f in game.transition_relation.items():
+    # #     print(f"f_{var}: \n {f}")
+    synth_start = time.time() 
+    strategy = game.solve()
+    synth_stop = time.time()
     
-    # strategy = game.solve()
-    # if strategy:
-    #     game.roll_out(strategy=strategy)
-    
+    if strategy:
+        game.roll_out(strategy=strategy, env_move=False)
+    print(f"Time to create TR: {stop - start} seconds")
+    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
 
 
 
