@@ -565,7 +565,6 @@ class CompAddGridWorld(AddGridWorld):
         # preprocess the transition relation to be list of functional BDDs as CUDD's vectorCompsoe only accepts list of functional BDDs
         partitioned_tr_bdd = [tr.bddPattern() for tr in self.transition_relation.values()]
         while True:
-            # if print_layers:
             print(f"**************************Layer: {layer}**************************")
 
             # convert the winning states into buckets of BDD
@@ -674,7 +673,221 @@ class ADDGridWorldTwoSets(AddGridWorld):
             index = self.manager.bddVariables().index(var)
             fromY: BDD = fromY.compose(bdd_func, index)
         return fromY
+
+
+class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
+    """
+     A version of the gridworld that does not use BDDs at all. Further, it uses ADD's vectorCompose method to compute preimage. 
+    """
+
+    def __init__(self, rows, columns, init, goal):
+        super().__init__(rows, columns, init, goal)
+        self.action_paired_dict = {'NORTH': 'NE',
+                                   'SOUTH': 'SW', 
+                                   'EAST': 'SE',
+                                   'WEST': 'NW'}
+
+        # tmp map from abbreviation to full form of env actions
+        self.env_action_abbr_map = {'NE': 'north-east',
+                                    'NW': 'north-west',
+                                    'SE': 'south-east',
+                                    'SW': 'south-west'}
+        self.comp_winning_states: ADD = self.manager.plusInfinity()
         
+        # precompute cubes for iVars and oVars
+        self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
+        self.env_action_cube_list: List[ADD] = [self.cube_to_add(i, self.iVars) for i in self.eAction_map.values()]
+
+    def setup_vars(self):
+        """
+         Since we are not taking univAbstract or existAbsatrct, we can keep the iVars and oVars at the top.
+        """
+        self.iVars: List[ADD] = self.create_input_vars()
+        self.oVars: List[ADD] = self.create_output_vars()
+        self.xVars, self.yVars = self.create_latches()
+        self.xVars_prime, self.yVars_prime = self.create_prime_latches()
+    
+    def get_valid_row_transitions(self, rPos: int) -> List[str]:
+        # sys can always choose to stay
+        # valid_actions = set({'STAY'})
+        valid_actions = set({'EAST', 'WEST'})
+        if rPos + 1 < self.rows:
+            valid_actions.add('SOUTH')
+        if rPos - 1 >= 0:
+            valid_actions.add('NORTH')
+        
+        return valid_actions
+
+    def get_valid_column_transitions(self, cPos: int) -> List[str]:
+        # sys can always choose to stay
+        # valid_actions = set({'STAY'})
+        valid_actions = set({'NORTH', 'SOUTH'})
+        if cPos + 1 < self.columns:
+            valid_actions.add('EAST')
+        if cPos - 1 >= 0:
+            valid_actions.add('WEST')
+        
+        return valid_actions
+
+    def create_transition_relation(self):
+        """
+         Build the TR in a compositional manner. 
+         I will create the TR for row vars variables separately. Then, I will then create the TR for column vars separately.
+        """
+        for r in range(self.rows):
+            rVar_add: ADD = self.cube_to_add(self.xVar_map[r], self.xVars)
+            valid_robot_actions = self.get_valid_row_transitions(rPos=r)
+            for rAct in valid_robot_actions:
+                rAct_cube: str = self.rAction_map[rAct]
+                eAct_abbr: str = self.action_paired_dict[rAct]
+                eAct: str = self.env_action_abbr_map[eAct_abbr]
+                
+                eAct_cube = self.eAction_map[eAct]
+
+                nxt_rPos = r + Moves[rAct].value[0]
+                Env_nxt_rPos = r + EnvMoves[eAct_abbr].value[0]
+                
+                if nxt_rPos in self.xVar_map:
+                    for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    print("Hi, Mom!")
+                
+                if Env_nxt_rPos in self.xVar_map:
+                    for idx, prime_rVar in enumerate(self.xVar_map[Env_nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+
+        
+
+        for c in range(self.columns):
+            cVar_add: ADD = self.cube_to_add(self.yVar_map[c], self.yVars)
+            valid_robot_actions = self.get_valid_column_transitions(cPos=c)
+            for rAct in valid_robot_actions:
+                rAct_cube: str = self.rAction_map[rAct]
+                eAct_abbr: str = self.action_paired_dict[rAct]
+                eAct: str = self.env_action_abbr_map[eAct_abbr]
+                
+                eAct_cube = self.eAction_map[eAct]
+
+                nxt_cPos = c + Moves[rAct].value[1]
+                Env_nxt_cPos = c + EnvMoves[eAct_abbr].value[1]
+                
+                if nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    print("Hi, Mom!")
+                
+                if Env_nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[Env_nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+                else:
+                    # nxt_cPos in self.yVar_map:
+                    for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
+
+    def roll_out(self, strategy: ADD, env_move: bool = False):
+        """
+         Give a strategy ADD, roll it out from the initial state until you reach the goal state.
+        """
+        curr_state: ADD = self.init_latch
+        # max_steps: int = max(self.winning_states.keys())
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+        
+        while (self.goal_latch & curr_state).isZero():
+            # get the current position from the ADD
+            curr_state_cube_str = curr_state.bddInterval(1, 1).cubeString()
+            curr_state_cube_str_support: str = [a for a in curr_state_cube_str if a != '-']
+            rpos = self.xVar_map.inv[''.join(curr_state_cube_str_support[:len(self.xVars)])]
+            cpos = self.yVar_map.inv[''.join(curr_state_cube_str_support[len(self.xVars):])]
+            print(f"Current Position: ({rpos}, {cpos})")
+            
+            # get the act
+            opt_sval =  list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+            act_cube_string: List[int] = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd).cube()[2:4]
+            
+            # extract the relevant cube string and then look up the actual name
+            act_cube_string_support = [str(a) for a in act_cube_string if a != '-']
+            ract_name = self.rAction_map.inv[''.join(act_cube_string_support)]
+
+            # ask human for Env move input
+            eAct: str = 'no-int'
+            if env_move:
+                valid_env_moves = self.get_valid_env_transitions(rPos=rpos, cPos=cpos, robot_act=ract_name)
+                valid_env_moves.append('no-int')
+                for idx, hm in enumerate(valid_env_moves):
+                    print(f"Env Move: {idx} : {hm}")
+                hmove = int(input("Enter move: "))
+                eAct: str = valid_env_moves[hmove]
+
+            # next based on action, get the next state
+            next_state: tuple = self.get_next_state(rPos=rpos, cPos=cpos, eAct=eAct, rAct=ract_name)
+            
+            # update current state to be next state and repeat
+            curr_state: ADD = self.cube_to_add(self.xVar_map[next_state[0]], self.xVars) & self.cube_to_add(self.yVar_map[next_state[1]], self.yVars)
+
+    def solve(self):
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.xVars + self.yVars, self.xVars_prime + self.yVars_prime)
+            preimage = curr_winning_states_primed.vectorCompose(self.xVars_prime + self.yVars_prime , list(self.transition_relation.values()))
+
+            # we need to add the weights - for now they are all uniform unit cost
+            preimage = preimage + self.manager.addOne()
+
+            # go over all the env actions and preserve the maximum one
+            MaxUpre = []
+            # for env_tr_dd in self.eAction_map.values():
+            for env_tr_dd in self.env_action_cube_list:
+                MaxUpre.append(preimage.restrict(env_tr_dd))
+            
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(Upre.restrict(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return Upre if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+            
+
+
 
 
 
@@ -851,11 +1064,11 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 100
+    rows = columns = 500
     init = (0, 0)
-    goal = (1, 99)
+    goal = (1, 499)
 
-    ALGO = 'two-set' # 'base', 'comp', 'two-set'
+    ALGO = 'pure-add' # 'base', 'comp', 'two-set', 'pure-add'
     
     import time
     start = time.time()
@@ -868,6 +1081,9 @@ if __name__ == "__main__":
     elif ALGO == 'two-set':
         # for preimage computation using compose operation
         game = ADDGridWorldTwoSets(rows=rows, columns=columns, init=init, goal=goal)
+    elif ALGO == 'pure-add':
+        # for preimage computation using ADD's vectorCompose operation
+        game = PureADDGridWorldTwoSets(rows=rows, columns=columns, init=init, goal=goal)
     
     game.create_transition_relation()
     stop = time.time()
