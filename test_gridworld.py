@@ -70,16 +70,8 @@ class AddGridWorld:
 
     def setup_vars(self):
         self.xVars, self.yVars = self.create_latches()
-        # self.xVars_prime, self.yVars_prime = self.create_prime_latches()
         self.iVars: List[ADD] = self.create_input_vars()
         self.oVars: List[ADD] = self.create_output_vars()
-        
-        
-        # self.xVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.xVars_prime)
-        # self.yVars_prime_bdd : List[BDD] = self.convert_add_vars_to_bdd(self.yVars_prime)
-        
-
-    
 
     def set_init_state(self, init: tuple):
         if (0 <= init[0] < self.rows and 0 <= init[1] < self.columns):
@@ -99,7 +91,6 @@ class AddGridWorld:
         if isinstance(add_vars, list):
             return [var.bddPattern() for var in add_vars]
         return add_vars.bddPattern()
-
     
     def create_input_vars(self) -> List[ADD]:
         varsize = self.manager.size()
@@ -200,14 +191,12 @@ class AddGridWorld:
             # offset is to avoid the 0-vector
             bit_str = f"{r + 1:0{len(self.xVars)}b}"
             self.xVar_map[r] = bit_str
-            # self.xVar_prime_map[r] = bit_str
     
 
     def create_yVar_map(self) -> None:
         for c in range(self.columns):
             bit_str = f"{c:0{len(self.yVars)}b}"
             self.yVar_map[c] = bit_str
-            # self.yVar_prime_map[c] = bit_str
     
     def create_action_map(self) -> None:
         for ridx, ract in enumerate(self.robot_actions):
@@ -217,9 +206,6 @@ class AddGridWorld:
         for eidx, eact in enumerate(self.env_actions):
             # skip the no-int action
             if eact != "no-int": 
-                # ebit_str = f"{eidx:0{len(self.iVars) - 1}b}"
-                # the last bit is always 0 to represent no-int
-                # self.eAction_map[eact] = ebit_str + '0'
                 ebit_str = f"{eidx:0{len(self.iVars)}b}"
                 self.eAction_map[eact] = ebit_str
 
@@ -396,9 +382,6 @@ class AddGridWorld:
             pre_buckets: Dict[ADD] = defaultdict(lambda: self.manager.addZero())
             for sval, succ_states in win_state_bucket.items():
                 pre_states: BDD = self.preimage(ts_action=partitioned_tr_bdd, From=succ_states)
-                # pre_states_test:  BDD = self.preimage_compose(ts_action=partitioned_tr_bdd, From=succ_states)
-
-                # assert pre_states.compare(pre_states_test, 2), "Make sure both preimage computations match"
 
                 if not pre_states.isZero():
                     pre_buckets[sval + act_val] |= pre_states.toADD()       
