@@ -129,6 +129,7 @@ class AddGridWorld:
         if pow(2, x_size) == self.rows and pow(2, y_size) == self.columns:
             # we need creat an additional boolean variable. I will create one addiiotnal variable for x
             x_size += 1
+            y_size += 1
         varsize = self.manager.size()
         xVars: List[ADD] = [self.manager.addVar(k + varsize, 'x' + str(k)) for k in range(x_size)]
         varsize = self.manager.size()
@@ -195,7 +196,7 @@ class AddGridWorld:
 
     def create_yVar_map(self) -> None:
         for c in range(self.columns):
-            bit_str = f"{c:0{len(self.yVars)}b}"
+            bit_str = f"{c + 1:0{len(self.yVars)}b}"
             self.yVar_map[c] = bit_str
     
     def create_action_map(self) -> None:
@@ -372,7 +373,6 @@ class AddGridWorld:
                     return strategy if init_val < math.inf else None
                 return None
 
-            # if print_layers:
             print(f"**************************Layer: {layer}**************************")
 
             # convert the winning states into buckets of BDD
@@ -384,7 +384,8 @@ class AddGridWorld:
                 pre_states: BDD = self.preimage(ts_action=partitioned_tr_bdd, From=succ_states)
 
                 if not pre_states.isZero():
-                    pre_buckets[sval + act_val] |= pre_states.toADD()       
+                    pre_buckets[sval + act_val] |= pre_states.toADD()
+                    # pre_buckets[sval + act_val] |= pre_states
 
             # unions of all predecessors
             pre_states: ADD = reduce(lambda x, y: x | y, pre_buckets.values())
@@ -659,7 +660,8 @@ class ADDGridWorldTwoSets(AddGridWorld):
     
     def create_yVar_map(self) -> None:
         for c in range(self.columns):
-            bit_str = f"{c:0{len(self.yVars)}b}"
+            # offset is to avoid the 0-vector
+            bit_str = f"{c + 1:0{len(self.yVars)}b}"
             self.yVar_map[c] = bit_str
             self.yVar_prime_map[c] = bit_str
     
@@ -668,10 +670,17 @@ class ADDGridWorldTwoSets(AddGridWorld):
         """
          Compute the preimage using Compose operation rather than the VectorComposer.
         """
-        fromY = From.swapVariables(self.xVars_bdd + self.yVars_bdd, self.xVars_prime_bdd + self.yVars_prime_bdd)
-        for var, bdd_func in zip(self.xVars_prime_bdd + self.yVars_prime_bdd, ts_action):
-            index = self.manager.bddVariables().index(var)
-            fromY: BDD = fromY.compose(bdd_func, index)
+        # fromY = From.swapVariables(self.xVars_bdd + self.yVars_bdd, self.xVars_prime_bdd + self.yVars_prime_bdd)
+        # for var, bdd_func in zip(self.xVars_prime_bdd + self.yVars_prime_bdd, ts_action):
+        #     index = self.manager.bddVariables().index(var)
+        #     fromY: BDD = fromY.compose(bdd_func, index)
+        # return fromY
+        From: ADD = From.toADD()
+        fromY = From.swapVariables(self.xVars + self.yVars, self.xVars_prime + self.yVars_prime)
+        for var, bdd_func in zip(self.xVars_prime + self.yVars_prime, self.transition_relation.values()):
+            index = self.manager.addVariables().index(var)
+            fromY: ADD = fromY.compose(bdd_func, index)
+        # return fromY.vectorCompose(self.latches, list(self.transition_relation.values()))
         return fromY
 
 
@@ -751,8 +760,6 @@ class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
                     for idx, prime_rVar in enumerate(self.xVar_map[nxt_rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars_bdd[idx].__str__()] |= rVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
-                else:
-                    print("Hi, Mom!")
                 
                 if Env_nxt_rPos in self.xVar_map:
                     for idx, prime_rVar in enumerate(self.xVar_map[Env_nxt_rPos]):
@@ -782,8 +789,6 @@ class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
                     for idx, prime_rVar in enumerate(self.yVar_map[nxt_cPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & ~self.cube_to_add(eAct_cube, self.iVars)
-                else:
-                    print("Hi, Mom!")
                 
                 if Env_nxt_cPos in self.yVar_map:
                     for idx, prime_rVar in enumerate(self.yVar_map[Env_nxt_cPos]):
@@ -795,6 +800,23 @@ class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
                         if prime_rVar == '1':
                             self.transition_relation[self.yVars_bdd[idx].__str__()] |= cVar_add & self.cube_to_add(rAct_cube, self.oVars) & self.cube_to_add(eAct_cube, self.iVars)
 
+    
+    def convert_cube_to_state(self, dd_func):
+        """
+         A helper function to convert a cube to state using the mapping we created.
+        """
+        raise NotImplementedError("This function is not tested yet. Use with caution")
+        # get the start and end index of xVars
+        xVars_start, xVars_end = self.manager.addVariables().index(self.xVars[0]), self.manager.addVariables().index(self.xVars[-1])
+        yVars_start, yVars_end = self.manager.addVariables().index(self.yVars[0]), self.manager.addVariables().index(self.yVars[-1])
+
+        for cube in dd_func.generate_cubes():
+            cube_str = cube[0]
+            rPos = self.xVar_map.inv[''.join(cube_str[xVars_start:xVars_end + 1])]
+            cPos = self.yVar_map.inv[''.join(cube_str[yVars_start:yVars_end + 1])]
+            return (rPos, cPos)
+    
+    
     def roll_out(self, strategy: ADD, env_move: bool = False):
         """
          Give a strategy ADD, roll it out from the initial state until you reach the goal state.
@@ -869,6 +891,9 @@ class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
             
             next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
             next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            # self.convert_cube_to_state(next_winning_states)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
@@ -1064,9 +1089,9 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 500
-    init = (0, 0)
-    goal = (1, 499)
+    rows = columns = 10
+    init = (4, 4)
+    goal = (0, 0)
 
     ALGO = 'pure-add' # 'base', 'comp', 'two-set', 'pure-add'
     
