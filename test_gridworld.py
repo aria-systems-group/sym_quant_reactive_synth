@@ -45,7 +45,9 @@ class AddGridWorld:
         # creat var maps for rows and column vars
         self.xVar_map, self.yVar_map = bidict({}), bidict({})
         self.xVar_prime_map, self.yVar_prime_map = bidict({}), bidict({})
-        self.rAction_map, self.eAction_map = bidict({}), bidict({})  
+        self.rAction_map, self.eAction_map = bidict({}), bidict({})
+        self.weight_dict: Dict[str, int] = {'WEST': 1, 'EAST': 1, 'SOUTH': 1, 'NORTH': 2}
+        self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
 
         self.create_xVar_map()
         self.create_yVar_map()
@@ -56,6 +58,7 @@ class AddGridWorld:
 
         # create mapping for robot and env actions
         self.create_action_map()
+        self.create_sym_weight_dict()
 
         self.iVars_cube: ADD = reduce(lambda x, y: x & y, self.iVars)
         self.oVars_cube: ADD = reduce(lambda x, y: x & y, self.oVars)
@@ -209,6 +212,13 @@ class AddGridWorld:
             if eact != "no-int": 
                 ebit_str = f"{eidx:0{len(self.iVars)}b}"
                 self.eAction_map[eact] = ebit_str
+    
+    def create_sym_weight_dict(self) -> None:
+        for ract, w in self.weight_dict.items():
+            self.symbolic_weight_dict[ract] = self.cube_to_add(self.rAction_map[ract], self.oVars).ite(self.manager.addConst(w), self.manager.addOne())
+        
+        self.weight = reduce(lambda x, y: x & y, self.symbolic_weight_dict.values())
+
 
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         assert len(cube) == len(vars_list), "Make sure the length of the cube is the same as the number of latches"
@@ -872,9 +882,9 @@ class PureADDGridWorldTwoSets(ADDGridWorldTwoSets):
             # prime the vars
             curr_winning_states_primed = curr_winning_states.swapVariables(self.xVars + self.yVars, self.xVars_prime + self.yVars_prime)
             preimage = curr_winning_states_primed.vectorCompose(self.xVars_prime + self.yVars_prime , list(self.transition_relation.values()))
-
-            # we need to add the weights - for now they are all uniform unit cost
-            preimage = preimage + self.manager.addOne()
+            
+            # add the action costs    
+            preimage = preimage + self.weight
 
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
@@ -1089,7 +1099,7 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 10
+    rows = columns = 5
     init = (4, 4)
     goal = (0, 0)
 
