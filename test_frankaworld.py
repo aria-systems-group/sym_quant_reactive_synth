@@ -134,62 +134,95 @@ class FrankaWorld():
         for idx, val in enumerate(cube):
             add &= vars_list[idx] if val == '1' else ~vars_list[idx]
         return add
+
+    def create_only_b_at_ee_cube(self, curr_box: int, bConf_cube: ADD) -> ADD:
+        # need to add that other boxes are not at end-effector location
+        for ob in range(self.boxes):
+            if ob == curr_box:
+                continue
+            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(ob) + ' l0'], self.bVars[ob])
+        return bConf_cube
+    
+
+    def create_only_b_at_l_cube(self, curr_box: int, curr_loc: int, bConf_cube: ADD) -> ADD:
+        # need to add that other boxes are not at end-effector location
+        for ob in range(self.boxes):
+            if ob == curr_box:
+                continue
+            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(ob) + f' {curr_loc}'], self.bVars[ob])
+        return bConf_cube
+    
+
+    def create_ee_empty_cube(self) -> ADD:
+        # cube that implies that end-effector location empty
+        bConf_cube = self.manager.addOne()
+        for b in range(self.boxes):
+            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(b) + ' l0'], self.bVars[b])
+        return bConf_cube
+    
+
+        
     
     def create_transition_relation(self) -> None:
         # transit actions
+        ee_empty_cube: ADD = self.create_ee_empty_cube()
         for b in range(self.boxes):
             act_str = f'transit b{b}'
-            for rConf, rCube_str in self.xVar_map.items():
-                if not rConf.startswith('ready'):
-                    continue
-                
-                rConf_cube = self.cube_to_add(rCube_str, self.pVars)
-                
-                # as l0 is reserved for end-effector location
-                for l in range(1, self.locs):
-                    box_pred: str = 'b' + str(b) + ' l' + str(l)
-                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
-                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+            # for rConf, rCube_str in self.xVar_map.items():
+            #     if not rConf.startswith('ready'):
+            #         continue 
+            
+            # as l0 is reserved for end-effector location
+            for l in range(1, self.locs + 1):
+                rConf_cube = self.cube_to_add(self.xVar_map[f'ready l{l}'], self.pVars)
+                box_pred: str = 'b' + str(b) + ' l' + str(l)
+                bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
+                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+                # need to enforce that the end-effector is empty
+                state_constraint_cube = ee_empty_cube
 
-                    # next state clauses - (to-obj b0); box location does not change
-                    pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
-                    box_clause_prime_string = self.xVar_map[box_pred]
-                    
-                    for sidx, s in enumerate(pred_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                    
-                    for sidx, s in enumerate(box_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                # need to enforce that only one box is at loc l
+                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(l), bConf_cube=bConf_cube)
+
+                # next state clauses - (to-obj b0); box location does not change
+                pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
+                box_clause_prime_string = self.xVar_map[box_pred]
+                
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
         
         # grasp action
         for b in range(self.boxes):
             act_str = 'grasp'
-            for rConf, rCube_str in self.xVar_map.items():
-                if not rConf.startswith('to-obj'):
-                    continue
-                
-                rConf_cube = self.cube_to_add(rCube_str, self.pVars)
-                
-                # as l0 is reserved for end-effector location
-                for l in range(1, self.locs):
-                    box_pred = 'b' + str(b) + ' l' + str(l)
-                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
-                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+            rConf_cube = self.cube_to_add(self.xVar_map[f'to-obj b{b}'], self.pVars)
+            
+            # as l0 is reserved for end-effector location
+            for l in range(1, self.locs + 1):
+                box_pred = 'b' + str(b) + ' l' + str(l)
+                bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
+                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+                # need to enforce that the end-effector is empty
+                state_constraint_cube = ee_empty_cube
+                # need to enforce that only one box is at loc l
+                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(l), bConf_cube=bConf_cube)
 
-                    # next state clauses - (holding l) ; box location does not change
-                    box_pred_prime = 'b' + str(b) + ' l0' # box is now at end-effector location
-                    pred_clause_prime_string = self.xVar_map['holding l' + str(l)]
-                    box_clause_prime_string = self.xVar_map[box_pred_prime]
-                    
-                    for sidx, s in enumerate(pred_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                    
-                    for sidx, s in enumerate(box_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                # next state clauses - (holding l) ; box location does not change
+                box_pred_prime = 'b' + str(b) + ' l0' # box is now at end-effector location
+                pred_clause_prime_string = self.xVar_map['holding l' + str(l)]
+                box_clause_prime_string = self.xVar_map[box_pred_prime]
+                
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & state_constraint_cube & bConf_cube & act_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & state_constraint_cube & bConf_cube & act_cube
         
         # release action
         act_str = 'release'
@@ -204,11 +237,13 @@ class FrankaWorld():
                 box_pred = 'b' + str(b) + ' l0'
                 bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b]) # box is at end-effector location
                 act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+                bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
 
                 # next state clauses - (ready l) ; box location does not change
                 box_pred_prime = 'b' + str(b) + f' {loc}' # box is now at location loc
                 pred_clause_prime_string = self.xVar_map['ready ' + loc]
                 box_clause_prime_string = self.xVar_map[box_pred_prime]
+                # need to enforce that the end-effector is empty - we enforce it from transit action, so maybe we don;t need it here. Check this!!!
                 
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
@@ -219,37 +254,38 @@ class FrankaWorld():
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
 
         # transfer actions
-        act_str = 'transfer'
-        # for all holding confs.
-        for rConf_from, rCube_from_str in self.xVar_map.items():
-            if not rConf.startswith('holding'):
-                continue
-            from_loc = rConf.split(' ')[1]
-
-            for rConf_to, rCube_to_str in self.xVar_map.items():
-                if not rConf.startswith('holding') and rConf_to == rConf_from:
+        for b in range(self.boxes):
+            act_str = 'transfer'
+            # for all holding confs.
+            for rConf_from, rCube_from_str in self.xVar_map.items():
+                if not rConf_from.startswith('holding'):
                     continue
-                to_loc = rConf.split(' ')[1]
+                from_loc = rConf_from.split(' ')[1]
 
-                act_str = f'transfer {to_loc}'
-                box_pred = 'b' + str(b) + f' {from_loc}'
-                rConf_cube = self.cube_to_add(rCube_from_str, self.pVars)
-                bConf_cube = self.xVar_map[box_pred] # box at current location from_loc
-                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+                for rConf_to, rCube_to_str in self.xVar_map.items():
+                    if not rConf_to.startswith('holding') or rConf_to == rConf_from:
+                        continue
+                    to_loc = rConf_to.split(' ')[1]
 
-                # next state clauses - (holding to_loc) ; box location does not change
-                assert rConf_to == 'holding ' + to_loc, "Make sure the to_loc is correct. Fix this!!!"
-                box_pred_prime = 'b' + str(b) + f' {to_loc}' # box is now at location to_loc
-                pred_clause_prime_string = self.xVar_map['holding ' + to_loc]
-                box_clause_prime_string = self.xVar_map[box_pred_prime] 
+                    act_str = f'transfer {to_loc}'
+                    box_pred = f'b{b} l0'
+                    rConf_cube = self.cube_to_add(rCube_from_str, self.pVars)
+                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])  # box at current location from_loc
+                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+                    bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
 
-                for sidx, s in enumerate(pred_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-            
-                for sidx, s in enumerate(box_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                    # next state clauses - (holding to_loc) ; box location does not change
+                    assert rConf_to == 'holding ' + to_loc, "Make sure the to_loc is correct. Fix this!!!"
+                    pred_clause_prime_string = self.xVar_map['holding ' + to_loc]
+                    box_clause_prime_string = self.xVar_map[box_pred] 
+
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
     
     def convert_cube_to_state(self, dd: BDD) -> None:
         """
@@ -311,8 +347,11 @@ class FrankaWorld():
         tr_bdd = [dd.bddPattern() for dd in self.transition_relation.values()]
 
         # goal state is b0 and l0 and ready l0
-        goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
+        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l0'], self.bVars[0]) & self.cube_to_add(self.xVar_map['holding l1'], self.pVars) 
+        # goal_cube = self.cube_to_add(self.xVar_map['holding l1'], self.pVars)
+        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['to-obj b0'], self.pVars)
+        goal_cube = self.cube_to_add(self.xVar_map['b0 l2'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l2'], self.pVars)
 
         From = goal_cube.bddPattern()
 
@@ -383,8 +422,8 @@ def simple_franka_world():
 
 
 if __name__ == "__main__":
-    boxes = 2
-    locs = 3
+    boxes = 5
+    locs = 20
     fw = FrankaWorld(boxes, locs)
 
     print('xVars map:')
