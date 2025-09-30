@@ -18,6 +18,9 @@ class FrankaWorld():
         self.oVars = self.create_output_vars()
         self.latches = self.xVars # in future we will primed version of these as well.
 
+        # book keeping
+        self.holding_preds = self.to_obj_preds = self.ready_preds = set({})
+
         self.xVar_map = dict()
         self.rAction_map = dict()
 
@@ -62,12 +65,14 @@ class FrankaWorld():
             for loc in range(1, self.locs + 1):
                 bit_str = f"{(pidx * (self.locs + 1)) + loc:0{len(self.pVars)}b}"
                 self.xVar_map[pred + ' l' + str(loc)] = bit_str
+                self.ready_preds.add('ready l' + str(loc)) if pred == 'ready' else self.holding_preds.add('holding l' + str(loc))
         
         offset = 2*(self.locs) + 1 # 1 for the offset from the 0-vector
         # for misc pred to-obj we create all boxes
         for b in range(self.boxes):
             bit_str = f"{b + offset:0{len(self.pVars)}b}"
             self.xVar_map['to-obj b' + str(b)] = bit_str
+            self.to_obj_preds.add('to-obj b' + str(b))
 
         # for each boxes we create |locs| boolean vars
         for b in range(self.boxes):
@@ -113,24 +118,125 @@ class FrankaWorld():
         return add
     
     def create_transition_relation(self) -> None:
-        # we start with creating transitions for transit
+        # transit actions
         for b in range(self.boxes):
-            # current state clauses
-            pred_clause = self.cube_to_add(self.xVar_map['ready'], self.pVars)
-            box_clause = self.cube_to_add(self.xVar_map['b' + str(b)], self.bVars)
-            act_clause = self.cube_to_add(self.rAction_map['transit' + str(b)], self.oVars)
+            act_str = f'transit b{b}'
+            for rConf, rCube_str in self.xVar_map.items():
+                if not rConf.startswith('ready'):
+                    continue
+                
+                rConf_cube = self.cube_to_add(rCube_str, self.pVars)
+                
+                # as l0 is reserved for end-effector location
+                for l in range(1, self.locs):
+                    box_pred: str = 'b' + str(b) + ' l' + str(l)
+                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
+                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
 
-            # next state clauses - (to-obj b0) & (on-b0-<some-loc>)
-            pred_clause_prime_string = self.xVar_map['to-obj']
-            box_clause_prime_string = self.xVar_map['b' + str(b)]
+                    # next state clauses - (to-obj b0); box location does not change
+                    pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
+                    box_clause_prime_string = self.xVar_map[box_pred]
+                    
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+        
+        # grasp action
+        for b in range(self.boxes):
+            act_str = 'grasp'
+            for rConf, rCube_str in self.xVar_map.items():
+                if not rConf.startswith('to-obj'):
+                    continue
+                
+                rConf_cube = self.cube_to_add(rCube_str, self.pVars)
+                
+                # as l0 is reserved for end-effector location
+                for l in range(1, self.locs):
+                    box_pred = 'b' + str(b) + ' l' + str(l)
+                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
+                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
 
-            for sidx, s in enumerate(pred_clause_prime_string):
-                if s == '1':
-                    self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= pred_clause & box_clause & act_clause
+                    # next state clauses - (holding l) ; box location does not change
+                    box_pred_prime = 'b' + str(b) + ' l0' # box is now at end-effector location
+                    pred_clause_prime_string = self.xVar_map['holding l' + str(l)]
+                    box_clause_prime_string = self.xVar_map[box_pred_prime]
+                    
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+        
+        # release action
+        act_str = 'release'
+        for rConf, rCube_str in self.xVar_map.items():
+            if not rConf.startswith('holding'):
+                continue
+            loc = rConf.split(' ')[1]
             
-            for sidx, s in enumerate(box_clause_prime_string):
-                if s == '1':
-                    self.transition_relation[self.bVars[sidx].bddPattern().__str__()] |= pred_clause & box_clause & act_clause
+            rConf_cube = self.cube_to_add(rCube_str, self.pVars)
+            
+            for b in range(self.boxes):
+                box_pred = 'b' + str(b) + ' l0'
+                bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b]) # box is at end-effector location
+                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+
+                # next state clauses - (ready l) ; box location does not change
+                box_pred_prime = 'b' + str(b) + f' {loc}' # box is now at location loc
+                pred_clause_prime_string = self.xVar_map['ready ' + loc]
+                box_clause_prime_string = self.xVar_map[box_pred_prime]
+                
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+
+        # transfer actions
+        act_str = 'transfer'
+        # for all holding confs.
+        for rConf_from, rCube_from_str in self.xVar_map.items():
+            if not rConf.startswith('holding'):
+                continue
+            from_loc = rConf.split(' ')[1]
+
+            for rConf_to, rCube_to_str in self.xVar_map.items():
+                if not rConf.startswith('holding') and rConf_to == rConf_from:
+                    continue
+                to_loc = rConf.split(' ')[1]
+
+                act_str = f'transfer {to_loc}'
+                box_pred = 'b' + str(b) + f' {from_loc}'
+                rConf_cube = self.cube_to_add(rCube_from_str, self.pVars)
+                bConf_cube = self.xVar_map[box_pred] # box at current location from_loc
+                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
+
+                # next state clauses - (holding to_loc) ; box location does not change
+                assert rConf_to == 'holding ' + to_loc, "Make sure the to_loc is correct. Fix this!!!"
+                box_pred_prime = 'b' + str(b) + f' {to_loc}' # box is now at location to_loc
+                pred_clause_prime_string = self.xVar_map['holding ' + to_loc]
+                box_clause_prime_string = self.xVar_map[box_pred_prime] 
+
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+            
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
+    
+
+    def test_pre_image(self):
+        pass
+
     
 
 
@@ -205,3 +311,7 @@ if __name__ == "__main__":
         print(f"{k} : {v}")
 
     # simple_franka_world()
+    fw.create_transition_relation()
+    print('Transition Relation:')
+    for k, v in fw.transition_relation.items():
+        print(f"{k} : {v}")
