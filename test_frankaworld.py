@@ -1,7 +1,11 @@
+import sys
 import math
 
+from functools import reduce
+from itertools import product
 from typing import List, Tuple
 
+from bidict import bidict
 from cudd import Cudd, ADD, BDD
 
 class FrankaWorld():
@@ -14,21 +18,30 @@ class FrankaWorld():
         self.manager: Cudd = Cudd()
 
         self.pVars, self.bVars = self.create_latches()
-        self.xVars = self.pVars + [var for box_adds in self.bVars for var in box_adds] 
-        self.oVars = self.create_output_vars()
-        self.latches = self.xVars # in future we will primed version of these as well.
+        self.xVars: List[ADD] = self.pVars + [var for box_adds in self.bVars for var in box_adds] 
+        self.oVars: List[ADD] = self.create_output_vars()
+        self.latches: List[ADD] = self.xVars # in future we will primed version of these as well.
+        self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
 
         # book keeping
         self.holding_preds = self.to_obj_preds = self.ready_preds = set({})
 
         self.xVar_map = dict()
         self.rAction_map = dict()
+        
+        # maps needs for lookup of the states corresponding to cubes
+        self.pVar_map = bidict({})
+        self.bVars_map = {b: bidict({}) for b in range(self.boxes)}
 
         self.create_xVar_map()
         self.create_rAction_map()
 
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
 
+        # need these cubes for printing states from cubes
+        self.pVars_cube: ADD = reduce(lambda a, b: a & b, self.pVars)
+        self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
+        self.all_bVars_cube: ADD = reduce(lambda a, b: a & b, self.bVars_cubes)
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
         """
@@ -43,9 +56,9 @@ class FrankaWorld():
         loc_var_size = loc_var_size + 1 if pow(2, loc_var_size) == self.locs + 1 else loc_var_size 
         
         bVars: List[List[ADD]] = []
-        for _ in range(self.boxes):
+        for b in range(self.boxes):
             varsize = self.manager.size()
-            bVars.append([self.manager.addVar(j + varsize, 'b' + str(j)) for j in range(loc_var_size)])
+            bVars.append([self.manager.addVar(j + varsize, f'b{b}{j}') for j in range(loc_var_size)])
 
         return pVars, bVars
 
@@ -60,12 +73,15 @@ class FrankaWorld():
 
     def create_xVar_map(self):
         # for misc preds ready and holding we create all locs.
+        offset = 0
         for pidx, pred in enumerate(['ready', 'holding']):
             # +1 to include end-effector location
             for loc in range(1, self.locs + 1):
-                bit_str = f"{(pidx * (self.locs + 1)) + loc:0{len(self.pVars)}b}"
+                bit_str = f"{offset + loc:0{len(self.pVars)}b}"
                 self.xVar_map[pred + ' l' + str(loc)] = bit_str
                 self.ready_preds.add('ready l' + str(loc)) if pred == 'ready' else self.holding_preds.add('holding l' + str(loc))
+                self.pVar_map[pred + ' l' + str(loc)] = bit_str
+            offset = self.locs
         
         offset = 2*(self.locs) + 1 # 1 for the offset from the 0-vector
         # for misc pred to-obj we create all boxes
@@ -73,12 +89,14 @@ class FrankaWorld():
             bit_str = f"{b + offset:0{len(self.pVars)}b}"
             self.xVar_map['to-obj b' + str(b)] = bit_str
             self.to_obj_preds.add('to-obj b' + str(b))
+            self.pVar_map['to-obj b' + str(b)] = bit_str
 
         # for each boxes we create |locs| boolean vars
         for b in range(self.boxes):
             for l in range(self.locs + 1):
                 bit_str = f"{l + 1:0{len(self.bVars[b])}b}"
                 self.xVar_map['b' + str(b) + ' l' + str(l)] = bit_str
+                self.bVars_map[b]['b' + str(b) + ' l' + str(l)] = bit_str
 
     def create_output_vars(self) -> List[ADD]:
         """
@@ -233,9 +251,76 @@ class FrankaWorld():
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
     
+    def convert_cube_to_state(self, dd: BDD) -> None:
+        """
+         Convert a cube to a state representation
+        """
+        cubes = []
+        for c in dd.generate_cubes():
+            _amb_var = []
+            var_list = []
+            for _idx, var in enumerate(c):
+                if self.manager.addVar(_idx) not in self.latches:
+                    continue
+
+                if var == 2:
+                    _amb_var.append([self.manager.addVar(_idx), ~self.manager.addVar(_idx)])
+                elif var == 0:
+                    var_list.append(~self.manager.addVar(_idx))
+                elif var == 1:
+                    var_list.append(self.manager.addVar(_idx))
+                else:
+                    print("CUDD ERRROR, A variable is assigned an unaccounted integret assignment. FIX THIS!!")
+                    sys.exit(-1)
+            
+            # check if it is not full defined
+            if len(_amb_var) != 0:
+                cart_prod = list(product(*_amb_var))
+                for _ele in cart_prod:
+                    var_list.extend(_ele)
+                    cubes.append(reduce(lambda a, b: a & b, var_list))
+                    var_list = list(set(var_list) - set(_ele))
+            else:
+                cubes.append(reduce(lambda a, b: a & b, var_list))
+        
+
+        # print the states
+        for cube in cubes:
+            rConf_cube_str = cube.existAbstract(self.all_bVars_cube).bddPattern().cubeString().replace('-', '')
+            bCube_str = []
+            for b in range(self.boxes):
+                all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
+                bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
+            
+            # you could have invalid states as well. We ksip over such cubes
+            invalid_state = False
+            for bidx, e in enumerate(bCube_str):
+                if e not in self.bVars_map[bidx].inv:
+                    invalid_state = True
+                    break
+            if invalid_state:
+                continue
+            box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
+            print(f"({self.pVar_map.inv[rConf_cube_str]}, {box_states})")
+            
+    
 
     def test_pre_image(self):
-        pass
+        # convert transition relation to latches bdd
+
+        tr_bdd = [dd.bddPattern() for dd in self.transition_relation.values()]
+
+        # goal state is b0 and l0 and ready l0
+        goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
+        # goal_cube = self.cube_to_add(self.xVar_map['b0 l0'], self.bVars[0]) & self.cube_to_add(self.xVar_map['holding l1'], self.pVars) 
+
+        From = goal_cube.bddPattern()
+
+        pre = From.vectorCompose(self.latches_bdd, tr_bdd)
+
+        print(pre)
+        self.convert_cube_to_state(pre)
+    
 
     
 
@@ -312,6 +397,8 @@ if __name__ == "__main__":
 
     # simple_franka_world()
     fw.create_transition_relation()
-    print('Transition Relation:')
-    for k, v in fw.transition_relation.items():
-        print(f"{k} : {v}")
+    fw.test_pre_image()
+
+    # print('Transition Relation:')
+    # for k, v in fw.transition_relation.items():
+    #     print(f"{k} : {v}")
