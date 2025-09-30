@@ -13,8 +13,8 @@ class FrankaWorld():
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
         self.manager: Cudd = Cudd()
 
-        self.pVars, self.bVars, self.lVars = self.create_latches()
-        self.xVars = self.pVars + self.bVars + self.lVars
+        self.pVars, self.bVars = self.create_latches()
+        self.xVars = self.pVars + [var for box_adds in self.bVars for var in box_adds] 
         self.oVars = self.create_output_vars()
         self.latches = self.xVars # in future we will primed version of these as well.
 
@@ -32,49 +32,48 @@ class FrankaWorld():
          For ready; to-obj; and holding we create a dedicated set of latches
          For every on b predicate we will create a set of latch for all boxes and for all locs. 
         """
-        box_var_size = math.ceil(math.log2(self.boxes))
-        # create an additional boolean var to skip the 0-vector latch 
-        box_var_size = box_var_size + 1 if pow(2, box_var_size) == self.boxes else box_var_size 
-        
-        loc_var_size = math.ceil(math.log2(self.locs + 1))  # the +1 is for end-effector (ee) location
-        # create an additional boolean var to skip the 0-vector latch
-        loc_var_size = loc_var_size + 1 if pow(2, loc_var_size) == self.locs else loc_var_size 
-        
         # create holding, ready, to-obj vars
         pVars = self.create_ready_holding_to_obj_vars()
         
-        # create dedicated vars for boxes
-        varsize = self.manager.size()
-        bVars: List[ADD] = [self.manager.addVar(i + varsize, 'b' + str(i)) for i in range(box_var_size)]
+        loc_var_size = math.ceil(math.log2(self.locs + 1))  # the +1 is for end-effector (ee) location
+        # create an additional boolean var to skip the 0-vector latch
+        loc_var_size = loc_var_size + 1 if pow(2, loc_var_size) == self.locs + 1 else loc_var_size 
         
-        varsize = self.manager.size()
-        lVars: List[ADD] = [self.manager.addVar(j + varsize, 'l' + str(j)) for j in range(loc_var_size)]
+        bVars: List[List[ADD]] = []
+        for _ in range(self.boxes):
+            varsize = self.manager.size()
+            bVars.append([self.manager.addVar(j + varsize, 'b' + str(j)) for j in range(loc_var_size)])
 
-        return pVars, bVars, lVars
+        return pVars, bVars
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
         varsize = self.manager.size()
-        vars_size: int = math.ceil(math.log2(3))
+        # num. of preds = ready x |locs| + to-obj x |boxes| + holding x |locs| + 1 (to account for l0 being end effector loc) + grasp + release
+        num_of_preds = 2*self.locs + self.boxes + 2
+        vars_size: int = math.ceil(math.log2(num_of_preds))
         Vars: List[ADD] = [self.manager.addVar(k + varsize, 'p' + str(k)) for k in range(vars_size)]
         return Vars
     
 
     def create_xVar_map(self):
-        # for misc preds
-        for pidx, pred in enumerate(self.misc_preds):
-            bit_str = f"{pidx + 1:0{len(self.pVars)}b}"
-            self.xVar_map[pred] = bit_str
+        # for misc preds ready and holding we create all locs.
+        for pidx, pred in enumerate(['ready', 'holding']):
+            # +1 to include end-effector location
+            for loc in range(1, self.locs + 1):
+                bit_str = f"{(pidx * (self.locs + 1)) + loc:0{len(self.pVars)}b}"
+                self.xVar_map[pred + ' l' + str(loc)] = bit_str
         
-        # for boxes 
+        offset = 2*(self.locs) + 1 # 1 for the offset from the 0-vector
+        # for misc pred to-obj we create all boxes
         for b in range(self.boxes):
-            bit_str = f"{b + 1:0{len(self.bVars)}b}"
-            self.xVar_map['b' + str(b)] = bit_str
-        
-        # for locs; +1 is for end-effector (ee) location ; l0 is reserved for end effector
-        for l in range(self.locs + 1):
-            bit_str = f"{l + 1:0{len(self.lVars)}b}"
-            self.xVar_map['l' + str(l)] = bit_str
+            bit_str = f"{b + offset:0{len(self.pVars)}b}"
+            self.xVar_map['to-obj b' + str(b)] = bit_str
 
+        # for each boxes we create |locs| boolean vars
+        for b in range(self.boxes):
+            for l in range(self.locs + 1):
+                bit_str = f"{l + 1:0{len(self.bVars[b])}b}"
+                self.xVar_map['b' + str(b) + ' l' + str(l)] = bit_str
 
     def create_output_vars(self) -> List[ADD]:
         """
@@ -88,20 +87,22 @@ class FrankaWorld():
 
 
     def create_rAction_map(self):
-        for ridx, ract in enumerate(self.robot_actions):
+        for ract in self.robot_actions:
             if ract == 'transit':
                 for b in range(self.boxes):
-                    act_str = ract + str(b)
-                    rbit_str = f"{ridx + b + 1:0{len(self.oVars)}b}"
+                    act_str = f'{ract} b{b}'
+                    rbit_str = f"{b + 1:0{len(self.oVars)}b}"
                     self.rAction_map[act_str] = rbit_str
             elif ract == 'transfer':
-                for l in range(self.locs):
-                    act_str = ract + str(l)
-                    rbit_str = f"{ridx + self.boxes + l + 1:0{len(self.oVars)}b}"
+                for l in range(1, self.locs + 1):
+                    act_str = f'{ract} l{l}'
+                    rbit_str = f"{self.boxes + l:0{len(self.oVars)}b}"
                     self.rAction_map[act_str] = rbit_str
-            else:
-                rbit_str = f"{ridx + self.boxes + self.locs + 1:0{len(self.oVars)}b}"
-                self.rAction_map[ract] = rbit_str
+            # else:
+        rbit_str = f"{self.boxes + self.locs + 1:0{len(self.oVars)}b}"
+        self.rAction_map['grasp'] = rbit_str
+        rbit_str = f"{self.boxes + self.locs + 2:0{len(self.oVars)}b}"
+        self.rAction_map['release'] = rbit_str
     
     
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
@@ -191,17 +192,16 @@ def simple_franka_world():
 
 
 if __name__ == "__main__":
-    # boxes = 1
-    # locs = 2
-    # fw = FrankaWorld(boxes, locs)
+    boxes = 2
+    locs = 3
+    fw = FrankaWorld(boxes, locs)
 
-    # print('Hi Mom!')
-    # print('xVars map:')
-    # for k, v in fw.xVar_map.items():
-    #     print(f"{k} : {v}")
+    print('xVars map:')
+    for k, v in fw.xVar_map.items():
+        print(f"{k} : {v}")
     
-    # print('rAction map:')
-    # for k, v in fw.rAction_map.items():
-    #     print(f"{k} : {v}")
+    print('rAction map:')
+    for k, v in fw.rAction_map.items():
+        print(f"{k} : {v}")
 
-    simple_franka_world()
+    # simple_franka_world()
