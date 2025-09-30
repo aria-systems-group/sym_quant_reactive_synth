@@ -100,8 +100,6 @@ class AddGridWorld:
         # We not create the no-int action
         iVars_size = math.ceil(math.log2(len(self.env_actions))) - 1
         iVars: List[ADD] =  [self.manager.addVar(k + varsize , 'i' + str(k)) for k in range(iVars_size)]
-        # manually create a add var for no-int
-        # iVars += [self.manager.addVar(self.manager.size(), 'i'+ str(iVars_size + 1))]
         return iVars
     
     def create_output_vars(self) -> List[ADD]:
@@ -1099,11 +1097,11 @@ def test_things_add():
 
 if __name__ == "__main__":
     # test_things_add()
-    rows = columns = 5
-    init = (4, 4)
-    goal = (0, 0)
+    rows = columns = 4
+    init = (0, 0)
+    goal = (1, 3)
 
-    ALGO = 'pure-add' # 'base', 'comp', 'two-set', 'pure-add'
+    ALGO = 'base' # 'base', 'comp', 'two-set', 'pure-add'
     
     import time
     start = time.time()
