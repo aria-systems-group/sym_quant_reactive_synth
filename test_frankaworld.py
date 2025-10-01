@@ -359,83 +359,29 @@ class FrankaWorld():
 
         print(pre)
         self.convert_cube_to_state(pre)
-    
-
-    
-
-
-
-def simple_franka_world():
-    """
-     Build TR manually and test things out.
-    """
-    
-    def add_to_tr(tr: dict, cube: ADD, prime_cube_str: str, var_list: List[ADD]):
-        for sidx, s in enumerate(prime_cube_str):
-            if s == '1':
-                tr[var_list[sidx].bddPattern().__str__()] |= cube
-    
-    m = Cudd()
-    p0, p1 = m.addVar(0, 'p0'), m.addVar(1, 'p1')
-    b0 = m.addVar(2, 'b0')
-    l0, l1 = m.addVar(3, 'l0'), m.addVar(4, 'l1')
-    o0, o1, o2 = m.addVar(5, 'o0'), m.addVar(6, 'o1'), m.addVar(7, 'o2')
-
-    # ready - 01; to-obj - 10; holding - 11 and so on for boxes and locs. Note l0 is reserved for end-effector
-    xVar_map = {'ready': '01', 'to-obj': '10', 'holding': '11', 'b0': '1', 'else': '01', 'l0': '10', 'l1': '11'}
-    xVar_map_sym = {'ready': ~p0 & p1, 'to-obj': p0 & ~p1, 'holding': p0 & p1, 'b0': b0, 'else': ~l0 & l1, 'l0': l0 & ~l1, 'l1': l0 & l1}
-
-    # robot action map - you can not transfer to end-effector location.
-    rAction_map = {'transit0': '000', 'transfer1': '001', 'tranfer2': '010', 'grasp': '011' , 'release': '100'}
-    rAction_map_sym = {'transit0': ~o0 & ~o1 & ~o2, 'transfer1': ~o0 & ~o1 & o2, 'tranfer2': ~o0 & o1 & ~o2, 'grasp': ~o0 & o1 & o2 , 'release': o0 & ~o1 & ~o2}
-
-    # build smple transition relation
-    transition_relation = {var.bddPattern().__str__(): m.addZero() for var in [p0, p1, b0, l0, l1]}
-
-    # transit0 - (ready else) (on b0 l0) -> (to-obj b0) (on b0 l0) | (ready l0) (on b0 l0))
-    pred_clause = xVar_map_sym['ready']
-    box_clause = xVar_map_sym['b0']
-    else_clause = xVar_map_sym['else']
-    loc_clause = xVar_map_sym['l0']
-    act_clause = rAction_map_sym['transit0']
-    
-    # next state clauses - (to-obj b0) & (on-b0-l0) | (ready l0) (on b0 l0))
-    pred_clause_prime_string = xVar_map['to-obj']
-    box_clause_prime_string = xVar_map['b0']
-    loc_clause_prime_string = xVar_map['l0']
-
-    add_to_tr(tr=transition_relation,
-              cube=pred_clause & box_clause & else_clause & loc_clause & act_clause,
-              prime_cube_str=pred_clause_prime_string + box_clause_prime_string + loc_clause_prime_string,
-              var_list=[p0, p1, b0, l0, l1])
-
-    pred_clause_prime_string = xVar_map['ready']
-    add_to_tr(tr=transition_relation,
-              cube=pred_clause & box_clause & else_clause & loc_clause & act_clause,
-              prime_cube_str=pred_clause_prime_string + box_clause_prime_string + loc_clause_prime_string,
-              var_list=[p0, p1, b0, l0, l1])
-
-
-            
-
-
 
 
 if __name__ == "__main__":
-    boxes = 5
-    locs = 20
+    boxes = 2
+    locs = 3
     fw = FrankaWorld(boxes, locs)
 
-    print('xVars map:')
+    print('****************xVars map:****************')
     for k, v in fw.xVar_map.items():
         print(f"{k} : {v}")
     
-    print('rAction map:')
+    print('****************rAction map:****************')
     for k, v in fw.rAction_map.items():
         print(f"{k} : {v}")
+    print("Total num of latches: ", len(fw.latches))
+
 
     # simple_franka_world()
+    tic = time.time()
     fw.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+    
     fw.test_pre_image()
 
     # print('Transition Relation:')
