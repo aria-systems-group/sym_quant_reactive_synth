@@ -503,7 +503,77 @@ class FrankaWorld():
                 continue
             box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
             print(f"({self.pVar_map.inv[rConf_cube_str]}, {box_states})")
+    
+    
+    def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
+        return From.vectorCompose(self.latches_bdd, ts_action)
+    
+
+    def get_buckets_of_BDD(self, max_interval_val: int, winning_states: ADD) -> Dict[int, BDD]:
+        _win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in range(max_interval_val + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval: BDD = winning_states.bddInterval(sval, sval)
             
+            if not win_sval.isZero():
+                _win_state_bucket[sval] |= win_sval
+        
+        return _win_state_bucket
+
+    def solve(self):
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            
+            # add the action costs    
+            # preimage = preimage + self.weight
+            preimage = preimage + self.manager.addOne()
+
+            # go over all the env actions and preserve the maximum one
+            # MaxUpre = []
+            # # for env_tr_dd in self.eAction_map.values():
+            # for env_tr_dd in self.env_action_cube_list:
+            #     MaxUpre.append(preimage.restrict(env_tr_dd))
+            
+            # Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(preimage.restrict(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            self.convert_cube_to_state_ADD(next_winning_states)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
     
 
     def test_pre_image(self):
