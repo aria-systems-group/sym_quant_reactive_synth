@@ -427,14 +427,15 @@ class FrankaWorld():
         for cube, val in cubes:
             rConf_cube_str = cube.existAbstract(self.all_bVars_cube).bddPattern().cubeString().replace('-', '')
             # for multiple boxes
-            # bCube_str = []
-            # for b in range(self.boxes):
-            #     all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
-            #     # all_but_b_cube = self.bVars_cubes[0]
-            #     bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
-            
-            # for single box
-            bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
+            if self.boxes > 1:
+                bCube_str = []
+                for b in range(self.boxes):
+                    all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
+                    # all_but_b_cube = self.bVars_cubes[0]
+                    bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
+            else:
+                # for single box
+                bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
             # you could have invalid states as well. We ksip over such cubes
             invalid_state = False
             for bidx, e in enumerate(bCube_str):
@@ -485,14 +486,16 @@ class FrankaWorld():
         for cube in cubes:
             rConf_cube_str = cube.existAbstract(self.all_bVars_cube).bddPattern().cubeString().replace('-', '')
             # for multiple boxes
-            # bCube_str = []
-            # for b in range(self.boxes):
-            #     all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
-            #     # all_but_b_cube = self.bVars_cubes[0]
-            #     bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
+            if self.boxes > 1:
+                bCube_str = []
+                for b in range(self.boxes):
+                    all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
+                    # all_but_b_cube = self.bVars_cubes[0]
+                    bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
+            else:
+                # for single box
+                bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
             
-            # for single box
-            bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
             # you could have invalid states as well. We ksip over such cubes
             invalid_state = False
             for bidx, e in enumerate(bCube_str):
@@ -519,6 +522,26 @@ class FrankaWorld():
                 _win_state_bucket[sval] |= win_sval
         
         return _win_state_bucket
+
+
+    def get_all_states_interval(self, upper: int, dd: ADD, lower: int = 0) -> BDD:
+        """
+         Helper function to get all the states below between Lower and Upper (both inclusive). 
+         Note Strict inludes the threshold value as well.
+        """
+        # returnns BDD of all the states with state value greater than lower
+        bdd_sgtl = dd.bddStrictThreshold(lower)
+        # returnns BDD of all the states with state value greater than upper
+        bdd_gtu = dd.bddThreshold(upper)
+        # this include cubes corresponding to the upper values as well
+        bdd_ltu = ~bdd_gtu
+
+        return bdd_ltu & ~bdd_sgtl
+
+
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        raise NotImplementedError()
+
 
     def solve(self):
         # initialize goal state with 0 state value and add it to the winnign regiom
@@ -557,7 +580,7 @@ class FrankaWorld():
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
-            self.convert_cube_to_state_ADD(next_winning_states)
+            # self.convert_cube_to_state_ADD(next_winning_states)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
@@ -597,12 +620,14 @@ class FrankaWorld():
 
 
 if __name__ == "__main__":
-    boxes = 1
-    locs = 2
-    # init = ['ready l2', 'b0 l2', 'b1 l3']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3']
-    init = ['ready l3', 'b0 l2']
-    goal = ['ready l1', 'b0 l1']
+    boxes = 3
+    locs = 4
+    init = ['ready l3', 'b0 l2', 'b1 l3']
+    goal = ['ready l1', 'b0 l1', 'b1 l3']
+    # init = ['ready l3', 'b0 l2']
+    # goal = ['ready l1', 'b0 l1']
+    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l5']
+    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l5']
     fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
 
     print('****************xVars map:****************')
@@ -614,19 +639,22 @@ if __name__ == "__main__":
         print(f"{k} : {v}")
     print("Total num of latches: ", len(fw.latches))
 
-
     # simple_franka_world()
     tic = time.time()
     fw.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
-    
-    synth_start = time.time() 
-    strategy = fw.solve()
-    synth_stop = time.time()
-    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
+
     # fw.test_pre_image()
 
     # print('Transition Relation:')
     # for k, v in fw.transition_relation.items():
     #     print(f"{k} : {v}")
+    
+    synth_start = time.time() 
+    strategy = fw.solve()
+    synth_stop = time.time()
+    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
+    # testing things out
+    t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    print("Done")
