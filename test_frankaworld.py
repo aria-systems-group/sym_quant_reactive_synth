@@ -35,8 +35,8 @@ class FrankaWorld():
         # self.holding_preds = self.to_obj_preds = self.ready_preds = set({})
 
         self.xVar_map = dict()
-        self.rAction_map = dict()
-        self.eAction_map = dict()
+        self.rAction_map = bidict({})
+        self.eAction_map = bidict({})
         self.xVar_map_sym  = dict()
         
         # maps needs for lookup of the states corresponding to cubes
@@ -48,8 +48,8 @@ class FrankaWorld():
         self.create_eAction_map()
 
         # more bookeeping stuff
-        self.rAction_map_sym = {k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()}
-        self.eAction_map_sym = {k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()}
+        self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
+        self.eAction_map_sym = bidict({k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()})
         self.create_symbolic_maps()
 
         self.init_latch: ADD = self.set_init_latch() 
@@ -61,6 +61,8 @@ class FrankaWorld():
         self.pVars_cube: ADD = reduce(lambda a, b: a & b, self.pVars)
         self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
         self.all_bVars_cube: ADD = reduce(lambda a, b: a & b, self.bVars_cubes)
+        self.iVars_cube: ADD = reduce(lambda x, y: x & y, self.iVars)
+        self.oVars_cube: ADD = reduce(lambda x, y: x & y, self.oVars)
 
         # precompute cubes for iVars and oVars - needed for synthesis
         self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
@@ -290,57 +292,32 @@ class FrankaWorld():
                     if s == '1':
                         self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= transition_cube
 
-                # Frame Axioms: Other boxes and robot state remain unchanged
-                # for other_b_idx in range(self.boxes):
-                #     if other_b_idx == b_idx:
-                #         continue
-                #     # for b_var in self.bVars[other_b_idx]:
-                #     #     self.transition_relation[b_var.bddPattern().__str__()] |= transition_cube & b_var
-                    
-                #     for frame_loc in range(1, self.locs + 1):
-                #         if frame_loc == l_idx:
-                #             continue
-                #         frame_box_pred: str = 'b' + str(other_b_idx) + ' l' + str(frame_loc)
-                #         for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                #             if s == '1':
-                #                 self.transition_relation[self.bVars[other_b_idx][sidx].bddPattern().__str__()] |= transition_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b_idx])
-
-                # for p_var in self.pVars:
-                #     self.transition_relation[p_var.bddPattern().__str__()] |= transition_cube & p_var
-
         # Rule 4: Interaction between robot 'transit' and human 'h_move'
-        for b_idx in range(self.boxes):
-            # Robot action is 'transit' to this box
-            robot_act_cube = self.cube_to_add(self.rAction_map[f'transit b{b_idx}'], self.oVars)
+        # for b_idx in range(self.boxes):
+        #     # Robot action is 'transit' to this box
+        #     robot_act_cube = self.cube_to_add(self.rAction_map[f'transit b{b_idx}'], self.oVars)
             
-            for from_loc in range(1, self.locs + 2):
-                # Robot is currently 'ready' at some location
-                robot_state_cube = self.cube_to_add(self.xVar_map[f'ready l{from_loc}'], self.pVars)
+        #     for from_loc in range(1, self.locs + 2):
+        #         # Robot is currently 'ready' at some location
+        #         robot_state_cube = self.cube_to_add(self.xVar_map[f'ready l{from_loc}'], self.pVars)
 
-                for l_idx in range(1, self.locs + 1):
-                    # Human moves the same box the robot is transiting to
-                    human_act_cube = self.cube_to_add(self.eAction_map[f'{self.human_action[0]} b{b_idx} l{l_idx}'], self.iVars)
+        #         for l_idx in range(1, self.locs + 1):
+        #             # Human moves the same box the robot is transiting to
+        #             human_act_cube = self.cube_to_add(self.eAction_map[f'{self.human_action[0]} b{b_idx} l{l_idx}'], self.iVars)
 
-                    # Full precondition for this interaction
-                    interaction_cube = robot_act_cube & human_act_cube & robot_state_cube & ee_empty_cube
+        #             # Full precondition for this interaction
+        #             interaction_cube = robot_act_cube & human_act_cube & robot_state_cube & ee_empty_cube
 
-                    # Effect: Robot state evolves back to its current 'ready' state
-                    for sidx, s in enumerate(self.xVar_map[f'ready l{from_loc}']):
-                        if s == '1':
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= interaction_cube
+        #             # Effect: Robot state evolves back to its current 'ready' state
+        #             for sidx, s in enumerate(self.xVar_map[f'ready l{from_loc}']):
+        #                 if s == '1':
+        #                     self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= interaction_cube
                     
-                    # Effect: Box moves to the new location specified by the human
-                    box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
-                    for sidx, s in enumerate(box_next_state_str):
-                        if s == '1':
-                            self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= interaction_cube
-                    
-                    # Frame Axiom: Other boxes do not change state
-                    # for other_b_idx in range(self.boxes):
-                    #     if other_b_idx == b_idx:
-                    #         continue
-                    #     for b_var in self.bVars[other_b_idx]:
-                    #         self.transition_relation[b_var.bddPattern().__str__()] |= interaction_cube & b_var
+        #             # Effect: Box moves to the new location specified by the human
+        #             box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
+        #             for sidx, s in enumerate(box_next_state_str):
+        #                 if s == '1':
+        #                     self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= interaction_cube
     
 
         
@@ -370,28 +347,60 @@ class FrankaWorld():
                     bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(to_loc), bConf_cube=bConf_cube)
 
                     # next state clauses - (to-obj b0); box location does not change
-                    box_clause_prime_string = self.xVar_map[box_pred]
-                    pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
-                    
-                    for sidx, s in enumerate(pred_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
-                    
-                    for sidx, s in enumerate(box_clause_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
-            
-                    # Frame Axioms: Other boxes do not change their location
-                    for other_b in range(self.boxes):
-                        if other_b == b:
-                            continue
-                        for frame_loc in range(1, self.locs + 1):
-                            if frame_loc == to_loc:
-                                continue
-                            frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                            for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
+                    for turn in ['human-move', 'human-no-move']:
+                        if turn == 'human-no-move':
+                            box_clause_prime_string = self.xVar_map[box_pred]
+                            pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
+                            
+                            for sidx, s in enumerate(pred_clause_prime_string):
                                 if s == '1':
-                                    self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
+                                    self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
+                            
+                            for sidx, s in enumerate(box_clause_prime_string):
+                                if s == '1':
+                                    self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
+                    
+                            # Frame Axioms: Other boxes do not change their location
+                            for other_b in range(self.boxes):
+                                if other_b == b:
+                                    continue
+                                for frame_loc in range(1, self.locs + 1):
+                                    if frame_loc == to_loc:
+                                        continue
+                                    frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
+                                    for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
+                                        if s == '1':
+                                            self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
+                        
+                        elif turn == 'human-move':
+                            for human_to_loc in range(1, self.locs + 1):
+                                if human_to_loc == to_loc:
+                                    continue
+                                h_act_str: str = f'{self.human_action[0]} b{b} l{human_to_loc}'
+                                h_act_cube: ADD = self.cube_to_add(self.eAction_map[h_act_str], self.iVars)
+                                box_clause_prime_string = self.xVar_map['b' + str(b) + ' l' + str(human_to_loc)]
+                                pred_clause_prime_string = self.xVar_map['ready l' + str(to_loc)]
+                                
+                                for sidx, s in enumerate(pred_clause_prime_string):
+                                    if s == '1':
+                                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & h_act_cube
+                                
+                                for sidx, s in enumerate(box_clause_prime_string):
+                                    if s == '1':
+                                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & h_act_cube
+                        
+                                # Frame Axioms: Other boxes do not change their location
+                                for other_b in range(self.boxes):
+                                    if other_b == b:
+                                        continue
+                                    for frame_loc in range(1, self.locs + 1):
+                                        if frame_loc == to_loc:
+                                            continue
+                                        frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
+                                        for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
+                                            if s == '1':
+                                                self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b]) & h_act_cube
+
         
         # grasp action
         for b in range(self.boxes):
@@ -521,14 +530,12 @@ class FrankaWorld():
                             for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
                                 if s == '1':
                                     self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
+        
         # add human moves to the transition relation
-        self.add_human_moves()
+        # self.add_human_moves()
     
 
-    def convert_cube_to_state_ADD(self, dd: ADD) -> None:
-        """
-         Convert a cube to a state representation
-        """
+    def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
         for cube_list, val in dd.generate_cubes():
             if val == math.inf:
@@ -536,7 +543,7 @@ class FrankaWorld():
             _amb_var = []
             var_list = []
             for _idx, var in enumerate(cube_list):
-                if self.manager.addVar(_idx) not in self.latches:
+                if self.manager.addVar(_idx) not in relevant_vars:
                     continue
 
                 if var == 2:
@@ -559,30 +566,71 @@ class FrankaWorld():
             else:
                 cubes.append((reduce(lambda a, b: a & b, var_list), val))
         
+        return cubes
 
+    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, human_action: bool = False ) -> None:
+        """
+         Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
+         If you want to print the robot action as well, set robot_action to True. 
+         If you want to print the human action as well, set human_action to True.
+        """
+        relevant_vars = []
+        if state_flag:
+            relevant_vars.extend(self.latches)
+        if robot_action:
+            relevant_vars.extend(self.oVars)
+        if human_action:
+            relevant_vars.extend(self.iVars)
+
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+        # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
+        start_ivar_idx, end_ivar_idx = self.manager.addVariables().index(self.iVars[0]), self.manager.addVariables().index(self.iVars[-1])
+        
+        # create existential abstraction cubes
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.xVars[len(self.pVars):] + self.oVars + self.iVars)
+        # because ADD is not iterable and cannot be added to a list directly
+        bConf_exist_cube = dict({})
+        for bidx in range(self.boxes):
+            if self.boxes == 1:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.pVars + self.oVars + self.iVars)
+            else:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.pVars + self.oVars + self.iVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+        
         # print the states
         for cube, val in cubes:
-            rConf_cube_str = cube.existAbstract(self.all_bVars_cube).bddPattern().cubeString().replace('-', '')
-            # for multiple boxes
-            if self.boxes > 1:
-                bCube_str = []
-                for b in range(self.boxes):
-                    all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
-                    # all_but_b_cube = self.bVars_cubes[0]
-                    bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
-            else:
-                # for single box
-                bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
-            # you could have invalid states as well. We ksip over such cubes
-            invalid_state = False
-            for bidx, e in enumerate(bCube_str):
-                if e not in self.bVars_map[bidx].inv:
-                    invalid_state = True
-                    break
-            if invalid_state:
+            rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            bCube_str = []
+            for e in bConf_exist_cube.values():
+                bCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            try:
+                box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
+            except KeyError:
                 continue
-            box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
-            print(f"[({self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
+            
+            try:
+                print(f"[({self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
+            except KeyError:
+                continue
+            
+            # print the robot and human actions as well
+            if robot_action:
+                oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
+                try:
+                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                except KeyError:
+                    continue
+            if human_action:
+                iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
+                try:
+                    eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
+                except KeyError:
+                    continue
+            if robot_action or human_action:    
+                action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
+                print(f"    -- Actions: ({action})")
     
     
     
@@ -699,6 +747,8 @@ class FrankaWorld():
             # add the action costs    
             # preimage = preimage + self.weight
             preimage = preimage + self.manager.addOne()
+            print("Current Preimage:")
+            self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=True, human_action=False)
 
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
@@ -717,6 +767,7 @@ class FrankaWorld():
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
+            print("Current Winning States:")
             self.convert_cube_to_state_ADD(next_winning_states)
             
             if curr_winning_states.compare(next_winning_states, 2):
@@ -762,8 +813,8 @@ if __name__ == "__main__":
     # init = ['ready l3', 'b0 l2', 'b1 l3']
     # goal = ['ready l1', 'b0 l1', 'b1 l3']
     init = ['ready l3', 'b0 l2']
-    goal = ['ready l1', 'b0 l1']
-    # goal = ['holding l1', 'b0 l0']
+    # goal = ['b0 l1']
+    goal = ['holding l1', 'b0 l0']
     # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l5']
     # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l5']
     fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
@@ -794,5 +845,5 @@ if __name__ == "__main__":
     synth_stop = time.time()
     print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
     # testing things out
-    t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
     print("Done")
