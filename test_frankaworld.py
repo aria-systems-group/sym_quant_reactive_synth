@@ -269,7 +269,7 @@ class FrankaWorld():
         for b_idx in range(self.boxes):
             # Rule 1 & 2 Preconditions: Box is not held and robot is not about to grasp it.
             # These are independent of the destination location.
-            box_not_held_cube = ~self.cube_to_add(self.xVar_map[f'b{b_idx} l0'], self.bVars[b_idx])
+            # box_not_held_cube = ~self.cube_to_add(self.xVar_map[f'b{b_idx} l0'], self.bVars[b_idx])
             robot_not_to_obj_cube = ~self.cube_to_add(self.xVar_map[f'to-obj b{b_idx}'], self.pVars)
             
             for l_idx in range(1, self.locs + 1):
@@ -281,7 +281,8 @@ class FrankaWorld():
                 robot_not_releasing_at_dest_cube: ADD = ~forbidden_release_cond
 
                 # Combine all preconditions for this specific human move
-                pre_condition_cube = box_not_held_cube & robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
+                # pre_condition_cube = box_not_held_cube & robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
+                pre_condition_cube = robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
 
                 # The full condition for this transition to occur
                 transition_cube = h_act_cube & pre_condition_cube
@@ -463,6 +464,7 @@ class FrankaWorld():
                 pred_clause_prime_string = self.xVar_map['ready ' + to_loc]
                 box_clause_prime_string = self.xVar_map[box_pred_prime]
                 # need to enforce that the end-effector is empty - we enforce it from transit action, so maybe we don;t need it here. Check this!!!
+                # TODO: Need to enforce that the box can only be release at an empty location
                 
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
@@ -532,7 +534,7 @@ class FrankaWorld():
                                     self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
         
         # add human moves to the transition relation
-        # self.add_human_moves()
+        self.add_human_moves()
     
 
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
@@ -748,7 +750,7 @@ class FrankaWorld():
             # preimage = preimage + self.weight
             preimage = preimage + self.manager.addOne()
             print("Current Preimage:")
-            self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=True, human_action=False)
+            self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=True, human_action=True)
 
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
@@ -807,43 +809,148 @@ class FrankaWorld():
         self.convert_cube_to_state(pre)
 
 
+def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
+    From = From.swapVariables(latches, prime_latches)
+    return From.vectorCompose(prime_latches, ts_action)
+
+
+def test_dynamic_franka_world():
+    manager = Cudd()
+    # ready l4, ready l1; ready l2; ready l3, to-obj b0
+    p0, p1, p2 = manager.addVar(0, 'p0'), manager.addVar(1, 'p1'), manager.addVar(2, 'p2')
+    # b0 l1, b0 l2, b0 l0, b0 l3
+    b0, b1, b2 = manager.addVar(3, 'b00'), manager.addVar(4, 'b01'), manager.addVar(5, 'b02')
+    # bookkeeping
+    pVars = [p0, p1, p2]
+    bVars = [b0, b1, b2]
+
+    # create prime vars
+    offset = len(pVars) + len(bVars)
+    p0_p, p1_p, p2_p = manager.addVar(offset, "pp0"), manager.addVar(offset + 1, "pp1"), manager.addVar(offset + 2, "pp2")
+    b0_p, b1_p, b2_p = manager.addVar(offset + 3, "pb00"), manager.addVar(offset + 4, "pb01"), manager.addVar(offset + 5, "pb02")
+
+    # bookkeeping
+    prime_pVars = [p0_p, p1_p, p2_p]
+    prime_bVars = [b0_p, b1_p, b2_p]
+
+    # create robot action vars - transit b0
+    offset = len(pVars) + len(bVars) + len(prime_pVars) + len(prime_bVars)
+    # transit b0 + dummy var
+    o0 = manager.addVar(offset, 'o0')
+    # hmove b0 l1, hmove b0 l2 + dummy var
+    i0, i1 = manager.addVar(offset + 1, 'i0'), manager.addVar(offset + 2, 'i1')  
+
+    transition_relation = {var.bddPattern().__str__(): manager.addZero() for var in [p0, p1, p2, b0, b1, b2]}
+
+    # create cubes
+    ready_l4 = ~p0 & ~p1 & p2
+    ready_l1 = ~p0 & p1 & ~p2
+    ready_l2 = ~p0 & p1 & p2
+    to_obj_b0 = p0 & ~p1 & ~p2
+    ready_l3 = p0 & ~p1 & p2
+
+    # box cubes
+    b0_l0 = ~b0 & ~b1 & b2
+    b0_l1 = ~b0 & b1 & ~b2
+    b0_l2 = ~b0 & b1 & b2
+    b0_l3 = b0 & ~b1 & ~b2
+
+    transit_b0 = o0
+    hmove_b0_l3 = ~i0 & i1
+    hmove_b0_l2 = i0 & ~i1
+
+    # (ready l4) (b0 l1) --- (transit b0) ---> (to-obj b0) (b0 l1)
+    tr1 = ready_l4 & b0_l1 & transit_b0
+
+    rConf_prime_str = '100'
+    bConf_prime_str = '010'
+    for sidx, s in enumerate(rConf_prime_str):
+        if s == '1':
+            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3)
+    
+    for sidx, s in enumerate(bConf_prime_str):
+        if s == '1':
+            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3)
+    
+    # (ready l4) (b0 l1) --- (transit b0) (hmove b0 l2) ---> (ready l1) (b0 l2)
+    rConf_prime_str = '010'
+    bConf_prime_str = '011'
+    for sidx, s in enumerate(rConf_prime_str):
+        if s == '1':
+            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l2
+    
+    for sidx, s in enumerate(bConf_prime_str):
+        if s == '1':
+            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l2
+    
+
+    # (ready l4) (b0 l1) --- (transit b0) (hmove b0 l3) ---> (ready l1) (b0 l3)
+    rConf_prime_str = '010'
+    bConf_prime_str = '100'
+    for sidx, s in enumerate(rConf_prime_str):
+        if s == '1':
+            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l3
+    
+    for sidx, s in enumerate(bConf_prime_str):
+        if s == '1':
+            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l3
+    
+    # goal_latch = to_obj_b0 & b0_l1
+    # goal_latch = ready_l1 & b0_l3
+    goal_latch = b0_l1 | b0_l2 | b0_l3
+    preimage = preimage_test(From=goal_latch,
+                            latches=pVars + bVars,
+                            prime_latches=prime_pVars + prime_bVars,
+                            ts_action=list(transition_relation.values()))
+    
+    print("Preimage: ", preimage)
+    
+
+
+
+    
+
+
+
 if __name__ == "__main__":
-    boxes = 1
-    locs = 2
+    # boxes = 2
+    # locs = 3
     # init = ['ready l3', 'b0 l2', 'b1 l3']
     # goal = ['ready l1', 'b0 l1', 'b1 l3']
-    init = ['ready l3', 'b0 l2']
-    # goal = ['b0 l1']
-    goal = ['holding l1', 'b0 l0']
-    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l5']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l5']
-    fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
+    # # init = ['ready l3', 'b0 l2']
+    # # goal = ['b0 l1']
+    # # goal = ['ready l1', 'b0 l1']
+    # # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l5']
+    # # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l5']
+    # fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
 
-    print('****************xVars map:****************')
-    for k, v in fw.xVar_map.items():
-        print(f"{k} : {v}")
-    
-    print('****************rAction map:****************')
-    for k, v in fw.rAction_map.items():
-        print(f"{k} : {v}")
-    print("Total num of latches: ", len(fw.latches))
-
-    # simple_franka_world()
-    tic = time.time()
-    fw.create_transition_relation()
-    toc = time.time()
-    print(f"Time to create transition relation: {toc - tic} seconds")
-
-    # fw.test_pre_image()
-
-    # print('Transition Relation:')
-    # for k, v in fw.transition_relation.items():
+    # print('****************xVars map:****************')
+    # for k, v in fw.xVar_map.items():
     #     print(f"{k} : {v}")
     
-    synth_start = time.time() 
-    strategy = fw.solve()
-    synth_stop = time.time()
-    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
-    # testing things out
-    # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
-    print("Done")
+    # print('****************rAction map:****************')
+    # for k, v in fw.rAction_map.items():
+    #     print(f"{k} : {v}")
+    # print("Total num of latches: ", len(fw.latches))
+
+    # # simple_franka_world()
+    # tic = time.time()
+    # fw.create_transition_relation()
+    # toc = time.time()
+    # print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # # fw.test_pre_image()
+
+    # # print('Transition Relation:')
+    # # for k, v in fw.transition_relation.items():
+    # #     print(f"{k} : {v}")
+    
+    # synth_start = time.time() 
+    # strategy = fw.solve()
+    # synth_stop = time.time()
+    # print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
+    # # testing things out
+    # # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    # print("Done")
+
+    test_dynamic_franka_world()
