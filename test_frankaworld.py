@@ -849,14 +849,10 @@ class FrankaWorldDynamic(FrankaWorld):
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
-                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
-                        # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
     
 
     def create_release_actions(self):
@@ -905,28 +901,73 @@ class FrankaWorldDynamic(FrankaWorld):
                         for sidx, s in enumerate(hbox_clause_prime_string):
                             if s == '1':
                                 self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
-                    
-                    # add frame axioms
-                    # self.add_frame_axioms(transition_cube=robot_transition_cube & h_act_cube, human_box=other_b, robot_box=b, human_box_loc=human_to_loc, robot_box_loc=loc)
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def create_transit_actions(self):
         pass
 
 
-    def create_treansfer_actions(self):
-        pass
+    def create_transfer_actions(self):
+        """
+         Create transfer actions for the robot. For each transfer action we create all possible human actions. 
+            Human can move any box to any location. This includes location that the robot is transferring to. 
+
+         For a fixed robot action, we first construct all valid human moves and the corresponding transition cubes.
+         Next, we add the transition where the human does no move as ~(valid_human_moves).
+        """
+        for b in range(self.boxes):
+            curr_box_pred = f'b{b} l0'
+            for from_loc in range(1, self.locs + 1):
+                rConf = f'holding l{from_loc}'
+                rConf_cube = self.xVar_map_sym[rConf]
+                for to_loc in range(1, self.locs + 1):
+                    if from_loc == to_loc:
+                        continue
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
+                    bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
+
+                    robot_transition_cube = rConf_cube & bConf_cube & robot_act_cube
+
+                    # next state clauses - (holding to_loc) ; box location does not change
+                    pred_clause_prime_string = self.xVar_map[f'holding l{to_loc}']
+                    box_clause_prime_string = self.xVar_map[curr_box_pred] 
+
+                    # we frist create all valid human moves
+                    valid_human_moves = self.manager.addZero()
+                    for other_b in range(self.boxes):
+                        if other_b == b:
+                            continue
+                        for human_to_loc in range(1, self.locs + 1):
+                            h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
+                            h_act_cube: ADD = self.eAction_map_sym[h_act_str]
+                            valid_human_moves |= h_act_cube
+
+                            human_transition_cube = robot_transition_cube & h_act_cube
+                            hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
+
+                            # here we will only add the next state clauses for the box being moved by the human
+                            for sidx, s in enumerate(hbox_clause_prime_string):
+                                if s == '1':
+                                    self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                    
+                    # now we add the transition where the human does all the valid move and the robot grasps the box
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
