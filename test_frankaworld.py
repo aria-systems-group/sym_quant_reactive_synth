@@ -232,7 +232,7 @@ class FrankaWorld():
         for ob in range(self.boxes):
             if ob == curr_box:
                 continue
-            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(ob) + ' l0'], self.bVars[ob])
+            bConf_cube &= ~self.xVar_map_sym['b' + str(ob) + ' l0']
         return bConf_cube
     
 
@@ -241,7 +241,7 @@ class FrankaWorld():
         for ob in range(self.boxes):
             if ob == curr_box:
                 continue
-            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(ob) + f' {curr_loc}'], self.bVars[ob])
+            bConf_cube &= ~self.xVar_map_sym['b' + str(ob) + f' {curr_loc}']
         return bConf_cube
     
 
@@ -249,77 +249,49 @@ class FrankaWorld():
         # cube that implies that end-effector location empty
         bConf_cube = self.manager.addOne()
         for b in range(self.boxes):
-            bConf_cube &= ~self.cube_to_add(self.xVar_map['b' + str(b) + ' l0'], self.bVars[b])
+            bConf_cube &= ~self.xVar_map_sym['b' + str(b) + ' l0']
         return bConf_cube
     
 
-    def add_human_moves(self):
-        """
-         The human action has some precondition that needs to satisfied. These are as follows:
+    # def add_human_moves(self):
+    #     """
+    #      The human action has some precondition that needs to satisfied. These are as follows:
 
-        1. Human can not move a box that is being currently grasped that is in end effector loc. 
-        2. Human can not move a box that will be grasped in the next step. 
-        3. Human can not move a box to a loc where the robot is about release a box
-        4. If the robot is transit-ing to a box b and human moves box to some other loc, then the state under the transit evolves
-            to 'ready' conf. so that the robot can again transit to another object.
-        """
-        ee_empty_cube: ADD = self.create_ee_empty_cube()
-        robot_action_is_release_cube = self.cube_to_add(self.rAction_map['release'], self.oVars)
-        # Human Moves: human can move any box to any location, with preconditions
-        for b_idx in range(self.boxes):
-            # Rule 1 & 2 Preconditions: Box is not held and robot is not about to grasp it.
-            # These are independent of the destination location.
-            # box_not_held_cube = ~self.cube_to_add(self.xVar_map[f'b{b_idx} l0'], self.bVars[b_idx])
-            robot_not_to_obj_cube = ~self.cube_to_add(self.xVar_map[f'to-obj b{b_idx}'], self.pVars)
+    #     1. Human can not move a box that is being currently grasped that is in end effector loc. 
+    #     2. Human can not move a box that will be grasped in the next step. 
+    #     3. Human can not move a box to a loc where the robot is about release a box
+    #     4. If the robot is transit-ing to a box b and human moves box to some other loc, then the state under the transit evolves
+    #         to 'ready' conf. so that the robot can again transit to another object.
+    #     """
+    #     ee_empty_cube: ADD = self.create_ee_empty_cube()
+    #     robot_action_is_release_cube = self.cube_to_add(self.rAction_map['release'], self.oVars)
+    #     # Human Moves: human can move any box to any location, with preconditions
+    #     for b_idx in range(self.boxes):
+    #         # Rule 1 & 2 Preconditions: Box is not held and robot is not about to grasp it.
+    #         # These are independent of the destination location.
+    #         # box_not_held_cube = ~self.cube_to_add(self.xVar_map[f'b{b_idx} l0'], self.bVars[b_idx])
+    #         robot_not_to_obj_cube = ~self.cube_to_add(self.xVar_map[f'to-obj b{b_idx}'], self.pVars)
             
-            for l_idx in range(1, self.locs + 1):
-                h_act_str: str = f'{self.human_action[0]} b{b_idx} l{l_idx}'
-                h_act_cube: ADD = self.cube_to_add(self.eAction_map[h_act_str], self.iVars)
+    #         for l_idx in range(1, self.locs + 1):
+    #             h_act_str: str = f'{self.human_action[0]} b{b_idx} l{l_idx}'
+    #             h_act_cube: ADD = self.cube_to_add(self.eAction_map[h_act_str], self.iVars)
 
-                # Rule 3 Precondition: Robot is not holding a box at the destination location.
-                forbidden_release_cond: ADD = self.cube_to_add(self.xVar_map[f'holding l{l_idx}'], self.pVars) & robot_action_is_release_cube
-                robot_not_releasing_at_dest_cube: ADD = ~forbidden_release_cond
+    #             # Rule 3 Precondition: Robot is not holding a box at the destination location.
+    #             forbidden_release_cond: ADD = self.cube_to_add(self.xVar_map[f'holding l{l_idx}'], self.pVars) & robot_action_is_release_cube
+    #             robot_not_releasing_at_dest_cube: ADD = ~forbidden_release_cond
 
-                # Combine all preconditions for this specific human move
-                # pre_condition_cube = box_not_held_cube & robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
-                pre_condition_cube = robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
+    #             # Combine all preconditions for this specific human move
+    #             # pre_condition_cube = box_not_held_cube & robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
+    #             pre_condition_cube = robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
 
-                # The full condition for this transition to occur
-                transition_cube = h_act_cube & pre_condition_cube
+    #             # The full condition for this transition to occur
+    #             transition_cube = h_act_cube & pre_condition_cube
 
-                # Define the next state for the box being moved
-                box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
-                for sidx, s in enumerate(box_next_state_str):
-                    if s == '1':
-                        self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= transition_cube
-
-        # Rule 4: Interaction between robot 'transit' and human 'h_move'
-        # for b_idx in range(self.boxes):
-        #     # Robot action is 'transit' to this box
-        #     robot_act_cube = self.cube_to_add(self.rAction_map[f'transit b{b_idx}'], self.oVars)
-            
-        #     for from_loc in range(1, self.locs + 2):
-        #         # Robot is currently 'ready' at some location
-        #         robot_state_cube = self.cube_to_add(self.xVar_map[f'ready l{from_loc}'], self.pVars)
-
-        #         for l_idx in range(1, self.locs + 1):
-        #             # Human moves the same box the robot is transiting to
-        #             human_act_cube = self.cube_to_add(self.eAction_map[f'{self.human_action[0]} b{b_idx} l{l_idx}'], self.iVars)
-
-        #             # Full precondition for this interaction
-        #             interaction_cube = robot_act_cube & human_act_cube & robot_state_cube & ee_empty_cube
-
-        #             # Effect: Robot state evolves back to its current 'ready' state
-        #             for sidx, s in enumerate(self.xVar_map[f'ready l{from_loc}']):
-        #                 if s == '1':
-        #                     self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= interaction_cube
-                    
-        #             # Effect: Box moves to the new location specified by the human
-        #             box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
-        #             for sidx, s in enumerate(box_next_state_str):
-        #                 if s == '1':
-        #                     self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= interaction_cube
-    
+    #             # Define the next state for the box being moved
+    #             box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
+    #             for sidx, s in enumerate(box_next_state_str):
+    #                 if s == '1':
+    #                     self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= transition_cube
 
         
     
@@ -897,11 +869,20 @@ def test_dynamic_franka_world():
     
     # goal_latch = to_obj_b0 & b0_l1
     # goal_latch = ready_l1 & b0_l3
-    goal_latch = b0_l1 | b0_l2 | b0_l3
+    # lets test the restict functionality - lets restrict human moves to be anything but hmove_b0_l2
+    ts_action = list(transition_relation.values())
+    print("Testing Restrict Functionality")
+    tr_restricted = [e.restrict(~hmove_b0_l2) for e in transition_relation.values()]
+    # ts_action = tr_restricted
+    
+    goal_latch = b0_l2 
     preimage = preimage_test(From=goal_latch,
                             latches=pVars + bVars,
                             prime_latches=prime_pVars + prime_bVars,
-                            ts_action=list(transition_relation.values()))
+                            ts_action=ts_action)
+
+
+    
     
     print("Preimage: ", preimage)
     
@@ -913,44 +894,45 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    # boxes = 2
-    # locs = 3
-    # init = ['ready l3', 'b0 l2', 'b1 l3']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3']
-    # # init = ['ready l3', 'b0 l2']
-    # # goal = ['b0 l1']
-    # # goal = ['ready l1', 'b0 l1']
-    # # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l5']
-    # # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l5']
+    boxes = 2
+    locs = 3
+    init = ['ready l3', 'b0 l2', 'b1 l3']
+    goal = ['ready l1', 'b0 l1', 'b1 l3']
+    # init = ['ready l3', 'b0 l2']
+    # goal = ['holding l2', 'b0 l0']
+    # goal = ['ready l1', 'b0 l1']
+    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
     # fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
+    fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal)
 
-    # print('****************xVars map:****************')
-    # for k, v in fw.xVar_map.items():
-    #     print(f"{k} : {v}")
+    print('****************xVars map:****************')
+    for k, v in fw.xVar_map.items():
+        print(f"{k} : {v}")
     
-    # print('****************rAction map:****************')
-    # for k, v in fw.rAction_map.items():
+    print('****************rAction map:****************')
+    for k, v in fw.rAction_map.items():
+        print(f"{k} : {v}")
+    print("Total num of latches: ", len(fw.latches))
+
+    # simple_franka_world()
+    tic = time.time()
+    fw.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+
+    fw.test_pre_image()
+
+    # print('Transition Relation:')
+    # for k, v in fw.transition_relation.items():
     #     print(f"{k} : {v}")
-    # print("Total num of latches: ", len(fw.latches))
-
-    # # simple_franka_world()
-    # tic = time.time()
-    # fw.create_transition_relation()
-    # toc = time.time()
-    # print(f"Time to create transition relation: {toc - tic} seconds")
-
-    # # fw.test_pre_image()
-
-    # # print('Transition Relation:')
-    # # for k, v in fw.transition_relation.items():
-    # #     print(f"{k} : {v}")
     
     # synth_start = time.time() 
     # strategy = fw.solve()
     # synth_stop = time.time()
     # print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
-    # # testing things out
-    # # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
-    # print("Done")
+    # testing things out
+    # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    print("Done")
 
-    test_dynamic_franka_world()
+    # test_dynamic_franka_world()
