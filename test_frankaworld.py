@@ -607,66 +607,6 @@ class FrankaWorld():
                 print(f"    -- Actions: ({action})")
     
     
-    
-    def convert_cube_to_state(self, dd: BDD) -> None:
-        """
-         Convert a cube to a state representation
-        """
-        cubes = []
-        for cube_list in dd.generate_cubes():
-            _amb_var = []
-            var_list = []
-            for _idx, var in enumerate(cube_list):
-                if self.manager.addVar(_idx) not in self.latches:
-                    continue
-
-                if var == 2:
-                    _amb_var.append([self.manager.addVar(_idx), ~self.manager.addVar(_idx)])
-                elif var == 0:
-                    var_list.append(~self.manager.addVar(_idx))
-                elif var == 1:
-                    var_list.append(self.manager.addVar(_idx))
-                else:
-                    print("CUDD ERRROR, A variable is assigned an unaccounted integer assignment. FIX THIS!!")
-                    sys.exit(-1)
-            
-            # check if it is not full defined
-            if len(_amb_var) != 0:
-                cart_prod = list(product(*_amb_var))
-                for _ele in cart_prod:
-                    var_list.extend(_ele)
-                    cubes.append(reduce(lambda a, b: a & b, var_list))
-                    var_list = list(set(var_list) - set(_ele))
-            else:
-                cubes.append(reduce(lambda a, b: a & b, var_list))
-        
-
-        # print the states
-        for cube in cubes:
-            rConf_cube_str = cube.existAbstract(self.all_bVars_cube).bddPattern().cubeString().replace('-', '')
-            # for multiple boxes
-            if self.boxes > 1:
-                bCube_str = []
-                for b in range(self.boxes):
-                    all_but_b_cube = reduce(lambda a, b: a & b, self.bVars_cubes[:b] + self.bVars_cubes[b+1:])
-                    # all_but_b_cube = self.bVars_cubes[0]
-                    bCube_str.append(cube.existAbstract(all_but_b_cube & self.pVars_cube).bddPattern().cubeString().replace('-', ''))
-            else:
-                # for single box
-                bCube_str = [cube.existAbstract(self.pVars_cube).bddPattern().cubeString().replace('-', '')]
-            
-            # you could have invalid states as well. We ksip over such cubes
-            invalid_state = False
-            for bidx, e in enumerate(bCube_str):
-                if e not in self.bVars_map[bidx].inv:
-                    invalid_state = True
-                    break
-            if invalid_state:
-                continue
-            box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
-            print(f"({self.pVar_map.inv[rConf_cube_str]}, {box_states})")
-    
-    
     def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
         return From.vectorCompose(self.latches_bdd, ts_action)
     
@@ -778,7 +718,7 @@ class FrankaWorld():
         pre = From.vectorCompose(self.latches_bdd, tr_bdd)
 
         print('Preimage: ', pre)
-        self.convert_cube_to_state(pre)
+        # self.convert_cube_to_state(pre)
 
 
 
@@ -789,7 +729,22 @@ class FrankaWorldDynamic(FrankaWorld):
         super().__init__(boxes, locs, init, goal)
         self.one_box_per_loc_cube = defaultdict(lambda: self.manager.addZero())
         self.ee_empty_cube: ADD = self.create_ee_empty_cube()
+        self.human_move_b = defaultdict(lambda: self.manager.addZero())
+
+        # aggregate all human moves per block
+        self.aggregate_human_moves_per_block()
+
+        
     
+
+    def aggregate_human_moves_per_block(self):
+        """
+         A helper function to aggregate all human moves for a block. This is useful for adding frame axioms.
+        """
+        for b in range(self.boxes):
+            for k, v in self.eAction_map_sym.items():
+                if f'b{b} ' in k:
+                    self.human_move_b[b] |= v
 
     def create_one_box_per_loc(self):
         """
@@ -822,14 +777,13 @@ class FrankaWorldDynamic(FrankaWorld):
     
 
     def test_frame_axioms(self):
-        # precompute this here for now; will add it to init later
-        human_move_b = defaultdict(lambda: self.manager.addZero())
-
-        for b in range(self.boxes):
-            for k, v in self.eAction_map_sym.items():
-                if f'b{b} ' in k:
-                    human_move_b[b] |= v
+        """
+        A helper function to test the frame axioms. Frame axioms ensure that the boxes that
+          are not being moved by the human or robot do not change their location. This is like a state invariance constraint.
         
+        Here, we add frame axioms for all boxes that are currently "grounded" (i.e., not being moved by either the human or the robot). 
+          For box that is at end-effector (ee) location, we add the state invariance constraint during the action construction.
+        """
         grasp_action_cube = self.rAction_map_sym['grasp']
         release_action_cube = self.rAction_map_sym['release']
         for b in range(self.boxes):
@@ -838,7 +792,7 @@ class FrankaWorldDynamic(FrankaWorld):
                 box_pred = f"b{b} l{l}"
                 constraint_cube = self.manager.addOne()
                 not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
-                constraint_cube &= not_grasp_cube & not_release_cube & ~human_move_b[b]
+                constraint_cube &= not_grasp_cube & not_release_cube & ~self.human_move_b[b]
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
@@ -890,23 +844,19 @@ class FrankaWorldDynamic(FrankaWorld):
                         for sidx, s in enumerate(hbox_clause_prime_string):
                             if s == '1':
                                 self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
-                    
-                    # add frame axioms
-                    # self.add_frame_axioms(transition_cube=robot_transition_cube & h_act_cube, human_box=other_b, robot_box=b, human_box_loc=human_to_loc, robot_box_loc=loc)
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
+                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
-                
-            # add frame axioms
-            # self.add_frame_axioms(transition_cube=robot_transition_cube, human_box=-1, robot_box=b, human_box_loc=-1, robot_box_loc=0)
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                        # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
+                        # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
     
 
     def create_release_actions(self):
@@ -997,9 +947,9 @@ class FrankaWorldDynamic(FrankaWorld):
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l0'] & self.xVar_map_sym['holding l2'] 
-        # goal_cube = self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
+        goal_cube = self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
-        goal_cube = self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l3']
+        # goal_cube |= self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
         print('Goal state:', goal_cube)
         
         preimage = preimage_test(From=goal_cube,
@@ -1028,7 +978,7 @@ class FrankaWorldDynamic(FrankaWorld):
         self.create_transit_actions()
 
         # finally we create the transfer actions
-        self.create_treansfer_actions()
+        self.create_transfer_actions()
 
 
 
