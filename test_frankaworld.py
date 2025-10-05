@@ -904,10 +904,71 @@ class FrankaWorldDynamic(FrankaWorld):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
+                
+            # add frame axioms
+            # self.add_frame_axioms(transition_cube=robot_transition_cube, human_box=-1, robot_box=b, human_box_loc=-1, robot_box_loc=0)
     
 
     def create_release_actions(self):
-        pass
+        """
+         Create release actions for the robot. For each release action we create all possible human actions. 
+            Human can move any box, other than the being grasped, to any location, as long as the robot is not about to release at the location.
+
+         For a fixed robot action, we first construct all valid human moves and the corresponding transition cubes.
+         Next, we add the transition where the human does no move as ~(valid_human_moves).
+        """
+        robot_act_cube = self.rAction_map_sym['release']
+        for loc in range(1, self.locs + 1):
+            rConf_cube = self.xVar_map_sym[f'holding l{loc}']
+
+            # for a given location, it can any location, so we iterate over all locations
+            for b in range(self.boxes):
+                curr_box_pred = f"b{b} l0"
+                bConf_cube = self.xVar_map_sym[curr_box_pred]
+                bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
+
+                robot_transition_cube = rConf_cube & bConf_cube & robot_act_cube
+
+                # this is fixed and is independent of the human action
+                next_box_pred = f"b{b} l{loc}"
+                pred_clause_prime_string = self.xVar_map['ready l' + str(loc)]
+                box_clause_prime_string = self.xVar_map[next_box_pred]
+
+                # we frist create all valid human moves
+                valid_human_moves = self.manager.addZero()
+                # human can move any box other than the one being released by the robot
+                for other_b in range(self.boxes):  
+                    if other_b == b:
+                        continue
+                    # human can move to any location other than the one being released by the robot
+                    for human_to_loc in range(1, self.locs + 1): 
+                        if human_to_loc == loc:
+                            continue
+                        h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
+                        h_act_cube: ADD = self.eAction_map_sym[h_act_str]
+                        valid_human_moves |= h_act_cube
+
+                        human_transition_cube = robot_transition_cube & h_act_cube
+                        hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
+
+                        # here we will only add the next state clauses for the box being moved by the human
+                        for sidx, s in enumerate(hbox_clause_prime_string):
+                            if s == '1':
+                                self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                    
+                    # add frame axioms
+                    # self.add_frame_axioms(transition_cube=robot_transition_cube & h_act_cube, human_box=other_b, robot_box=b, human_box_loc=human_to_loc, robot_box_loc=loc)
+                
+                # now we add the transition where the human does all the valid move and the robot grasps the box
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & valid_human_moves
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves
 
 
     def create_transit_actions(self):
