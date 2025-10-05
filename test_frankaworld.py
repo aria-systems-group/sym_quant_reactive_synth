@@ -542,7 +542,7 @@ class FrankaWorld():
         
         return cubes
 
-    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, human_action: bool = False ) -> None:
+    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, human_action: bool = False) -> None:
         """
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the robot action as well, set robot_action to True. 
@@ -804,6 +804,45 @@ class FrankaWorldDynamic(FrankaWorld):
                                                                                          bConf_cube=self.xVar_map_sym[curr_box_pred])
     
 
+    def add_frame_axioms(self, transition_cube: ADD, human_box:int, human_box_loc: int, robot_box_loc: int, robot_box: int = -1):
+        """
+         Add frame axioms to the transition cube. Frame axioms ensure that the boxes that are not being moved by the human or robot do not change their location.
+         human_box: box being moved by the human
+         robot_box: box being moved by the robot, if any. If no box is being moved by the robot, set it to -1.
+        """
+        for other_b in range(self.boxes):
+            if other_b == human_box or other_b == robot_box:
+                continue
+            for frame_loc in range(1, self.locs + 1):
+                if frame_loc != robot_box_loc and frame_loc != human_box_loc:
+                    frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
+                    for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
+                        if s == '1':
+                            self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= transition_cube & self.xVar_map_sym[frame_box_pred]
+    
+
+    def test_frame_axioms(self):
+        # precompute this here for now; will add it to init later
+        human_move_b = defaultdict(lambda: self.manager.addZero())
+
+        for b in range(self.boxes):
+            for k, v in self.eAction_map_sym.items():
+                if f'b{b} ' in k:
+                    human_move_b[b] |= v
+        
+        grasp_action_cube = self.rAction_map_sym['grasp']
+        release_action_cube = self.rAction_map_sym['release']
+        for b in range(self.boxes):
+            not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
+            for l in range(1, self.locs + 1):
+                box_pred = f"b{b} l{l}"
+                constraint_cube = self.manager.addOne()
+                not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
+                constraint_cube &= not_grasp_cube & not_release_cube & ~human_move_b[b]
+                for sidx, s in enumerate(self.xVar_map[box_pred]):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
+
 
     def create_grasp_actions(self):
         """
@@ -851,6 +890,9 @@ class FrankaWorldDynamic(FrankaWorld):
                         for sidx, s in enumerate(hbox_clause_prime_string):
                             if s == '1':
                                 self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                    
+                    # add frame axioms
+                    # self.add_frame_axioms(transition_cube=robot_transition_cube & h_act_cube, human_box=other_b, robot_box=b, human_box_loc=human_to_loc, robot_box_loc=loc)
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -892,11 +934,11 @@ class FrankaWorldDynamic(FrankaWorld):
 
 
         # goal state is b0 and l0 and ready l0
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
-        goal_cube = self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l1']
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
-        # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l0'] & self.xVar_map_sym['holding l2'] 
+        # goal_cube = self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
+        goal_cube = self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l3']
         print('Goal state:', goal_cube)
         
         preimage = preimage_test(From=goal_cube,
@@ -906,6 +948,7 @@ class FrankaWorldDynamic(FrankaWorld):
 
         print('Preimage: \n', preimage)
         self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+        print('Break Here')
     
     
     def create_transition_relation(self):
@@ -914,6 +957,8 @@ class FrankaWorldDynamic(FrankaWorld):
         """
         # first we create grasp actions
         self.create_grasp_actions()
+
+        self.test_frame_axioms()
 
         # next we create the release actions
         self.create_release_actions()
@@ -1039,15 +1084,15 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    boxes = 2
-    locs = 3
-    init = ['ready l3', 'b0 l2', 'b1 l3']
-    goal = ['ready l1', 'b0 l1', 'b1 l3']
+    boxes = 3
+    locs = 4
+    # init = ['ready l3', 'b0 l2', 'b1 l3']
+    # goal = ['ready l1', 'b0 l1', 'b1 l3']
     # init = ['ready l3', 'b0 l2']
     # goal = ['holding l2', 'b0 l0']
     # goal = ['ready l1', 'b0 l1']
-    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
+    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
     # fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
     fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal)
 
