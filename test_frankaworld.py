@@ -647,6 +647,9 @@ class FrankaWorld():
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
+
+        # add self loop for goal states
+        # self.add_self_loop_for_goal()
         
         # intialize the iteration counter
         layer = 0
@@ -661,8 +664,8 @@ class FrankaWorld():
             # add the action costs    
             # preimage = preimage + self.weight
             preimage = preimage + self.manager.addOne()
-            print("Current Preimage:")
-            self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=True, human_action=True)
+            # print("Current Preimage:")
+            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
 
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
@@ -670,7 +673,7 @@ class FrankaWorld():
             for env_tr_dd in self.env_action_cube_list:
                 MaxUpre.append(preimage.restrict(env_tr_dd))
             
-            Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
             # go over all the sys actions and preserve the manimum one
             Minpre = []
@@ -807,6 +810,8 @@ class FrankaWorldDynamic(FrankaWorld):
          Next, we add the transition where the human does no move as ~(valid_human_moves).
 
         """
+        # need to enforce that the end-effector is empty
+        state_constraint_cube = self.ee_empty_cube
         robot_act_cube = self.rAction_map_sym['grasp']
         for b in range(self.boxes):
             rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
@@ -815,9 +820,6 @@ class FrankaWorldDynamic(FrankaWorld):
             for loc in range(1, self.locs + 1):
                 curr_box_pred = f"b{b} l{loc}"
                 bConf_cube = self.xVar_map_sym[curr_box_pred]
-                # need to enforce that the end-effector is empty
-                state_constraint_cube = self.ee_empty_cube
-                
                 # need to enforce that only one box is at loc l
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
 
@@ -913,7 +915,74 @@ class FrankaWorldDynamic(FrankaWorld):
 
 
     def create_transit_actions(self):
-        pass
+        """
+         Create transit actions for the robot. For each trnasit action we create all possible human actions. 
+           Human can move any box to any location. If the robot is transit-ing to a box, then we do no change the configuration of the robot
+            (i.e., ready l to ready l').
+           For the rest of the case, the robot conf changes from ready l to to-obj b.
+
+        For a fixed robot action, we first construct all valid human moves and the corresponding transition cubes.
+         Next, we add the transition where the human does no move as ~(valid_human_moves).
+        """
+        state_constraint_cube = self.ee_empty_cube
+        for b in range(self.boxes):
+            robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
+
+            for from_loc in range(1, self.locs + 2):
+                rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
+                
+                for to_loc in range(1, self.locs + 1):
+                    if from_loc == to_loc:
+                        continue
+                    curr_box_pred: str = f"b{b} l{to_loc}"
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    
+                    # need to enforce that only one box is at loc l
+                    bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(to_loc), bConf_cube=bConf_cube)
+
+                    robot_transition_cube = rConf_cube & bConf_cube & state_constraint_cube & robot_act_cube
+
+                    box_clause_prime_string = self.xVar_map[curr_box_pred]
+                    pred_clause_prime_string = self.xVar_map[f"to-obj b{b}"]
+                    
+                    # we frist create all valid human moves
+                    valid_human_moves = defaultdict(lambda: self.manager.addZero()) 
+                    for other_b in range(self.boxes):
+                        # if other_b == b:
+                        # valid_human_moves[other_b] = self.manager.addZero() 
+                        for human_to_loc in self.human_locs:
+                        # for human_to_loc in range(1, self.locs + 1): 
+                            if human_to_loc == to_loc and other_b == b:
+                                continue
+                            h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
+                            h_act_cube: ADD = self.eAction_map_sym[h_act_str]
+                            # if other_b == b:
+                            valid_human_moves[other_b] |= h_act_cube
+
+                            human_transition_cube = robot_transition_cube & h_act_cube
+                            hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
+
+                            # here we will only add the next state clauses for the box being moved by the human
+                            for sidx, s in enumerate(hbox_clause_prime_string):
+                                if s == '1':
+                                    self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                            
+                            if other_b == b:
+                                for sidx, s in enumerate(self.xVar_map[f"ready l{to_loc}"]):
+                                    if s == '1':
+                                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
+                    
+                    
+                    # now we add the transition where the human does all the valid move and the robot grasps the box
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~self.human_move_b[b]
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~self.human_move_b[b]
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
 
 
     def create_transfer_actions(self):
@@ -988,9 +1057,9 @@ class FrankaWorldDynamic(FrankaWorld):
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l0'] & self.xVar_map_sym['holding l2'] 
-        goal_cube = self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
-        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
-        # goal_cube |= self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
+        # goal_cube = self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b2 l3']
+        # goal_cube = self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2'] 
+        goal_cube = self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l2'] #& self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l3']
         print('Goal state:', goal_cube)
         
         preimage = preimage_test(From=goal_cube,
@@ -1001,6 +1070,28 @@ class FrankaWorldDynamic(FrankaWorld):
         print('Preimage: \n', preimage)
         self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
         print('Break Here')
+    
+
+    # def add_self_loop_for_goal(self):
+    #     """
+    #      Add self loop for the goal state. This is useful for the synthesis algorithm to work correctly.
+    #     """
+    #     # goal_cube = self.goal_latch
+    #     for s in self.goal:
+    #         pred_conf_str = self.xVar_map[s]
+    #         if s.startswith('b'):
+    #             # box id is the last character of the string 
+    #             bidx = int(s.split(' ')[0][-1])
+    #             for sidx, s in enumerate(pred_conf_str):
+    #                 if s == '1':
+    #                     self.transition_relation[self.bVars[bidx][sidx].bddPattern().__str__()] |= self.goal_latch
+    #         else:
+    #             for sidx, s in enumerate(pred_conf_str):
+    #                 if s == '1':
+    #                     self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= self.goal_latch
+            
+            
+            # self.transition_relation[latch.bddPattern().__str__()] |= goal_cube & latch
     
     
     def create_transition_relation(self):
@@ -1122,31 +1213,24 @@ def test_dynamic_franka_world():
                             latches=pVars + bVars,
                             prime_latches=prime_pVars + prime_bVars,
                             ts_action=ts_action)
-
-
-    
     
     print("Preimage: ", preimage)
-    
-
-
-
-    
 
 
 
 if __name__ == "__main__":
-    boxes = 3
-    locs = 4
-    # init = ['ready l3', 'b0 l2', 'b1 l3']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3']
-    # init = ['ready l3', 'b0 l2']
-    # goal = ['holding l2', 'b0 l0']
+    boxes = 2
+    locs = 3
+    init = ['to-obj b0', 'b0 l2', 'b1 l3']
+    goal = ['b0 l1']
+    # init = ['ready l3', 'b0 l1']
+    # goal = ['b0 l2']
     # goal = ['ready l1', 'b0 l1']
-    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
+    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
     # fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
-    fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal)
+    # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
+    fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=[2, 3])
 
     print('****************xVars map:****************')
     for k, v in fw.xVar_map.items():
@@ -1155,7 +1239,15 @@ if __name__ == "__main__":
     print('****************rAction map:****************')
     for k, v in fw.rAction_map.items():
         print(f"{k} : {v}")
+
+    print('****************eAction map:****************')
+    for k, v in fw.eAction_map.items():
+        print(f"{k} : {v}")
+    
+    
     print("Total num of latches: ", len(fw.latches))
+    print("Total num of prime latches: ", len(fw.prime_latches))
+    print("Total boolean vars: ", len(fw.latches) + len(fw.prime_latches))
 
     # simple_franka_world()
     tic = time.time()
@@ -1163,16 +1255,16 @@ if __name__ == "__main__":
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
 
-    fw.test_pre_image()
+    # fw.test_pre_image()
 
     # print('Transition Relation:')
     # for k, v in fw.transition_relation.items():
     #     print(f"{k} : {v}")
     
-    # synth_start = time.time() 
-    # strategy = fw.solve()
-    # synth_stop = time.time()
-    # print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
+    synth_start = time.time() 
+    strategy = fw.solve()
+    synth_stop = time.time()
+    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
     # testing things out
     # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
     print("Done")
