@@ -456,7 +456,7 @@ class FrankaWorld():
         
         return cubes
 
-    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False) -> None:
+    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the robot action as well, set robot_action to True. 
@@ -484,6 +484,7 @@ class FrankaWorld():
                 bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.pVars + self.oVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
         
         # print the states
+        states_action_pairs = [] 
         for cube, val in cubes:
             rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
             bCube_str = []
@@ -497,6 +498,7 @@ class FrankaWorld():
             
             try:
                 print(f"[({self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
+                states_action_pairs.append([((self.pVar_map.inv[rConf_cube_str], box_states), val), None])
             except KeyError:
                 continue
             
@@ -510,6 +512,9 @@ class FrankaWorld():
             if robot_action :    
                 # action = ", ".join(filter(None, [rAction_str if robot_action else None]))
                 print(f"    -- Actions: ({rAction_str})")
+                states_action_pairs[-1][-1] = rAction_str
+        
+        return states_action_pairs
     
     
     def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
@@ -541,10 +546,94 @@ class FrankaWorld():
         bdd_ltu = ~bdd_gtu
 
         return bdd_ltu & ~bdd_sgtl
+    
+
+    def get_next_state(self, curr_state: List[str], action: str) -> ADD:
+        """
+         A helper function to get the next state given the current state and action.
+        """
+        # if action is transit then, update the robot configuration
+        if action.startswith('transit'):
+            assert curr_state[0].startswith('ready'), "Make sure the robot is ready to transit!!!"
+            b_idx = action.split(' ')[1]
+            curr_state[0] = f'to-obj {b_idx}'
+        
+        # if action is grasp then, update the robot configuration and box configuration
+        elif action.startswith('grasp'):
+            assert curr_state[0].startswith('to-obj'), "Make sure the robot is in to-obj status when grasping!!!"
+            box: str = curr_state[0].split(' ')[1]
+            b_idx = int(box[-1])
+            # the box str while will of th form b0 l1, b1 l3, etc..
+            split_str = curr_state[1].split(', ')
+            l_idx = split_str[b_idx].split(' ')[1] 
+            split_str[b_idx] = f'{box} l0'
+            curr_state[1] = ', '.join(split_str)
+            # update the robot configuration
+            curr_state[0] = f'holding {l_idx}'
+
+        # if action is release then, update the robot configuration and box configuration
+        elif action.startswith('release'):
+            assert curr_state[0].startswith('holding'), "Make sure the robot is in holding status when releasing!!!"
+            l_idx = curr_state[0].split(' ')[1]
+            # change the box location from l0 to l_idx
+            split_str = curr_state[1].split(', ')
+            for bidx, b in enumerate(split_str):
+                if b.endswith('l0'):
+                    box = b.split(' ')[0]
+                    split_str[bidx] = f'{box} {l_idx}'
+                    break
+            # update the robot configuration
+            curr_state[1] = ', '.join(split_str)
+            curr_state[0] = f'ready {l_idx}'
+
+        
+        # if action is transfer then, update the robot configuration 
+        elif action.startswith('transfer'):
+            assert curr_state[0].startswith('holding'), "Make sure the robot is holding when transfering to another loc!!!"
+            l_idx = action.split(' ')[1]
+            curr_state[0] = f'holding {l_idx}'
+
+        else:
+            print("Unknown action. Cannot compute next state!!")
+            sys.exit(-1)
+        
+        # conver the string of boxes location to sperate state
+        split_str = curr_state[1].split(', ')
+        return self.xVar_map_sym[curr_state[0]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
 
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
-        raise NotImplementedError()
+        """
+         A function to rollout a give strategy
+        """
+        curr_state = self.init_latch
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+
+        while (curr_state & self.goal_latch).isZero():
+            if verbose:
+                print("Current State:")
+                curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, robot_action=False)
+                assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+                "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            opt_sval = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+
+            # get the action to be taken at the current state
+            act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            if verbose:
+                try:
+                    ract_name = self.rAction_map.inv[act_cube_string]
+                    print(f"Robot Action: {ract_name}")
+                except KeyError:
+                    print("No robot action found!!")
+                    return
+           
+            # get the next state
+            curr_state: ADD = self.get_next_state(list(curr_state_exp[0][0][0]), ract_name)
+
 
 
     def solve(self, verbose: bool = False) -> Optional[ADD]:
@@ -583,6 +672,10 @@ class FrankaWorld():
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    if (self.init_latch & curr_winning_states).isZero():
+                        print("Init state is a goal state. The state value is 0 and robot can take any action.")
+                        return None
+                    
                     init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A path to goal state exists!!. The Init state value is {init_val}")
                     self.comp_winning_states = curr_winning_states
@@ -1682,16 +1775,16 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    boxes = 6
-    locs = 10
+    boxes = 3
+    locs = 8
     # init = ['ready l4', 'b0 l2', 'b1 l3']
-    # goal = ['b0 l1']
-    # goal = ['b0 l2', 'b1 l3']
+    # goal = ['b0 l2']
+    # goal = ['b0 l1', 'b1 l2']
     # init = ['ready l3', 'b0 l1']
     # goal = ['b0 l2']
     # goal = ['ready l1', 'b0 l1']
     init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    goal = ['b0 l1', 'b1 l3', 'b2 l4']
+    goal = ['b0 l1', 'b1 l2', 'b2 l3']
     fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
     # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
     # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=[2, 3])
@@ -1731,6 +1824,9 @@ if __name__ == "__main__":
     print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
     # testing things out
     # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    print("Rolling out Strategy")
+    fw.roll_out_strategy(strategy=strategy, verbose=True)
+    
     print("Done")
 
     # test_dynamic_franka_world()
