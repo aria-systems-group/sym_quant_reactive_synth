@@ -17,7 +17,6 @@ class FrankaWorld():
         self.locs: int = locs
         self.misc_preds = ['ready', 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
-        self.human_action: List[str] = ['hmove']
         self.init = init
         self.goal = goal
         self.manager: Cudd = Cudd()
@@ -26,17 +25,13 @@ class FrankaWorld():
         self.xVars: List[ADD] = self.pVars + [var for box_adds in self.bVars for var in box_adds]
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
         self.oVars: List[ADD] = self.create_output_vars()
-        self.iVars: List[ADD] = self.create_input_vars()
+        
         self.latches: List[ADD] = self.xVars # in future we will primed version of these as well.
         self.prime_latches: List[ADD] = self.prime_pVars + self.prime_bVars
         self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
 
-        # book keeping
-        # self.holding_preds = self.to_obj_preds = self.ready_preds = set({})
-
         self.xVar_map = dict()
         self.rAction_map = bidict({})
-        self.eAction_map = bidict({})
         self.xVar_map_sym  = dict()
         
         # maps needs for lookup of the states corresponding to cubes
@@ -45,11 +40,9 @@ class FrankaWorld():
 
         self.create_xVar_map()
         self.create_rAction_map()
-        self.create_eAction_map()
 
         # more bookeeping stuff
         self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
-        self.eAction_map_sym = bidict({k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()})
         self.create_symbolic_maps()
 
         self.init_latch: ADD = self.set_init_latch() 
@@ -61,12 +54,14 @@ class FrankaWorld():
         self.pVars_cube: ADD = reduce(lambda a, b: a & b, self.pVars)
         self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
         self.all_bVars_cube: ADD = reduce(lambda a, b: a & b, self.bVars_cubes)
-        self.iVars_cube: ADD = reduce(lambda x, y: x & y, self.iVars)
         self.oVars_cube: ADD = reduce(lambda x, y: x & y, self.oVars)
 
-        # precompute cubes for iVars and oVars - needed for synthesis
+        # precompute cubes of oVars - needed for synthesis
         self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
-        self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
+
+        # state invariance constraint - end-effector empty cube - used in transit and grasp actions
+        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
+        
 
     
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
@@ -120,9 +115,7 @@ class FrankaWorld():
             for loc in range(1, self.locs + 1):
                 bit_str = f"{offset + loc:0{len(self.pVars)}b}"
                 self.xVar_map[pred + ' l' + str(loc)] = bit_str
-                # self.ready_preds.add('ready l' + str(loc)) if pred == 'ready' else self.holding_preds.add('holding l' + str(loc))
                 self.pVar_map[pred + ' l' + str(loc)] = bit_str
-            #
             offset += self.locs
         
         offset = 2*(self.locs) + 2 # 1 for the offset from the 0-vector; another 1 for the ready-else state
@@ -130,7 +123,6 @@ class FrankaWorld():
         for b in range(self.boxes):
             bit_str = f"{b + offset:0{len(self.pVars)}b}"
             self.xVar_map['to-obj b' + str(b)] = bit_str
-            # self.to_obj_preds.add('to-obj b' + str(b))
             self.pVar_map['to-obj b' + str(b)] = bit_str
 
         # for each boxes we create |locs| boolean vars
@@ -151,16 +143,6 @@ class FrankaWorld():
         return oVars
 
     
-    def create_input_vars(self) -> List[ADD]:
-        """
-         Num. of human actions = |boxes| x |locs| + 1 (for no-op action)
-        """
-        varsize = self.manager.size()
-        num_of_rActions = self.boxes * self.locs + 1
-        iVars_size = math.ceil(math.log2(num_of_rActions))
-        iVars: List[ADD] =  [self.manager.addVar(h + varsize , 'i' + str(h)) for h in range(iVars_size)]
-        return iVars
-    
     def create_symbolic_maps(self):
         """
          Small function to create symbolic maps for the xVar_map, rAction_map and eAction_map
@@ -171,8 +153,6 @@ class FrankaWorld():
         for bidx, d in self.bVars_map.items():
             for k, v in d.items():
                 self.xVar_map_sym[k] = self.cube_to_add(v, self.bVars[bidx])
-            
-
 
     def create_rAction_map(self) -> None:
         for ract in self.robot_actions:
@@ -191,18 +171,6 @@ class FrankaWorld():
         self.rAction_map['grasp'] = rbit_str
         rbit_str = f"{self.boxes + self.locs + 2:0{len(self.oVars)}b}"
         self.rAction_map['release'] = rbit_str
-    
-
-    def create_eAction_map(self) -> None:
-        # Add a no-op action for the human
-        self.eAction_map[f'{self.human_action[0]} noop'] = f"{0:0{len(self.iVars)}b}"
-        offset = 1
-        for b in range(self.boxes):
-            for l in range(1, self.locs +1):
-                act_str = f'{self.human_action[0]} b{b} l{l}'
-                hbit_str = f"{offset:0{len(self.iVars)}b}"
-                self.eAction_map[act_str] = hbit_str
-                offset += 1
     
     
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
@@ -251,263 +219,209 @@ class FrankaWorld():
         for b in range(self.boxes):
             bConf_cube &= ~self.xVar_map_sym['b' + str(b) + ' l0']
         return bConf_cube
-    
 
-    # def add_human_moves(self):
-    #     """
-    #      The human action has some precondition that needs to satisfied. These are as follows:
 
-    #     1. Human can not move a box that is being currently grasped that is in end effector loc. 
-    #     2. Human can not move a box that will be grasped in the next step. 
-    #     3. Human can not move a box to a loc where the robot is about release a box
-    #     4. If the robot is transit-ing to a box b and human moves box to some other loc, then the state under the transit evolves
-    #         to 'ready' conf. so that the robot can again transit to another object.
-    #     """
-    #     ee_empty_cube: ADD = self.create_ee_empty_cube()
-    #     robot_action_is_release_cube = self.cube_to_add(self.rAction_map['release'], self.oVars)
-    #     # Human Moves: human can move any box to any location, with preconditions
-    #     for b_idx in range(self.boxes):
-    #         # Rule 1 & 2 Preconditions: Box is not held and robot is not about to grasp it.
-    #         # These are independent of the destination location.
-    #         # box_not_held_cube = ~self.cube_to_add(self.xVar_map[f'b{b_idx} l0'], self.bVars[b_idx])
-    #         robot_not_to_obj_cube = ~self.cube_to_add(self.xVar_map[f'to-obj b{b_idx}'], self.pVars)
-            
-    #         for l_idx in range(1, self.locs + 1):
-    #             h_act_str: str = f'{self.human_action[0]} b{b_idx} l{l_idx}'
-    #             h_act_cube: ADD = self.cube_to_add(self.eAction_map[h_act_str], self.iVars)
-
-    #             # Rule 3 Precondition: Robot is not holding a box at the destination location.
-    #             forbidden_release_cond: ADD = self.cube_to_add(self.xVar_map[f'holding l{l_idx}'], self.pVars) & robot_action_is_release_cube
-    #             robot_not_releasing_at_dest_cube: ADD = ~forbidden_release_cond
-
-    #             # Combine all preconditions for this specific human move
-    #             # pre_condition_cube = box_not_held_cube & robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
-    #             pre_condition_cube = robot_not_to_obj_cube & robot_not_releasing_at_dest_cube
-
-    #             # The full condition for this transition to occur
-    #             transition_cube = h_act_cube & pre_condition_cube
-
-    #             # Define the next state for the box being moved
-    #             box_next_state_str = self.xVar_map[f'b{b_idx} l{l_idx}']
-    #             for sidx, s in enumerate(box_next_state_str):
-    #                 if s == '1':
-    #                     self.transition_relation[self.bVars[b_idx][sidx].bddPattern().__str__()] |= transition_cube
-
+    def add_frame_axioms(self):
+        """
+        A helper function to test the frame axioms. Frame axioms ensure that the boxes that
+          are not being moved by the robot do not change their location. This is like a state invariance constraint.
         
-    
-    def create_transition_relation(self) -> None:
-
-        # The human does nothing, robot acts as normal
-        h_noop_cube = self.cube_to_add(self.eAction_map['hmove noop'], self.iVars)
-        
-        # transit actions evolvin to to-obj preds 
-        ee_empty_cube: ADD = self.create_ee_empty_cube()
+        Here, we add frame axioms for all boxes that are currently "grounded" (i.e., not being moved by the robot). 
+          For thw box that is at end-effector (ee) location (l0), we add the state invariance constraint during the action construction.
+        """
+        grasp_action_cube = self.rAction_map_sym['grasp']
+        release_action_cube = self.rAction_map_sym['release']
         for b in range(self.boxes):
-            act_str = f'transit b{b}'
+            not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
+            for l in range(1, self.locs + 1):
+                box_pred = f"b{b} l{l}"
+                constraint_cube = self.manager.addOne()
+                not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
+                constraint_cube &= not_grasp_cube & not_release_cube
+                for sidx, s in enumerate(self.xVar_map[box_pred]):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
+
+
+
+    def create_transition_relation(self):
+        """
+         A method to construct the transition relation for the Franka World domain. 
+         This constructs the transition system that only consists of actions controlled by the robot (robot actions). 
+         For game construction, see the FrankaWorldGame class.
+        """
+        # first we create grasp actions
+        self.create_grasp_actions()
+
+        # next we create the release actions
+        self.create_release_actions()
+
+        # next we create the transit actions
+        self.create_transit_actions()
+
+        # next we create the transfer actions
+        self.create_transfer_actions()
+
+        # finally, we add frame axioms for all boxes that enforce state invariance constraint
+        self.add_frame_axioms()
+    
+
+    def create_grasp_actions(self) -> None:
+        """
+        Here we create grasp actions for the robot. The precondition for the robot to grasp box b at location l is as follows:
+        Preconditions:
+         1. The robot is at location l where box b is (b @ l) - (to-obj) (b l) predicates are true at current state
+        Effects+:
+         2. The robot is holding box b: (holding l) (b l0) predicates are true at next state (Note: l0 is reserved for end-effector location)
+        Effects-:
+         3. The robot's end effector is not empty: ~(to-obj) ~(b l) predicates are true at next state
+        """
+        # need to enforce that the end-effector is empty
+        state_constraint_cube = self.ee_empty_cube
+        robot_act_cube = self.rAction_map_sym['grasp']
+        for b in range(self.boxes):
+            rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
+
+            # for a given box, it can be at any location, so we iterate over all locations
+            for loc in range(1, self.locs + 1):
+                curr_box_pred = f"b{b} l{loc}"
+                bConf_cube = self.xVar_map_sym[curr_box_pred]
+                # need to enforce that only one box is at loc l
+                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
+
+                robot_transition_cube = rConf_cube & bConf_cube & state_constraint_cube & robot_act_cube
+
+                # this is fixed and is independent of the human action
+                pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
+                box_clause_prime_string = self.xVar_map[f'b{b} l0']
+                
+                # now we add the transition where the human does all the valid move and the robot grasps the box
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+
+
+    def create_release_actions(self) -> None:
+        """
+        Here we create release actions for the robot. The precondition for the robot to release box b at location l is as follows:
+        Preconditions:
+         1. The robot is at location l where no box (b') is located, i.e., (b @ l0) & ~(b' @ l) :- 
+            (holding l) ~(b' l) predicates are true at current state
+        Effects+:
+         2. The robot is ready at location l: (ready l) (b l) predicates are true at next state
+        Effects-:
+         3. The robot's end effector is empty and not holding b: ~(holding l) ~(b l0) (for all b) predicates are true at next state
+        """
+        robot_act_cube = self.rAction_map_sym['release']
+        for loc in range(1, self.locs + 1):
+            rConf_cube = self.xVar_map_sym[f'holding l{loc}']
+
+            # for a given location, it can any location, so we iterate over all locations
+            for b in range(self.boxes):
+                curr_box_pred = f"b{b} l0"
+                bConf_cube = self.xVar_map_sym[curr_box_pred]
+                bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
+
+                robot_transition_cube = rConf_cube & bConf_cube & robot_act_cube
+
+                # this is fixed and is independent of the human action
+                next_box_pred = f"b{b} l{loc}"
+                pred_clause_prime_string = self.xVar_map['ready l' + str(loc)]
+                box_clause_prime_string = self.xVar_map[next_box_pred]
+                
+                # now we add the transition where the human does all the valid move and the robot grasps the box
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+
+
+    def create_transit_actions(self) -> None:
+        """
+        Here we create transit actions for the robot. The precondition for the robot is box b is at location l:
+         Preconditions:
+            1. The robot is at location l (l =\= l') and end-effector is empty - (ready l) ~(b l0) (for all boxes) predicates are true at current state
+         Effects+:
+            2. The robot is at location l': (to-obj b) (b l') predicates are true at next state
+         Effects-:
+            3. The robot's location has changed: ~(ready l) predicate is true at next state
+        """
+        state_constraint_cube = self.ee_empty_cube
+        for b in range(self.boxes):
+            robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
 
             for from_loc in range(1, self.locs + 2):
-                rConf_cube = self.cube_to_add(self.xVar_map[f'ready l{from_loc}'], self.pVars)
+                rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
                 
-                # as l0 is reserved for end-effector location
                 for to_loc in range(1, self.locs + 1):
-                    box_pred: str = 'b' + str(b) + ' l' + str(to_loc)
-                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
-                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
-                    # need to enforce that the end-effector is empty
-                    state_constraint_cube = ee_empty_cube
-
+                    # we skip transiting to the same location
+                    if from_loc == to_loc:
+                        continue
+                    curr_box_pred: str = f"b{b} l{to_loc}"
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    
                     # need to enforce that only one box is at loc l
                     bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(to_loc), bConf_cube=bConf_cube)
 
-                    # next state clauses - (to-obj b0); box location does not change
-                    for turn in ['human-move', 'human-no-move']:
-                        if turn == 'human-no-move':
-                            box_clause_prime_string = self.xVar_map[box_pred]
-                            pred_clause_prime_string = self.xVar_map['to-obj b' + str(b)]
-                            
-                            for sidx, s in enumerate(pred_clause_prime_string):
-                                if s == '1':
-                                    self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
-                            
-                            for sidx, s in enumerate(box_clause_prime_string):
-                                if s == '1':
-                                    self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube
+                    robot_transition_cube = rConf_cube & bConf_cube & state_constraint_cube & robot_act_cube
+
+                    box_clause_prime_string = self.xVar_map[curr_box_pred]
+                    pred_clause_prime_string = self.xVar_map[f"to-obj b{b}"]
                     
-                            # Frame Axioms: Other boxes do not change their location
-                            for other_b in range(self.boxes):
-                                if other_b == b:
-                                    continue
-                                for frame_loc in range(1, self.locs + 1):
-                                    if frame_loc == to_loc:
-                                        continue
-                                    frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                                    for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                                        if s == '1':
-                                            self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
-                        
-                        elif turn == 'human-move':
-                            for human_to_loc in range(1, self.locs + 1):
-                                if human_to_loc == to_loc:
-                                    continue
-                                h_act_str: str = f'{self.human_action[0]} b{b} l{human_to_loc}'
-                                h_act_cube: ADD = self.cube_to_add(self.eAction_map[h_act_str], self.iVars)
-                                box_clause_prime_string = self.xVar_map['b' + str(b) + ' l' + str(human_to_loc)]
-                                pred_clause_prime_string = self.xVar_map['ready l' + str(to_loc)]
-                                
-                                for sidx, s in enumerate(pred_clause_prime_string):
-                                    if s == '1':
-                                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & h_act_cube
-                                
-                                for sidx, s in enumerate(box_clause_prime_string):
-                                    if s == '1':
-                                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & h_act_cube
-                        
-                                # Frame Axioms: Other boxes do not change their location
-                                for other_b in range(self.boxes):
-                                    if other_b == b:
-                                        continue
-                                    for frame_loc in range(1, self.locs + 1):
-                                        if frame_loc == to_loc:
-                                            continue
-                                        frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                                        for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                                            if s == '1':
-                                                self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & state_constraint_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b]) & h_act_cube
-
-        
-        # grasp action
-        for b in range(self.boxes):
-            act_str = 'grasp'
-            rConf_cube = self.cube_to_add(self.xVar_map[f'to-obj b{b}'], self.pVars)
-            
-            # as l0 is reserved for end-effector location
-            for l in range(1, self.locs + 1):
-                box_pred = 'b' + str(b) + ' l' + str(l)
-                bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])
-                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
-                # need to enforce that the end-effector is empty
-                state_constraint_cube = ee_empty_cube
-                # need to enforce that only one box is at loc l
-                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(l), bConf_cube=bConf_cube)
-
-                # next state clauses - (holding l) ; box location does not change
-                box_pred_prime = 'b' + str(b) + ' l0' # box is now at end-effector location
-                pred_clause_prime_string = self.xVar_map['holding l' + str(l)]
-                box_clause_prime_string = self.xVar_map[box_pred_prime]
-                
-                for sidx, s in enumerate(pred_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & state_constraint_cube & bConf_cube & act_cube
-                
-                for sidx, s in enumerate(box_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & state_constraint_cube & bConf_cube & act_cube
-                
-                # Frame Axioms: Other boxes do not change their location
-                for other_b in range(self.boxes):
-                    if other_b == b:
-                        continue
-                    for frame_loc in range(1, self.locs + 1):
-                        # box will be at l0 but I am keeping this if statement for consistency
-                        if frame_loc == l:
-                            continue
-                        frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                        for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                            if s == '1':
-                                self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
-        
-        # release action
-        act_str = 'release'
-        for rConf, rCube_str in self.xVar_map.items():
-            if not rConf.startswith('holding'):
-                continue
-            to_loc = rConf.split(' ')[1]
-            
-            rConf_cube = self.cube_to_add(rCube_str, self.pVars)
-            
-            for b in range(self.boxes):
-                box_pred = 'b' + str(b) + ' l0'
-                bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b]) # box is at end-effector location
-                act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
-                bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
-
-                # next state clauses - (ready l) ; box location does not change
-                box_pred_prime = 'b' + str(b) + f' {to_loc}' # box is now at location loc
-                pred_clause_prime_string = self.xVar_map['ready ' + to_loc]
-                box_clause_prime_string = self.xVar_map[box_pred_prime]
-                # need to enforce that the end-effector is empty - we enforce it from transit action, so maybe we don;t need it here. Check this!!!
-                # TODO: Need to enforce that the box can only be release at an empty location
-                
-                for sidx, s in enumerate(pred_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                
-                for sidx, s in enumerate(box_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                
-                # Frame Axioms: Other boxes do not change their location
-                for other_b in range(self.boxes):
-                    if other_b == b:
-                        continue
-                    for frame_loc in range(1, self.locs + 1):
-                        if frame_loc == to_loc:
-                            continue
-                        frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                        for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                            if s == '1':
-                                self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
-
-        # transfer actions
-        for b in range(self.boxes):
-            act_str = 'transfer'
-            # for all holding confs.
-            for rConf_from, rCube_from_str in self.xVar_map.items():
-                if not rConf_from.startswith('holding'):
-                    continue
-                from_loc = rConf_from.split(' ')[1]
-
-                for rConf_to, rCube_to_str in self.xVar_map.items():
-                    if not rConf_to.startswith('holding') or rConf_to == rConf_from:
-                        continue
-                    to_loc = rConf_to.split(' ')[1]
-
-                    act_str = f'transfer {to_loc}'
-                    box_pred = f'b{b} l0'
-                    rConf_cube = self.cube_to_add(rCube_from_str, self.pVars)
-                    bConf_cube = self.cube_to_add(self.xVar_map[box_pred], self.bVars[b])  # box at current location from_loc
-                    act_cube = self.cube_to_add(self.rAction_map[act_str], self.oVars)
-                    bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
-
-                    # next state clauses - (holding to_loc) ; box location does not change
-                    assert rConf_to == 'holding ' + to_loc, "Make sure the to_loc is correct. Fix this!!!"
-                    pred_clause_prime_string = self.xVar_map['holding ' + to_loc]
-                    box_clause_prime_string = self.xVar_map[box_pred] 
-
+                    # now we add the transition where the human does all the valid move and the robot grasps the box
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
-                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube
-                    
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
-                    # Frame Axioms: Other boxes do not change their location
-                    for other_b in range(self.boxes):
-                        if other_b == b:
-                            continue
-                        for frame_loc in range(1, self.locs + 1):
-                            if frame_loc == to_loc:
-                                continue
-                            frame_box_pred: str = 'b' + str(other_b) + ' l' + str(frame_loc)
-                            for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
-                                if s == '1':
-                                    self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= rConf_cube & bConf_cube & act_cube & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
-        
-        # add human moves to the transition relation
-        self.add_human_moves()
     
+    def create_transfer_actions(self) -> None:
+        """
+        Here we create transfer actions for the robot. The precondition for the robot is box b is at location l0 (end effector location):
+         Preconditions:
+            1. The robot is at location l and is holding box b - (holding l) (b l0) predicates are true at current state
+         Effects+:
+            2. The robot is at location l': (holding l') (b l0) predicates are true at next state
+         Effects-:
+            3. The robot's location has changed: ~(holding l) predicate is true at next state
+        """ 
+        for b in range(self.boxes):
+            curr_box_pred = f'b{b} l0'
+            for from_loc in range(1, self.locs + 1):
+                rConf = f'holding l{from_loc}'
+                rConf_cube = self.xVar_map_sym[rConf]
+                for to_loc in range(1, self.locs + 1):
+                    # skip transferring to the same location
+                    if from_loc == to_loc:
+                        continue
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    bConf_cube = self.create_only_b_at_ee_cube(b, bConf_cube)
+                    robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
+
+                    robot_transition_cube = rConf_cube & bConf_cube & robot_act_cube
+
+                    # next state clauses - (holding to_loc) ; box location does not change
+                    pred_clause_prime_string = self.xVar_map[f'holding l{to_loc}']
+                    box_clause_prime_string = self.xVar_map[curr_box_pred] 
+                    
+                    # now we add the transition where the human does all the valid move and the robot grasps the box
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
@@ -541,6 +455,254 @@ class FrankaWorld():
                 cubes.append((reduce(lambda a, b: a & b, var_list), val))
         
         return cubes
+
+    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False) -> None:
+        """
+         Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
+         If you want to print the robot action as well, set robot_action to True. 
+         If you want to print the human action as well, set human_action to True.
+        """
+        relevant_vars = []
+        if state_flag:
+            relevant_vars.extend(self.latches)
+        if robot_action:
+            relevant_vars.extend(self.oVars)
+
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+        # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
+        
+        # create existential abstraction cubes
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.xVars[len(self.pVars):] + self.oVars) 
+        # because ADD is not iterable and cannot be added to a list directly
+        bConf_exist_cube = dict({})
+        for bidx in range(self.boxes):
+            if self.boxes == 1:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.pVars + self.oVars)
+            else:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.pVars + self.oVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+        
+        # print the states
+        for cube, val in cubes:
+            rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            bCube_str = []
+            for e in bConf_exist_cube.values():
+                bCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            try:
+                box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
+            except KeyError:
+                continue
+            
+            try:
+                print(f"[({self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
+            except KeyError:
+                continue
+            
+            # print the robot and human actions as well
+            if robot_action:
+                oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
+                try:
+                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                except KeyError:
+                    continue
+            if robot_action :    
+                # action = ", ".join(filter(None, [rAction_str if robot_action else None]))
+                print(f"    -- Actions: ({rAction_str})")
+    
+    
+    def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
+        return From.vectorCompose(self.latches_bdd, ts_action)
+    
+
+    def get_buckets_of_BDD(self, max_interval_val: int, winning_states: ADD) -> Dict[int, BDD]:
+        _win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in range(max_interval_val + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval: BDD = winning_states.bddInterval(sval, sval)
+            
+            if not win_sval.isZero():
+                _win_state_bucket[sval] |= win_sval
+        
+        return _win_state_bucket
+
+
+    def get_all_states_interval(self, upper: int, dd: ADD, lower: int = 0) -> BDD:
+        """
+         Helper function to get all the states below between Lower and Upper (both inclusive). 
+         Note Strict inludes the threshold value as well.
+        """
+        # returnns BDD of all the states with state value greater than lower
+        bdd_sgtl = dd.bddStrictThreshold(lower)
+        # returnns BDD of all the states with state value greater than upper
+        bdd_gtu = dd.bddThreshold(upper)
+        # this include cubes corresponding to the upper values as well
+        bdd_ltu = ~bdd_gtu
+
+        return bdd_ltu & ~bdd_sgtl
+
+
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        raise NotImplementedError()
+
+
+    def solve(self, verbose: bool = False) -> Optional[ADD]:
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            
+            # add the action costs    
+            # preimage = preimage + self.weight
+            preimage = preimage + self.manager.addOne()
+
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(preimage.restrict(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A path to goal state exists!!. The Init state value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+    
+
+    def test_pre_image(self):
+        # convert transition relation to latches bdd
+
+        tr_bdd = [dd.bddPattern() for dd in self.transition_relation.values()]
+
+        # goal state is b0 and l0 and ready l0
+        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
+        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
+        # goal_cube = self.cube_to_add(self.xVar_map['hol1ding l1'], self.pVars)
+        goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
+        # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
+        print('Goal state:', goal_cube.bddPattern())
+        From = goal_cube.bddPattern()
+
+        pre = From.vectorCompose(self.latches_bdd, tr_bdd)
+
+        print('Preimage: ', pre)
+        # self.convert_cube_to_state(pre)
+
+
+
+
+class FrankaWorldDynamic(FrankaWorld):
+
+    def __init__(self, boxes, locs, init, goal, human_locs: List[int]):
+        super().__init__(boxes, locs, init, goal)
+        
+        # create env move related vars and maps
+        self.human_action: List[str] = ['hmove']
+        self.iVars: List[ADD] = self.create_input_vars()
+        self.eAction_map = bidict({})
+        self.create_eAction_map()
+        self.eAction_map_sym = bidict({k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()})
+        self.iVars_cube: ADD = reduce(lambda x, y: x & y, self.iVars)
+
+        # precompute cubes for iVars and oVars - needed for synthesis
+        self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
+
+
+        self.one_box_per_loc_cube = defaultdict(lambda: self.manager.addZero())
+        self.human_move_b = defaultdict(lambda: self.manager.addZero())
+        self.human_locs: List[int] = human_locs
+        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
+
+        # aggregate all human moves per block
+        self.aggregate_human_moves_per_block()
+        self.create_loc_empty_constraint()
+    
+
+    def create_input_vars(self) -> List[ADD]:
+        """
+         Num. of human actions = |boxes| x |locs| + 1 (for no-op action)
+        """
+        varsize = self.manager.size()
+        num_of_rActions = self.boxes * self.locs + 1
+        iVars_size = math.ceil(math.log2(num_of_rActions))
+        iVars: List[ADD] =  [self.manager.addVar(h + varsize , 'i' + str(h)) for h in range(iVars_size)]
+        return iVars
+
+
+    def create_eAction_map(self) -> None:
+        # Add a no-op action for the human
+        self.eAction_map[f'{self.human_action[0]} noop'] = f"{0:0{len(self.iVars)}b}"
+        offset = 1
+        for b in range(self.boxes):
+            # TODO: Update this in future to restrict human moves to certain locations only
+            for l in range(1, self.locs +1):
+                act_str = f'{self.human_action[0]} b{b} l{l}'
+                hbit_str = f"{offset:0{len(self.iVars)}b}"
+                self.eAction_map[act_str] = hbit_str
+                offset += 1
+
+    
+    def create_loc_empty_constraint(self):
+        """
+         A function that create cubes that enforce that a location l is empty.
+        """
+        for l in range(1, self.locs + 1):
+            l_empty_cube = self.manager.addOne()
+            for b in range(self.boxes):
+                l_empty_cube &= ~self.xVar_map_sym[f'b{b} l{l}']
+            self.locs_empty_constraints[f'l{l}'] = l_empty_cube
+    
+
+    def aggregate_human_moves_per_block(self):
+        """
+         A helper function to aggregate all human moves for a block. This is useful for adding frame axioms.
+        """
+        for b in range(self.boxes):
+            for k, v in self.eAction_map_sym.items():
+                if f'b{b} ' in k:
+                    self.human_move_b[b] |= v
+
+    def create_one_box_per_loc(self):
+        """
+         Create a cube that enforces that only one box can be at a location at any time.
+         Say x is cube that enforces that box b at loc l, then we need to add the following clauses:
+            For all other boxes b', ~(b' at l). 
+        """
+        for l in range(1, self.locs + 1):
+            for b in range(self.boxes):
+                curr_box_pred = f"b{b} l{l}"
+                self.one_box_per_loc_cube[curr_box_pred] |= self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(l),
+                                                                                         bConf_cube=self.xVar_map_sym[curr_box_pred])
+    
+
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, human_action: bool = False) -> None:
         """
@@ -605,171 +767,8 @@ class FrankaWorld():
             if robot_action or human_action:    
                 action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
                 print(f"    -- Actions: ({action})")
-    
-    
-    def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
-        return From.vectorCompose(self.latches_bdd, ts_action)
-    
-
-    def get_buckets_of_BDD(self, max_interval_val: int, winning_states: ADD) -> Dict[int, BDD]:
-        _win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        for sval in range(max_interval_val + 1):
-            # get the states with state value equal to sval and store them in their respective bukcets
-            win_sval: BDD = winning_states.bddInterval(sval, sval)
-            
-            if not win_sval.isZero():
-                _win_state_bucket[sval] |= win_sval
-        
-        return _win_state_bucket
 
 
-    def get_all_states_interval(self, upper: int, dd: ADD, lower: int = 0) -> BDD:
-        """
-         Helper function to get all the states below between Lower and Upper (both inclusive). 
-         Note Strict inludes the threshold value as well.
-        """
-        # returnns BDD of all the states with state value greater than lower
-        bdd_sgtl = dd.bddStrictThreshold(lower)
-        # returnns BDD of all the states with state value greater than upper
-        bdd_gtu = dd.bddThreshold(upper)
-        # this include cubes corresponding to the upper values as well
-        bdd_ltu = ~bdd_gtu
-
-        return bdd_ltu & ~bdd_sgtl
-
-
-    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
-        raise NotImplementedError()
-
-
-    def solve(self):
-        # initialize goal state with 0 state value and add it to the winnign regiom
-        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
-        
-        # intialize the iteration counter
-        layer = 0
-
-        while True:
-            print(f"**************************Layer: {layer}**************************")
-
-            # prime the vars
-            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-            
-            # add the action costs    
-            # preimage = preimage + self.weight
-            preimage = preimage + self.manager.addOne()
-            # print("Current Preimage:")
-            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-
-            # go over all the env actions and preserve the maximum one
-            MaxUpre = []
-            # for env_tr_dd in self.eAction_map.values():
-            for env_tr_dd in self.env_action_cube_list:
-                MaxUpre.append(preimage.restrict(env_tr_dd))
-            
-            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-
-            # go over all the sys actions and preserve the manimum one
-            Minpre = []
-            for robot_tr_dd in self.robot_action_cube_list:
-                Minpre.append(Upre.restrict(robot_tr_dd))
-            
-            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-            next_winning_states = next_winning_states.min(goal)
-
-            # adding debugging step
-            print("Current Winning States:")
-            self.convert_cube_to_state_ADD(next_winning_states)
-            
-            if curr_winning_states.compare(next_winning_states, 2):
-                print("**************************Reached fixpoint**************************")
-                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
-                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
-                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-                    self.comp_winning_states = curr_winning_states
-                    return preimage if init_val < math.inf else None
-                return None
-
-
-            # update the counter
-            layer += 1
-
-            # swap the winning states
-            curr_winning_states = next_winning_states
-    
-
-    def test_pre_image(self):
-        # convert transition relation to latches bdd
-
-        tr_bdd = [dd.bddPattern() for dd in self.transition_relation.values()]
-
-        # goal state is b0 and l0 and ready l0
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
-        # goal_cube = self.cube_to_add(self.xVar_map['hol1ding l1'], self.pVars)
-        goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
-        # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
-        print('Goal state:', goal_cube.bddPattern())
-        From = goal_cube.bddPattern()
-
-        pre = From.vectorCompose(self.latches_bdd, tr_bdd)
-
-        print('Preimage: ', pre)
-        # self.convert_cube_to_state(pre)
-
-
-
-
-class FrankaWorldDynamic(FrankaWorld):
-
-    def __init__(self, boxes, locs, init, goal, human_locs: List[int]):
-        super().__init__(boxes, locs, init, goal)
-        self.one_box_per_loc_cube = defaultdict(lambda: self.manager.addZero())
-        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
-        self.human_move_b = defaultdict(lambda: self.manager.addZero())
-        self.human_locs: List[int] = human_locs
-        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
-
-        # aggregate all human moves per block
-        self.aggregate_human_moves_per_block()
-        self.create_loc_empty_constraint()
-
-    
-    def create_loc_empty_constraint(self):
-        """
-         A function that create cubes that enforce that a location l is empty.
-        """
-        for l in range(1, self.locs + 1):
-            l_empty_cube = self.manager.addOne()
-            for b in range(self.boxes):
-                l_empty_cube &= ~self.xVar_map_sym[f'b{b} l{l}']
-            self.locs_empty_constraints[f'l{l}'] = l_empty_cube
-    
-
-    def aggregate_human_moves_per_block(self):
-        """
-         A helper function to aggregate all human moves for a block. This is useful for adding frame axioms.
-        """
-        for b in range(self.boxes):
-            for k, v in self.eAction_map_sym.items():
-                if f'b{b} ' in k:
-                    self.human_move_b[b] |= v
-
-    def create_one_box_per_loc(self):
-        """
-         Create a cube that enforces that only one box can be at a location at any time.
-         Say x is cube that enforces that box b at loc l, then we need to add the following clauses:
-            For all other boxes b', ~(b' at l). 
-        """
-        for l in range(1, self.locs + 1):
-            for b in range(self.boxes):
-                curr_box_pred = f"b{b} l{l}"
-                self.one_box_per_loc_cube[curr_box_pred] |= self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(l),
-                                                                                         bConf_cube=self.xVar_map_sym[curr_box_pred])
-    
 
     def add_frame_axioms(self, transition_cube: ADD, human_box:int, human_box_loc: int, robot_box_loc: int, robot_box: int = -1):
         """
@@ -1447,35 +1446,6 @@ class FrankaWorldDynamic(FrankaWorld):
                             for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
                                 if s == '1':
                                     self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
-
-    def add_global_frame_axioms(self):
-        """
-        This function should be called LAST. It iterates through every state variable
-        and ensures that if no transition has been defined for it under a given
-        state-action condition, a self-loop (frame axiom) is added. This makes the
-        transition relation complete.
-        """
-        for var_bdd_str, current_tr in self.transition_relation.items():
-            # The `defined_transitions` cube represents all state-action pairs
-            # for which a next state for this variable has already been defined.
-            defined_transitions = current_tr.bddPattern()
-
-            # The `undefined_transitions` cube is the negation. These are the "holes"
-            # we need to fill with self-loops.
-            undefined_transitions = ~defined_transitions
-
-            # Find the variable corresponding to this part of the transition relation.
-            var_to_preserve = None
-            for var in self.latches:
-                if var.bddPattern().__str__() == var_bdd_str:
-                    var_to_preserve = var
-                    break
-            
-            # The frame axiom is: for all undefined transitions, the variable's
-            # next state is its current state (var' = var).
-            # We add `var_to_preserve` to the transition relation under the
-            # `undefined_transitions` condition.
-            self.transition_relation[var_bdd_str] |= undefined_transitions.toADD() & var_to_preserve
     
     
     def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
@@ -1534,7 +1504,65 @@ class FrankaWorldDynamic(FrankaWorld):
         # self.test_human_moves_constraint()
         # self.test_frame_axioms()
         # self.test_human_moves_constraint_try3()
-        self.add_global_frame_axioms()
+    
+
+    def solve(self):
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            
+            # add the action costs    
+            # preimage = preimage + self.weight
+            preimage = preimage + self.manager.addOne()
+            # print("Current Preimage:")
+            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+
+            # go over all the env actions and preserve the maximum one
+            MaxUpre = []
+            # for env_tr_dd in self.eAction_map.values():
+            for env_tr_dd in self.env_action_cube_list:
+                MaxUpre.append(preimage.restrict(env_tr_dd))
+            
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(Upre.restrict(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            print("Current Winning States:")
+            self.convert_cube_to_state_ADD(next_winning_states)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
         
         
 
@@ -1654,19 +1682,19 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    boxes = 2
-    locs = 3
-    init = ['ready l4', 'b0 l2', 'b1 l3']
-    goal = ['b0 l1']
+    boxes = 6
+    locs = 10
+    # init = ['ready l4', 'b0 l2', 'b1 l3']
+    # goal = ['b0 l1']
     # goal = ['b0 l2', 'b1 l3']
     # init = ['ready l3', 'b0 l1']
     # goal = ['b0 l2']
     # goal = ['ready l1', 'b0 l1']
-    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    # goal = ['ready l1', 'b0 l1', 'b1 l3', 'b2 l4']
-    # fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
+    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    goal = ['b0 l1', 'b1 l3', 'b2 l4']
+    fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
     # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
-    fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=[2, 3])
+    # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=[2, 3])
 
     print('****************xVars map:****************')
     for k, v in fw.xVar_map.items():
@@ -1676,9 +1704,9 @@ if __name__ == "__main__":
     for k, v in fw.rAction_map.items():
         print(f"{k} : {v}")
 
-    print('****************eAction map:****************')
-    for k, v in fw.eAction_map.items():
-        print(f"{k} : {v}")
+    # print('****************eAction map:****************')
+    # for k, v in fw.eAction_map.items():
+    #     print(f"{k} : {v}")
     
     
     print("Total num of latches: ", len(fw.latches))
@@ -1698,7 +1726,7 @@ if __name__ == "__main__":
     #     print(f"{k} : {v}")
     
     synth_start = time.time() 
-    strategy = fw.solve()
+    strategy = fw.solve(verbose=False)
     synth_stop = time.time()
     print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
     # testing things out
