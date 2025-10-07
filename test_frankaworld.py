@@ -5,7 +5,7 @@ import math
 from functools import reduce
 from itertools import product
 from collections import defaultdict
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Union, Dict, Optional
 
 from bidict import bidict
 from cudd import Cudd, ADD, BDD
@@ -29,6 +29,7 @@ class FrankaWorld():
         self.latches: List[ADD] = self.xVars # in future we will primed version of these as well.
         self.prime_latches: List[ADD] = self.prime_pVars + self.prime_bVars
         self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
+        self.prime_latches_bdd: List[BDD] = [var.bddPattern() for var in self.prime_latches]
 
         self.xVar_map = dict()
         self.rAction_map = bidict({})
@@ -48,7 +49,13 @@ class FrankaWorld():
         self.init_latch: ADD = self.set_init_latch() 
         self.goal_latch: ADD = self.set_goal_latch()
 
+        # monolithic transition relation for the robot actions
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.partitioned_transition_relation = defaultdict(lambda: dict({}))
+
+        # partitioned transition relation for the robot actions
+        for r in self.robot_actions:
+            self.partitioned_transition_relation[r] = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
 
         # need these cubes for printing states from cubes
         self.pVars_cube: ADD = reduce(lambda a, b: a & b, self.pVars)
@@ -241,6 +248,9 @@ class FrankaWorld():
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
+                        # need to add this to all partitioned transition relations
+                        for r in self.robot_actions:
+                            self.partitioned_transition_relation[r][self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
 
 
 
@@ -299,10 +309,12 @@ class FrankaWorld():
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.partitioned_transition_relation['grasp'][self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.partitioned_transition_relation['grasp'][self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def create_release_actions(self) -> None:
@@ -337,10 +349,12 @@ class FrankaWorld():
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.partitioned_transition_relation['release'][self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.partitioned_transition_relation['release'][self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def create_transit_actions(self) -> None:
@@ -379,10 +393,12 @@ class FrankaWorld():
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.partitioned_transition_relation['transit'][self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                     
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.partitioned_transition_relation['transit'][self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
     
     def create_transfer_actions(self) -> None:
@@ -418,10 +434,12 @@ class FrankaWorld():
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.partitioned_transition_relation['transfer'][self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                     
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.partitioned_transition_relation['transfer'][self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
 
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
@@ -517,9 +535,25 @@ class FrankaWorld():
         return states_action_pairs
     
     
-    def preimage(self, ts_action: List[BDD], From: BDD) -> BDD:
-        return From.vectorCompose(self.latches_bdd, ts_action)
+    def preimage(self, From: Union[BDD, ADD]) -> Union[BDD, ADD]:
+        if isinstance(From, BDD):
+            return From.vectorCompose(self.prime_latches_bdd, list(self.transition_relation.values()))
+        else:
+            return From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
     
+    
+    def partitioned_preimage(self, From: Union[BDD, ADD]) -> Union[BDD, ADD]:
+        partitioned_preimage = []
+        if isinstance(From, BDD):
+            for ract in self.robot_actions:
+                partitioned_preimage.append(From.vectorCompose(self.prime_latches_bdd, list(self.partitioned_transition_relation[ract].values())))   
+        else:
+            for ract in self.robot_actions:
+                partitioned_preimage.append(From.vectorCompose(self.prime_latches, list(self.partitioned_transition_relation[ract].values())))
+        
+        return reduce(lambda x, y: x | y, partitioned_preimage)
+    
+
 
     def get_buckets_of_BDD(self, max_interval_val: int, winning_states: ADD) -> Dict[int, BDD]:
         _win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
@@ -546,6 +580,37 @@ class FrankaWorld():
         bdd_ltu = ~bdd_gtu
 
         return bdd_ltu & ~bdd_sgtl
+    
+
+    def _find_diff_between_ADDs(self, ddA: ADD, ddB: ADD):
+        """
+         A small helper function to find the difference between two ADDs.
+        """
+        # findmin
+        min_val_A = ddA.findMin()
+        min_val_B = ddB.findMin()
+        # findmax
+        max_val_A = ddA.findMax()
+        max_val_B = ddB.findMax()
+
+        if min_val_A != min_val_B or max_val_A != max_val_B:
+            print("The two ADDs have different min or max values. Hence, they are different.")
+            print(f"Min A: {min_val_A}, Min B: {min_val_B}, Max A: {max_val_A}, Max B: {max_val_B}")
+            return
+
+        lower = min(min_val_A, min_val_B)
+        upper = max(max_val_A, max_val_B)
+
+        for sval in range(0, 12):
+            ddA_bdd, ddB_bdd = ddA.bddInterval(sval, sval), ddB.bddInterval(sval, sval)
+            diff_bdd = ddA_bdd & ~ddB_bdd
+            if not diff_bdd.isZero():
+                print("Found difference between two ADDs at state value: ", sval)
+                print("The states in A but not in B are: ", diff_bdd)
+                self.convert_cube_to_state_ADD(diff_bdd.toADD(), state_flag=True, robot_action=False)
+        
+        return
+
     
 
     def get_next_state(self, curr_state: List[str], action: str) -> ADD:
@@ -650,7 +715,20 @@ class FrankaWorld():
 
             # prime the vars
             curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            
+            # monolithic preimage computation
+            # preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            # preimage: ADD = self.preimage(curr_winning_states_primed)
+            partitioned_preimage: ADD = self.partitioned_preimage(curr_winning_states_primed)
+            # print("Size of Preimage: ", preimage.size())
+            print("Size of Partitioned Preimage: ", partitioned_preimage.size())
+            # assert preimage.compare(partitioned_preimage, 2), "Partitioned Preimage computation does not match monolithic preimage computation!!"
+            # if not preimage.compare(partitioned_preimage, 2):
+            #     self._find_diff_between_ADDs(preimage, partitioned_preimage)
+            #     sys.exit(-1)
+            # partitioned_preimage = preimage
+            preimage = partitioned_preimage
+
             
             # add the action costs    
             # preimage = preimage + self.weight
@@ -711,7 +789,7 @@ class FrankaWorld():
 
 
 if __name__ == "__main__":
-    boxes = 3
+    boxes = 5
     locs = 8
     # init = ['ready l4', 'b0 l2', 'b1 l3']
     # goal = ['b0 l2']
@@ -719,8 +797,12 @@ if __name__ == "__main__":
     # init = ['ready l3', 'b0 l1']
     # goal = ['b0 l2']
     # goal = ['ready l1', 'b0 l1']
-    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    goal = ['b0 l1', 'b1 l2', 'b2 l3']
+    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    # goal = ['b0 l1', 'b1 l2', 'b2 l3']
+    # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    # goal = ['b0 l1', 'b1 l2', 'b2 l3', 'b3 l4']
+    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5', 'b4 l6']
+    goal = ['b0 l1', 'b1 l2', 'b2 l3', 'b3 l4', 'b4 l5']
     fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
 
     print('****************xVars map:****************')
@@ -743,6 +825,9 @@ if __name__ == "__main__":
     # print('Transition Relation:')
     # for k, v in fw.transition_relation.items():
     #     print(f"{k} : {v}")
+    print("Size of Transition Relation: ", sum([dd.size() for dd in fw.transition_relation.values()]))
+    print("Size of each partitioned Transition Relation: ", {k: sum([dd.size() for dd in v.values()]) for k, v in fw.partitioned_transition_relation.items()})
+    # sys.exit(-1)
     
     synth_start = time.time() 
     strategy = fw.solve(verbose=False)
