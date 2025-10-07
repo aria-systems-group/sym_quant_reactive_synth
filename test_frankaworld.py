@@ -647,9 +647,6 @@ class FrankaWorld():
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
-
-        # add self loop for goal states
-        # self.add_self_loop_for_goal()
         
         # intialize the iteration counter
         layer = 0
@@ -728,16 +725,28 @@ class FrankaWorld():
 
 class FrankaWorldDynamic(FrankaWorld):
 
-    def __init__(self, boxes, locs, init, goal):
+    def __init__(self, boxes, locs, init, goal, human_locs: List[int]):
         super().__init__(boxes, locs, init, goal)
         self.one_box_per_loc_cube = defaultdict(lambda: self.manager.addZero())
         self.ee_empty_cube: ADD = self.create_ee_empty_cube()
         self.human_move_b = defaultdict(lambda: self.manager.addZero())
+        self.human_locs: List[int] = human_locs
+        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
 
         # aggregate all human moves per block
         self.aggregate_human_moves_per_block()
+        self.create_loc_empty_constraint()
 
-        
+    
+    def create_loc_empty_constraint(self):
+        """
+         A function that create cubes that enforce that a location l is empty.
+        """
+        for l in range(1, self.locs + 1):
+            l_empty_cube = self.manager.addOne()
+            for b in range(self.boxes):
+                l_empty_cube &= ~self.xVar_map_sym[f'b{b} l{l}']
+            self.locs_empty_constraints[f'l{l}'] = l_empty_cube
     
 
     def aggregate_human_moves_per_block(self):
@@ -778,27 +787,151 @@ class FrankaWorldDynamic(FrankaWorld):
                         if s == '1':
                             self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= transition_cube & self.xVar_map_sym[frame_box_pred]
     
+    # def test_human_moves_constraint(self):
+    #     """
+    #      A helper function to construct the constraint on the human actions such that human can move to a location that is empty. 
 
-    def test_frame_axioms(self):
-        """
-        A helper function to test the frame axioms. Frame axioms ensure that the boxes that
-          are not being moved by the human or robot do not change their location. This is like a state invariance constraint.
+    #      We had a constaint that if a location is empty then human can move to that location. 
+    #      But this is not sufficient as the robot can also move a box to that location. This is usually the case when the robot is about
+    #      to release a box at that location and we take care of that in the release transition relation.
+    #     """
+    #     # for l in self.human_locs:
+    #     # for l in range(1, self.locs +1):
+    #     #     for b in range(self.boxes):
+    #     #         box_pred = f'b{b} l{l}'
+    #     #         constraint_cube = self.locs_empty_constraints[f'l{l}'] & self.eAction_map_sym[f'{self.human_action[0]} b{b} l{l}']
+    #     #         for sidx, s in enumerate(self.xVar_map[box_pred]):
+    #     #             if s == '1':
+    #     #                 self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube
         
-        Here, we add frame axioms for all boxes that are currently "grounded" (i.e., not being moved by either the human or the robot). 
-          For box that is at end-effector (ee) location, we add the state invariance constraint during the action construction.
+    #     # trying things out
+    #     # constraint1 = ~(self.xVar_map_sym['b0 l2'] & self.eAction_map_sym['hmove b0 l2'])
+    #     # constraint2 = ~(self.xVar_map_sym['b1 l3'] & self.eAction_map_sym['hmove b1 l3'])
+    #     # constraint1 = ~(self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l3'] & self.eAction_map_sym['hmove b0 l2'])
+    #     # constraint2 = ~(self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l3'] & self.eAction_map_sym['hmove b1 l3'])
+    #     constraint = constraint1 & constraint2
+    #     # constraint = self.eAction_map_sym['hmove b0 l2'] | self.eAction_map_sym['hmove b1 l3'] | self.eAction_map_sym['hmove b1 l2'] | self.eAction_map_sym['hmove b0 l3']
+    #     tr_relation = dict({})
+    #     for k, v in self.transition_relation.items():
+    #         tr_relation[k] = v.restrict(constraint)
+    #     self.transition_relation = tr_relation
+    
+
+    # def test_human_moves_constraint(self):
+    #     """
+    #      Testing things out.
+    #     """
+    #     for l in range(1, self.locs +1):
+    #         for b in range(self.boxes):
+    #             box_pred = f'b{b} l{l}'
+    #             # constraint_cube = self.manager.addOne()
+    #             constraint_cube = self.xVar_map_sym[box_pred] & ~self.eAction_map_sym[f'{self.human_action[0]} {box_pred}']
+    #             # constraint_cube = self.locs_empty_constraints[f'l{l}'] & self.eAction_map_sym[f'{self.human_action[0]} b{b} l{l}']
+    #             for k, dd in self.transition_relation.items():
+    #                 self.transition_relation[k] |= constraint_cube
+
+
+    def test_human_moves_constraint_try3(self):
         """
-        grasp_action_cube = self.rAction_map_sym['grasp']
-        release_action_cube = self.rAction_map_sym['release']
+         Testing things out.
+        """
+        # Build a single monolithic constraint cube.
+        # This cube is TRUE for all valid state-action pairs and FALSE for invalid ones.
+        valid_human_moves_constraint = self.manager.addOne()
+
         for b in range(self.boxes):
-            not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
-            for l in range(1, self.locs + 1):
-                box_pred = f"b{b} l{l}"
-                constraint_cube = self.manager.addOne()
-                not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
-                constraint_cube &= not_grasp_cube & not_release_cube & ~self.human_move_b[b]
-                for sidx, s in enumerate(self.xVar_map[box_pred]):
-                    if s == '1':
-                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
+            for l in self.human_locs:
+                # The action of moving box `b` to location `l`
+                h_act_cube = self.eAction_map_sym[f'hmove b{b} l{l}']
+                
+                # The precondition that location `l` must be empty
+                loc_empty_cube = self.locs_empty_constraints[f'l{l}']
+
+                # The constraint for this specific move is:
+                # If the human performs this action, the precondition must hold.
+                # This is equivalent to: NOT (action is taken AND precondition is false)
+                # (~h_act_cube | loc_empty_cube)
+                constraint = ~h_act_cube | loc_empty_cube
+                valid_human_moves_constraint &= constraint
+
+        # Apply this global constraint to every part of the transition relation.
+        for var_str, dd in self.transition_relation.items():
+            self.transition_relation[var_str] = dd.restrict(valid_human_moves_constraint)
+
+
+
+    # def test_frame_axioms(self):
+    #     """
+    #     A helper function to test the frame axioms. Frame axioms ensure that the boxes that
+    #       are not being moved by the human or robot do not change their location. This is like a state invariance constraint.
+        
+    #     Here, we add frame axioms for all boxes that are currently "grounded" (i.e., not being moved by either the human or the robot). 
+    #       For box that is at end-effector (ee) location, we add the state invariance constraint during the action construction.
+    #     """
+    #     grasp_action_cube = self.rAction_map_sym['grasp']
+    #     release_action_cube = self.rAction_map_sym['release']
+    #     for b in range(self.boxes):
+    #         not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
+    #         for l in range(1, self.locs + 1):
+    #             box_pred = f"b{b} l{l}"
+    #             constraint_cube = self.manager.addOne()
+    #             not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
+    #             constraint_cube &= not_grasp_cube & not_release_cube & ~self.human_move_b[b]
+    #             for sidx, s in enumerate(self.xVar_map[box_pred]):
+    #                 if s == '1':
+    #                     self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= constraint_cube & self.xVar_map_sym[box_pred]
+    
+    # def test_frame_axioms(self):
+    #     """
+    #     A helper function to add frame axioms. Frame axioms ensure that variables that
+    #     are not explicitly changed by an action retain their current value.
+    #     This is the "catch-all" for state invariance.
+
+    #     This function also enforces constraints on human moves. If a human attempts
+    #     an illegal move (e.g., moving to an occupied space), this is treated as a
+    #     no-op for that variable, enforcing state invariance.
+    #     """
+    #     # A cube representing ANY robot action that is NOT grasp or release.
+    #     # These actions do not inherently change box locations from grounded->grounded.
+    #     # not_grasp_or_release_cube = ~self.rAction_map_sym['grasp'] & ~self.rAction_map_sym['release']
+
+    #     for b in range(self.boxes):
+    #         # Condition where this box `b` is NOT being grasped by the robot.
+    #         not_being_grasped_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & self.rAction_map_sym['grasp'])
+
+    #         # A cube representing ANY human action that does NOT involve box `b`.
+    #         human_not_moving_b_cube = ~self.human_move_b[b]
+
+    #         for l in range(1, self.locs + 1):
+    #             box_pred = f"b{b} l{l}"
+    #             box_at_loc_cube = self.xVar_map_sym[box_pred]
+
+    #             # Condition where this box `b` is NOT being released at this location `l`.
+    #             not_being_released_at_loc_cube = ~(self.xVar_map_sym[f'holding l{l}'] & self.rAction_map_sym['release'])
+
+    #             # Build the cube for illegal human moves related to this box and location.
+    #             # An illegal move is trying to move ANY box to location `l` when `l` is already occupied by `b`.
+    #             illegal_human_move_cube = self.manager.addZero()
+    #             for other_b in range(self.boxes):
+    #                 # Action: human tries to move some box `other_b` to `l`.
+    #                 h_act_cube = self.eAction_map_sym[f'hmove b{other_b} l{l}']
+    #                 # Condition: this action is illegal because `b` is already at `l`.
+    #                 illegal_human_move_cube |= (h_act_cube & box_at_loc_cube)
+
+
+    #             # The frame axiom applies if:
+    #             # 1. The human is not moving this box, AND the robot is not grasping/releasing it at this location.
+    #             # OR
+    #             # 2. The human is attempting an illegal move that is blocked by this box's presence.
+    #             frame_axiom_cond = (human_not_moving_b_cube & not_being_grasped_cube & not_being_released_at_loc_cube) | illegal_human_move_cube
+
+    #             # Apply the frame axiom: b' = b
+    #             for sidx, s in enumerate(self.xVar_map[box_pred]):
+    #                 if s == '1':
+    #                     self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= frame_axiom_cond & box_at_loc_cube
+
+
+
 
 
     def create_grasp_actions(self):
@@ -834,12 +967,13 @@ class FrankaWorldDynamic(FrankaWorld):
                 for other_b in range(self.boxes):
                     if other_b == b:
                         continue
-                    for human_to_loc in range(1, self.locs + 1):
+                    # for human_to_loc in range(1, self.locs + 1):
+                    for human_to_loc in self.human_locs:
                         h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
                         h_act_cube: ADD = self.eAction_map_sym[h_act_str]
                         valid_human_moves |= h_act_cube
 
-                        human_transition_cube = robot_transition_cube & h_act_cube
+                        human_transition_cube = robot_transition_cube & h_act_cube & self.locs_empty_constraints[f'l{human_to_loc}']
                         hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
 
                         # here we will only add the next state clauses for the box being moved by the human
@@ -884,19 +1018,21 @@ class FrankaWorldDynamic(FrankaWorld):
 
                 # we frist create all valid human moves
                 valid_human_moves = self.manager.addZero()
+                
                 # human can move any box other than the one being released by the robot
                 for other_b in range(self.boxes):  
                     if other_b == b:
                         continue
                     # human can move to any location other than the one being released by the robot
-                    for human_to_loc in range(1, self.locs + 1): 
+                    # for human_to_loc in range(1, self.locs + 1): 
+                    for human_to_loc in self.human_locs:
                         if human_to_loc == loc:
                             continue
                         h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
                         h_act_cube: ADD = self.eAction_map_sym[h_act_str]
                         valid_human_moves |= h_act_cube
 
-                        human_transition_cube = robot_transition_cube & h_act_cube
+                        human_transition_cube = robot_transition_cube & h_act_cube & self.locs_empty_constraints[f'l{human_to_loc}']
                         hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
 
                         # here we will only add the next state clauses for the box being moved by the human
@@ -957,9 +1093,11 @@ class FrankaWorldDynamic(FrankaWorld):
                             h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
                             h_act_cube: ADD = self.eAction_map_sym[h_act_str]
                             # if other_b == b:
+                            human_transition_cube = robot_transition_cube & h_act_cube & self.locs_empty_constraints[f'l{human_to_loc}']
+                            # assert not human_transition_cube.isZero(), "Human transition cube is zero. This should not happen!!"
+                            if human_transition_cube.isZero():
+                                continue
                             valid_human_moves[other_b] |= h_act_cube
-
-                            human_transition_cube = robot_transition_cube & h_act_cube
                             hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
 
                             # here we will only add the next state clauses for the box being moved by the human
@@ -972,17 +1110,15 @@ class FrankaWorldDynamic(FrankaWorld):
                                     if s == '1':
                                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
                     
-                    
+                    no_int_cube = ~(reduce(lambda x, y: x | y, valid_human_moves.values()))
                     # now we add the transition where the human does all the valid move and the robot grasps the box
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
-                            # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~self.human_move_b[b]
-                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b] #& no_int_cube #& ~valid_human_moves[b] #& ~self.human_move_b[b]
                     
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
-                            # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~self.human_move_b[b]
-                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
+                            self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b] # & no_int_cube #& ~valid_human_moves[b] #& ~self.human_move_b[b]
 
 
     def create_transfer_actions(self):
@@ -1016,12 +1152,13 @@ class FrankaWorldDynamic(FrankaWorld):
                     for other_b in range(self.boxes):
                         if other_b == b:
                             continue
-                        for human_to_loc in range(1, self.locs + 1):
+                        for human_to_loc in self.human_locs:
+                        # for human_to_loc in range(1, self.locs + 1):
                             h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
                             h_act_cube: ADD = self.eAction_map_sym[h_act_str]
                             valid_human_moves |= h_act_cube
 
-                            human_transition_cube = robot_transition_cube & h_act_cube
+                            human_transition_cube = robot_transition_cube & h_act_cube & self.locs_empty_constraints[f'l{human_to_loc}']
                             hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
 
                             # here we will only add the next state clauses for the box being moved by the human
@@ -1071,28 +1208,6 @@ class FrankaWorldDynamic(FrankaWorld):
         self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
         print('Break Here')
     
-
-    # def add_self_loop_for_goal(self):
-    #     """
-    #      Add self loop for the goal state. This is useful for the synthesis algorithm to work correctly.
-    #     """
-    #     # goal_cube = self.goal_latch
-    #     for s in self.goal:
-    #         pred_conf_str = self.xVar_map[s]
-    #         if s.startswith('b'):
-    #             # box id is the last character of the string 
-    #             bidx = int(s.split(' ')[0][-1])
-    #             for sidx, s in enumerate(pred_conf_str):
-    #                 if s == '1':
-    #                     self.transition_relation[self.bVars[bidx][sidx].bddPattern().__str__()] |= self.goal_latch
-    #         else:
-    #             for sidx, s in enumerate(pred_conf_str):
-    #                 if s == '1':
-    #                     self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= self.goal_latch
-            
-            
-            # self.transition_relation[latch.bddPattern().__str__()] |= goal_cube & latch
-    
     
     def create_transition_relation(self):
         """
@@ -1100,8 +1215,6 @@ class FrankaWorldDynamic(FrankaWorld):
         """
         # first we create grasp actions
         self.create_grasp_actions()
-
-        self.test_frame_axioms()
 
         # next we create the release actions
         self.create_release_actions()
@@ -1111,6 +1224,16 @@ class FrankaWorldDynamic(FrankaWorld):
 
         # finally we create the transfer actions
         self.create_transfer_actions()
+
+        # add human move constraints
+        # self.test_human_moves_constraint()
+        
+        # test the constraint that the human can not move to same loc.
+        # self.test_human_moves_constraint()
+        # self.test_frame_axioms()
+        # self.test_human_moves_constraint_try3()
+        
+        
 
 
 
@@ -1163,6 +1286,7 @@ def test_dynamic_franka_world():
     transit_b0 = o0
     hmove_b0_l3 = ~i0 & i1
     hmove_b0_l2 = i0 & ~i1
+    hmove_b0_l1 = i0 & i1
 
     # (ready l4) (b0 l1) --- (transit b0) ---> (to-obj b0) (b0 l1)
     tr1 = ready_l4 & b0_l1 & transit_b0
@@ -1205,24 +1329,33 @@ def test_dynamic_franka_world():
     # lets test the restict functionality - lets restrict human moves to be anything but hmove_b0_l2
     ts_action = list(transition_relation.values())
     print("Testing Restrict Functionality")
-    tr_restricted = [e.restrict(~hmove_b0_l2) for e in transition_relation.values()]
-    # ts_action = tr_restricted
+    constraint1 = ~(hmove_b0_l2 & b0_l2)
+    constraint2 = ~(hmove_b0_l3 & b0_l1)
+    constraint = constraint1 & constraint2
+    # constraint = manager.addZero()
+    tr_restricted = [e.restrict(constraint) for e in transition_relation.values()]
+    ts_action = tr_restricted
+
+    # try a little more sofisticated constraint
+    # if b0 at l1 then human can not move to l2
     
-    goal_latch = b0_l2 
+    # goal_latch = b0_l1 | b0_l2 | b0_l3
+    goal_latch = b0_l3
     preimage = preimage_test(From=goal_latch,
                             latches=pVars + bVars,
                             prime_latches=prime_pVars + prime_bVars,
                             ts_action=ts_action)
     
-    print("Preimage: ", preimage)
+    print("Preimage: \n", preimage)
 
 
 
 if __name__ == "__main__":
     boxes = 2
     locs = 3
-    init = ['to-obj b0', 'b0 l2', 'b1 l3']
+    init = ['ready l4', 'b0 l2', 'b1 l3']
     goal = ['b0 l1']
+    # goal = ['b0 l2', 'b1 l3']
     # init = ['ready l3', 'b0 l1']
     # goal = ['b0 l2']
     # goal = ['ready l1', 'b0 l1']
