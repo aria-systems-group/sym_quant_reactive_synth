@@ -31,6 +31,9 @@ class FrankaWorld():
         self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
         self.prime_latches_bdd: List[BDD] = [var.bddPattern() for var in self.prime_latches]
 
+        self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
+        self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
+
         self.xVar_map = dict()
         self.rAction_map = bidict({})
         self.xVar_map_sym  = dict()
@@ -45,6 +48,7 @@ class FrankaWorld():
         # more bookeeping stuff
         self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
         self.create_symbolic_maps()
+        self.create_sym_weight_dict()
 
         self.init_latch: ADD = self.set_init_latch() 
         self.goal_latch: ADD = self.set_goal_latch()
@@ -178,6 +182,17 @@ class FrankaWorld():
         self.rAction_map['grasp'] = rbit_str
         rbit_str = f"{self.boxes + self.locs + 2:0{len(self.oVars)}b}"
         self.rAction_map['release'] = rbit_str
+    
+
+    def create_sym_weight_dict(self) -> None:
+        # for ract, w in self.weight_dict.items():
+        for ract, dd in self.rAction_map_sym.items():
+            # extract the name
+            act_name: str = ract.split(' ')[0]
+            w = self.weight_dict[act_name]
+            self.symbolic_weight_dict[ract] = dd.ite(self.manager.addConst(w), self.manager.addOne())
+        
+        self.weight = reduce(lambda x, y: x & y, self.symbolic_weight_dict.values())
     
     
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
@@ -731,8 +746,8 @@ class FrankaWorld():
 
             
             # add the action costs    
-            # preimage = preimage + self.weight
-            preimage = preimage + self.manager.addOne()
+            preimage = preimage + self.weight
+            # preimage = preimage + self.manager.addOne()
 
             # go over all the sys actions and preserve the manimum one
             Minpre = []
