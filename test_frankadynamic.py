@@ -1,7 +1,7 @@
 import time
 import math
 
-from typing import List
+from typing import List, Dict
 from functools import reduce
 from itertools import product
 from collections import defaultdict
@@ -11,6 +11,7 @@ from bidict import bidict
 from cudd import Cudd, ADD, BDD
 
 from test_frankaworld import FrankaWorld
+
 
 class FrankaWorldDynamic(FrankaWorld):
 
@@ -468,7 +469,107 @@ class FrankaWorldDynamic(FrankaWorld):
                             if s == '1':
                                 self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves & self.cube_to_add(self.xVar_map[frame_box_pred], self.bVars[other_b])
 
+    def old_create_transit_actions(self):
+        """
+         Create transit actions for the robot. For each trnasit action we create all possible human actions. 
+           Human can move any box to any location. If the robot is transit-ing to a box, then we do no change the configuration of the robot
+            (i.e., ready l to ready l').
+           For the rest of the case, the robot conf changes from ready l to to-obj b.
 
+        For a fixed robot action, we first construct all valid human moves and the corresponding transition cubes.
+         Next, we add the transition where the human does no move as ~(valid_human_moves).
+        """
+        transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        state_constraint_cube = self.ee_empty_cube
+        for b in range(self.boxes):
+            robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
+
+            for from_loc in range(1, self.locs + 2):
+                rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
+                
+                for to_loc in range(1, self.locs + 1):
+                    if from_loc == to_loc:
+                        continue
+                    curr_box_pred: str = f"b{b} l{to_loc}"
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    
+                    # need to enforce that only one box is at loc l
+                    bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(to_loc), bConf_cube=bConf_cube)
+
+                    robot_transition_cube = rConf_cube & bConf_cube & state_constraint_cube & robot_act_cube
+
+                    box_clause_prime_string = self.xVar_map[curr_box_pred]
+                    pred_clause_prime_string = self.xVar_map[f"to-obj b{b}"]
+                    
+                    # we frist create all valid human moves
+                    valid_human_moves = defaultdict(lambda: self.manager.addZero()) 
+                    for other_b in range(self.boxes):
+                        # if other_b == b:
+                        # valid_human_moves[other_b] = self.manager.addZero() 
+                        for human_to_loc in self.human_locs:
+                        # for human_to_loc in range(1, self.locs + 1): 
+                            if human_to_loc == to_loc and other_b == b:
+                                continue
+                            h_act_str: str = f'{self.human_action[0]} b{other_b} l{human_to_loc}'
+                            h_act_cube: ADD = self.eAction_map_sym[h_act_str]
+                            # if other_b == b:
+                            human_transition_cube = robot_transition_cube & h_act_cube & self.locs_empty_constraints[f'l{human_to_loc}']
+                            # assert not human_transition_cube.isZero(), "Human transition cube is zero. This should not happen!!"
+                            if human_transition_cube.isZero():
+                                continue
+                            valid_human_moves[other_b] |= h_act_cube
+                            hbox_clause_prime_string = self.xVar_map[f'b{other_b} l{human_to_loc}']
+
+                            # here we will only add the next state clauses for the box being moved by the human
+                            for sidx, s in enumerate(hbox_clause_prime_string):
+                                if s == '1':
+                                    # self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                                    transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= human_transition_cube
+                            
+                            if other_b == b:
+                                for sidx, s in enumerate(self.xVar_map[f"ready l{to_loc}"]):
+                                    if s == '1':
+                                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
+                                        transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
+                            else:
+                                for sidx, s in enumerate(self.xVar_map[f"to-obj b{b}"]):
+                                    if s == '1':
+                                        # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
+                                        transition_relation[self.pVars[sidx].bddPattern().__str__()] |= human_transition_cube
+                    
+                    no_int_cube = ~(reduce(lambda x, y: x | y, valid_human_moves.values()))
+                    # now we add the transition where the human does all the valid move and the robot grasps the box
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            # self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b] #& no_int_cube #& ~valid_human_moves[b] #& ~self.human_move_b[b]
+                            transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
+                    
+                    for sidx, s in enumerate(box_clause_prime_string):
+                        if s == '1':
+                            # self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b] # & no_int_cube #& ~valid_human_moves[b] #& ~self.human_move_b[b]
+                            transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & ~valid_human_moves[b]
+                        
+                    # 3. Frame Axioms: For all non-spoiling moves, any box not explicitly moved must keep its state.
+                    for other_b in range(self.boxes):
+                        if other_b == b:
+                            continue
+                        
+                        # The frame axiom for `other_b` applies if the human is NOT moving `other_b` at all.
+                        # We get this cube from the pre-computed `human_move_b` dictionary.
+                        human_not_moving_other_b_cube = ~self.human_move_b[other_b]
+                        frame_cond = robot_act_cube & human_not_moving_other_b_cube
+
+                        for frame_loc in range(1, self.locs + 1):
+                            frame_box_pred = f'b{other_b} l{frame_loc}'
+                            # Add the frame axiom: b_other' = b_other
+                            final_frame_cube = frame_cond & self.xVar_map_sym[frame_box_pred]
+                            if not final_frame_cube.isZero():
+                                for sidx, s in enumerate(self.xVar_map[frame_box_pred]):
+                                    if s == '1':
+                                        self.transition_relation[self.bVars[other_b][sidx].bddPattern().__str__()] |= final_frame_cube
+        
+        return transition_relation
+    
     # def create_transit_actions(self):
     #     """
     #      Create transit actions for the robot. For each trnasit action we create all possible human actions. 
@@ -732,7 +833,7 @@ class FrankaWorldDynamic(FrankaWorld):
                         human_not_moving_other_b_cube = ~self.human_move_b[other_b]
                         frame_cond = robot_succeeds_cube & human_not_moving_other_b_cube
 
-                        for frame_loc in range(self.locs + 1):
+                        for frame_loc in range(1, self.locs + 1):
                             frame_box_pred = f'b{other_b} l{frame_loc}'
                             # Add the frame axiom: b_other' = b_other
                             final_frame_cube = frame_cond & self.xVar_map_sym[frame_box_pred]
@@ -879,16 +980,19 @@ class FrankaWorldDynamic(FrankaWorld):
          Overriding the transition relation creation function to account for dynamic human actions
         """
         # first we create grasp actions
-        self.create_grasp_actions()
+        # self.create_grasp_actions()
 
         # next we create the release actions
-        self.create_release_actions()
+        # self.create_release_actions()
 
         # next we create the transit actions
         self.create_transit_actions()
+        old_tr = self.old_create_transit_actions()
+        print("Checking old TR")
+        # self.transition_relation = old_tr
 
         # finally we create the transfer actions
-        self.create_transfer_actions()
+        # self.create_transfer_actions()
 
         # add human move constraints
         # self.test_human_moves_constraint()
@@ -956,71 +1060,31 @@ class FrankaWorldDynamic(FrankaWorld):
 
             # swap the winning states
             curr_winning_states = next_winning_states
+    
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a give strategy
+        """
+        raise NotImplementedError("Roll out strategy not implemented yet!!")
 
 
 def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
     From = From.swapVariables(latches, prime_latches)
     return From.vectorCompose(prime_latches, ts_action)
 
-
-def test_dynamic_franka_world():
-    manager = Cudd()
-    # ready l4, ready l1; ready l2; ready l3, to-obj b0
-    p0, p1, p2 = manager.addVar(0, 'p0'), manager.addVar(1, 'p1'), manager.addVar(2, 'p2')
-    # b0 l1, b0 l2, b0 l0, b0 l3
-    b0, b1, b2 = manager.addVar(3, 'b00'), manager.addVar(4, 'b01'), manager.addVar(5, 'b02')
-    # bookkeeping
-    pVars = [p0, p1, p2]
-    bVars = [b0, b1, b2]
-
-    # create prime vars
-    offset = len(pVars) + len(bVars)
-    p0_p, p1_p, p2_p = manager.addVar(offset, "pp0"), manager.addVar(offset + 1, "pp1"), manager.addVar(offset + 2, "pp2")
-    b0_p, b1_p, b2_p = manager.addVar(offset + 3, "pb00"), manager.addVar(offset + 4, "pb01"), manager.addVar(offset + 5, "pb02")
-
-    # bookkeeping
-    prime_pVars = [p0_p, p1_p, p2_p]
-    prime_bVars = [b0_p, b1_p, b2_p]
-
-    # create robot action vars - transit b0
-    offset = len(pVars) + len(bVars) + len(prime_pVars) + len(prime_bVars)
-    # transit b0 + dummy var
-    o0 = manager.addVar(offset, 'o0')
-    # hmove b0 l1, hmove b0 l2 + dummy var
-    i0, i1 = manager.addVar(offset + 1, 'i0'), manager.addVar(offset + 2, 'i1')  
-
-    transition_relation = {var.bddPattern().__str__(): manager.addZero() for var in [p0, p1, p2, b0, b1, b2]}
-
-    # create cubes
-    ready_l4 = ~p0 & ~p1 & p2
-    ready_l1 = ~p0 & p1 & ~p2
-    ready_l2 = ~p0 & p1 & p2
-    to_obj_b0 = p0 & ~p1 & ~p2
-    ready_l3 = p0 & ~p1 & p2
-
-    # box cubes
-    b0_l0 = ~b0 & ~b1 & b2
-    b0_l1 = ~b0 & b1 & ~b2
-    b0_l2 = ~b0 & b1 & b2
-    b0_l3 = b0 & ~b1 & ~b2
-
-    transit_b0 = o0
-    hmove_b0_l3 = ~i0 & i1
-    hmove_b0_l2 = i0 & ~i1
-    hmove_b0_l1 = i0 & i1
-
-    # (ready l4) (b0 l1) --- (transit b0) ---> (to-obj b0) (b0 l1)
+def old_one_box_tr():
+    # (ready l4) (b0 l1) (b1 l2) --- (transit b0) ---> (to-obj b0) (b0 l1) (b1 l2)
     tr1 = ready_l4 & b0_l1 & transit_b0
 
     rConf_prime_str = '100'
     bConf_prime_str = '010'
     for sidx, s in enumerate(rConf_prime_str):
         if s == '1':
-            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3)
+            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3 | hmove_b0_l1)
     
     for sidx, s in enumerate(bConf_prime_str):
         if s == '1':
-            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3)
+            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & ~(hmove_b0_l2 | hmove_b0_l3 | hmove_b0_l1)
     
     # (ready l4) (b0 l1) --- (transit b0) (hmove b0 l2) ---> (ready l1) (b0 l2)
     rConf_prime_str = '010'
@@ -1045,14 +1109,345 @@ def test_dynamic_franka_world():
         if s == '1':
             transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l3
     
+    # (ready l4) (b0 l1) --- (transit b0) (hmove b0 l1) ---> (ready l1) (b0 l1)
+    tr1 = ready_l4 & b0_l1 & transit_b0
+
+    rConf_prime_str = '010'
+    bConf_prime_str = '010'
+    for sidx, s in enumerate(rConf_prime_str):
+        if s == '1':
+            transition_relation[pVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l1
+    
+    for sidx, s in enumerate(bConf_prime_str):
+        if s == '1':
+            transition_relation[bVars[sidx].bddPattern().__str__()] |= tr1 & hmove_b0_l1
+
+
+
+def test_dynamic_franka_world():
+    manager = Cudd()
+    # ready l4, ready l1; ready l2; ready l3, to-obj b0
+    p0, p1, p2 = manager.addVar(0, 'p0'), manager.addVar(1, 'p1'), manager.addVar(2, 'p2')
+    # b0 l1, b0 l2, b0 l0, b0 l3
+    b00, b01, b02 = manager.addVar(3, 'b00'), manager.addVar(4, 'b01'), manager.addVar(5, 'b02')
+    # b1 l1, b1 l2, b1 l0, b1 l3
+    b10, b11, b12 = manager.addVar(6, 'b10'), manager.addVar(7, 'b11'), manager.addVar(8, 'b12')
+    # bookkeeping
+    pVars = [p0, p1, p2]
+    bVars = [b00, b01, b02, b10, b11, b12]
+
+    # create prime vars
+    offset = len(pVars) + len(bVars)
+    p0_p, p1_p, p2_p = manager.addVar(offset, "pp0"), manager.addVar(offset + 1, "pp1"), manager.addVar(offset + 2, "pp2")
+    b00_p, b01_p, b02_p = manager.addVar(offset + 3, "pb00"), manager.addVar(offset + 4, "pb01"), manager.addVar(offset + 5, "pb02")
+    b10_p, b11_p, b12_p = manager.addVar(offset + 6, "pb10"), manager.addVar(offset + 7, "pb11"), manager.addVar(offset + 8, "pb12")
+
+    # bookkeeping
+    prime_pVars = [p0_p, p1_p, p2_p]
+    prime_bVars = [b00_p, b01_p, b02_p, b10_p, b11_p, b12_p]
+
+    # create robot action vars - transit b0
+    offset = len(pVars) + len(bVars) + len(prime_pVars) + len(prime_bVars)
+    # transit b0 + dummy var
+    o0, o1 = manager.addVar(offset, 'o0'), manager.addVar(offset + 1, 'o1')
+    # hmove b0 l1, hmove b0 l2 + dummy var
+    i0, i1, i2 = manager.addVar(offset + 2, 'i0'), manager.addVar(offset + 3, 'i1'), manager.addVar(offset + 4, 'i2')  
+
+    transition_relation = {var.bddPattern().__str__(): manager.addZero() for var in [p0, p1, p2, b00, b01, b02, b10, b11, b12]}
+
+    # create cubes
+    ready_l4 = ~p0 & ~p1 & p2
+    ready_l1 = ~p0 & p1 & ~p2
+    ready_l2 = ~p0 & p1 & p2
+    to_obj_b0 = p0 & ~p1 & ~p2
+    ready_l3 = p0 & ~p1 & p2
+    to_obj_b1 = p0 & p1 & ~p2
+
+    # box cubes
+    b0_l0 = ~b00 & ~b01 & b02
+    b0_l1 = ~b00 & b01 & ~b02
+    b0_l2 = ~b00 & b01 & b02
+    b0_l3 = b00 & ~b01 & ~b02
+
+    b1_l0 = ~b10 & ~b11 & b12
+    b1_l1 = ~b10 & b11 & ~b12
+    b1_l2 = ~b10 & b11 & b12
+    b1_l3 = b10 & ~b11 & ~b12
+    
+    # 0-vector is skipped
+    transit_b0 = ~o0 & o1
+    transit_b1 = o0 & ~o1
+    
+    # human move cubes
+    hmove_b0_l3 = ~i0 & ~i1 & i2
+    hmove_b0_l2 = ~i0 & i1 & ~i2
+    hmove_b0_l1 = ~i0 & i1 & i2
+    hmove_b1_l3 = i0 & ~i1 & ~i2
+    hmove_b1_l2 = i0 & ~i1 & i2
+    hmove_b1_l1 = i0 & i1 & ~i2
+
+    # create empty_locs cube
+    l1_empty = ~(b0_l1 | b1_l1)
+    l2_empty = ~(b0_l2 | b1_l2)
+    l3_empty = ~(b0_l3 | b1_l3)
+    # l1_empty = l2_empty = l3_empty = manager.addOne()  # testing things
+
+    def rconf_cube_to_tr(transition_relation: Dict[str, ADD], rConf_prime_str: str, tr_cube: ADD, pVars: List[ADD]):
+        for sidx, s in enumerate(rConf_prime_str):
+            if s == '1':
+                transition_relation[pVars[sidx].bddPattern().__str__()] |= tr_cube
+        return transition_relation
+    
+
+    def bconf_cube_to_tr(transition_relation: Dict[str, ADD], bConf_prime_str: str, bidx:int, tr_cube: ADD, bVars: List[ADD]):
+        for sidx, s in enumerate(bConf_prime_str):
+            if s == '1':
+                transition_relation[bVars[bidx][sidx].bddPattern().__str__()] |= tr_cube
+        return transition_relation
+    
+
+    mono_tr = manager.addZero()
+
+
+    # make transit b0 edges
+    # (ready l4) (b0 l1) --- (transit b0) ---> (to-obj b0) (b0 l1)
+    robot_cube = ready_l4 & b0_l1 & transit_b0
+
+    # if hmove b0 l2 then ready l1 and b0 l2
+    rConf_prime_str = '010'
+    bConf_prime_str = '011' 
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b0_l2 & l2_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b0_l2 & l2_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    mono_tr |= robot_cube & hmove_b0_l2 & l2_empty
+
+    # if hmove b0 l3 then ready l1 and b0 l3
+    rConf_prime_str = '010'
+    bConf_prime_str = '100'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b0_l3 & l3_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b0_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    mono_tr |= robot_cube & hmove_b0_l3 & l3_empty
+    
+    # if hmove b1 to l2 - we only update the box loc
+    bConf_prime_str = '011'
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & hmove_b1_l2 & l2_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    mono_tr |= robot_cube & hmove_b0_l2 & l2_empty
+
+    # to-obj b0 and b0 l1 even if hmove b1 l2
+    rConf_prime_str = '100'
+    bConf_prime_str = '010'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b1_l2 & l2_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b1_l2 & l2_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+   
+   
+    # if hmove b1 to l3 - we only update the box loc
+    bConf_prime_str = '100'
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & hmove_b1_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    # to-obj b0 and b0 l1 even if hmove b1 l3
+    rConf_prime_str = '100'
+    bConf_prime_str = '010'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b1_l3 & l3_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b1_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    valid_human_moves = (hmove_b0_l2 & l2_empty) | (hmove_b0_l3 & l3_empty)
+
+    # if no hmove b0 then to-obj b0 and b0 l1
+    rConf_prime_str = '100'
+    bConf_prime_str = '010'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & ~valid_human_moves,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & ~valid_human_moves,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    valid_human_moves = (hmove_b1_l2 & l2_empty) | (hmove_b1_l3 & l3_empty)
+
+    # if no hmove then to-obj b0 and b0 l1
+    rConf_prime_str = '100'
+    bConf_prime_str = '010'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & ~valid_human_moves,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & ~valid_human_moves,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+
+
+    # make transit b1 edges
+    # (ready l4) (b1 l2) --- (transit b1) ---> (to-obj b1) (b1 l2)
+    robot_cube = ready_l4 & b1_l2 & transit_b1
+
+    # if hmove b1 l1 then ready l2 and b1 l1
+    rConf_prime_str = '011'
+    bConf_prime_str = '010' 
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b1_l1 & l1_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & hmove_b1_l1 & l1_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    # if hmove b1 l3 then ready l2 and b1 l3
+    rConf_prime_str = '011'
+    bConf_prime_str = '100'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b1_l3 & l3_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & hmove_b1_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    # if hmove b0 to l1 - we only update the box loc
+    bConf_prime_str = '010'
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b0_l1 & l1_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    # even if hmove b0 l1 then to-obj b1 and b1 l2
+    rConf_prime_str = '110'
+    bConf_prime_str = '011'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b0_l1 & l1_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube& hmove_b0_l1 & l1_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+
+
+
+    # if hmove b0 to l3 - we only update the box loc
+    bConf_prime_str = '100'
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=0, tr_cube=robot_cube & hmove_b0_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+
+    # even if hmove b0 l3 then to-obj b1 and b1 l2
+    rConf_prime_str = '110'
+    bConf_prime_str = '011'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & hmove_b0_l3 & l3_empty,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube& hmove_b0_l3 & l3_empty,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])                                     
+    
+    valid_human_moves = (hmove_b1_l1 & l1_empty) | (hmove_b1_l3 & l3_empty)
+
+    # if no hmove then to-obj b1 and b1 l2
+    rConf_prime_str = '110'
+    bConf_prime_str = '011'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & ~valid_human_moves,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & ~valid_human_moves,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    valid_human_moves = (hmove_b0_l1 & l1_empty) | (hmove_b0_l3 & l3_empty)
+
+    # if no hmove then to-obj b1 and b1 l2
+    rConf_prime_str = '110'
+    bConf_prime_str = '011'
+    transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
+                                           rConf_prime_str=rConf_prime_str,
+                                           tr_cube=robot_cube & ~valid_human_moves,
+                                           pVars=pVars)
+    
+    transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
+                                           bConf_prime_str=bConf_prime_str,
+                                           bidx=1, tr_cube=robot_cube & ~valid_human_moves,
+                                           bVars=[[b00, b01, b02], [b10, b11, b12]])
+
+    # let add frame axioms for boxes not being moved
+    # if b0 is not being moved then it stays in the same loc
+    local_bVars=[[b00, b01, b02], [b10, b11, b12]]
+    for loc in [1, 2, 3]:
+        b0_at_loc = b0_l1 if loc == 1 else (b0_l2 if loc == 2 else b0_l3)
+        b0_at_loc_prime_str = '010' if loc == 1 else ('011' if loc == 2 else '100')
+        for sidx, s in enumerate(b0_at_loc_prime_str):
+            if s == '1':
+                transition_relation[local_bVars[0][sidx].bddPattern().__str__()] |= b0_at_loc & ~(hmove_b0_l1 | hmove_b0_l2 | hmove_b0_l3)
+    
+    # if b1 is not being moved then it stays in the same loc
+    for loc in [1, 2, 3]:
+        b1_at_loc = b1_l1 if loc == 1 else (b1_l2 if loc == 2 else b1_l3)
+        b1_at_loc_prime_str = '010' if loc == 1 else ('011' if loc == 2 else '100')
+        for sidx, s in enumerate(b1_at_loc_prime_str):
+            if s == '1':
+                transition_relation[local_bVars[1][sidx].bddPattern().__str__()] |= b1_at_loc & ~(hmove_b1_l1 | hmove_b1_l2 | hmove_b1_l3)
+
+
     # goal_latch = to_obj_b0 & b0_l1
     # goal_latch = ready_l1 & b0_l3
     # lets test the restict functionality - lets restrict human moves to be anything but hmove_b0_l2
     ts_action = list(transition_relation.values())
+    # constraint = ~(hmove_b0_l3 | hmove_b1_l3)
+
     print("Testing Restrict Functionality")
-    constraint1 = ~(hmove_b0_l2 & b0_l2)
-    constraint2 = ~(hmove_b0_l3 & b0_l1)
-    constraint = constraint1 & constraint2
+    constraint1 = ~(hmove_b1_l1 & b0_l1)
+    # constraint2 = ~(hmove_b0_l3 & b0_l1)
+    constraint = constraint1 #& constraint2
     # constraint = manager.addZero()
     tr_restricted = [e.restrict(constraint) for e in transition_relation.values()]
     ts_action = tr_restricted
@@ -1061,69 +1456,71 @@ def test_dynamic_franka_world():
     # if b0 at l1 then human can not move to l2
     
     # goal_latch = b0_l1 | b0_l2 | b0_l3
-    goal_latch = b0_l3
+    # 'to-obj b0', 'b0 l2', 'b1 l3'
+    goal_latch = (to_obj_b0 & b0_l1 & b1_l2) | (to_obj_b1 & b0_l1 & b1_l2)
+    # goal_latch = goal_latch.ite(manager.addZero(), manager.plusInfinity())
+    # goal_latch = b0_l3
+    # curr_winning_states =  manager.plusInfinity()
+    # curr_winning_states = curr_winning_states.min(goal_latch)
     preimage = preimage_test(From=goal_latch,
-                            latches=pVars + bVars,
-                            prime_latches=prime_pVars + prime_bVars,
-                            ts_action=ts_action)
-    
+                             latches=pVars + bVars,
+                             prime_latches=prime_pVars + prime_bVars,
+                             ts_action=ts_action)
+    # to add action cost of 1 to states with 0 value
+    # preimage = preimage + manager.addOne()
     print("Preimage: \n", preimage)
 
 
 
 if __name__ == "__main__":
-    boxes = 3
-    locs = 8
+    test_dynamic_franka_world()
+
+    # boxes = 2
+    # locs = 3
     # init = ['ready l4', 'b0 l2', 'b1 l3']
-    # goal = ['b0 l2']
-    # goal = ['b0 l1', 'b1 l2']
-    # init = ['ready l3', 'b0 l1']
-    # goal = ['b0 l2']
-    # goal = ['ready l1', 'b0 l1']
-    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
-    goal = ['b0 l1', 'b1 l2', 'b2 l3']
-    fw = FrankaWorld(boxes=boxes, locs=locs, init=init, goal=goal)
-    # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
+    # # goal = ['b0 l1']
+    # goal = ['to-obj b0', 'b0 l2', 'b1 l3']
+    # # goal = ['b0 l1', 'b1 l2']
+    # # init = ['ready l3', 'b0 l1']
+    # # goal = ['b0 l2']
+    # # goal = ['ready l1', 'b0 l1']
+    # # init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l4']
+    # # goal = ['b0 l1', 'b1 l2', 'b2 l3']
+    # # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
     # fw = FrankaWorldDynamic(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=[2, 3])
 
-    print('****************xVars map:****************')
-    for k, v in fw.xVar_map.items():
-        print(f"{k} : {v}")
+    # print('****************xVars map:****************')
+    # for k, v in fw.xVar_map.items():
+    #     print(f"{k} : {v}")
     
-    print('****************rAction map:****************')
-    for k, v in fw.rAction_map.items():
-        print(f"{k} : {v}")
+    # print('****************rAction map:****************')
+    # for k, v in fw.rAction_map.items():
+    #     print(f"{k} : {v}")
 
     # print('****************eAction map:****************')
     # for k, v in fw.eAction_map.items():
     #     print(f"{k} : {v}")
     
+    # print("Total num of latches: ", len(fw.latches))
+    # print("Total num of prime latches: ", len(fw.prime_latches))
+    # print("Total boolean vars: ", len(fw.latches) + len(fw.prime_latches))
+
+    # # simple_franka_world()
+    # tic = time.time()
+    # fw.create_transition_relation()
+    # toc = time.time()
+    # print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # # fw.test_pre_image()
+
+    # # print('Transition Relation:')
+    # # for k, v in fw.transition_relation.items():
+    # #     print(f"{k} : {v}")
     
-    print("Total num of latches: ", len(fw.latches))
-    print("Total num of prime latches: ", len(fw.prime_latches))
-    print("Total boolean vars: ", len(fw.latches) + len(fw.prime_latches))
-
-    # simple_franka_world()
-    tic = time.time()
-    fw.create_transition_relation()
-    toc = time.time()
-    print(f"Time to create transition relation: {toc - tic} seconds")
-
-    # fw.test_pre_image()
-
-    # print('Transition Relation:')
-    # for k, v in fw.transition_relation.items():
-    #     print(f"{k} : {v}")
-    
-    synth_start = time.time() 
-    strategy = fw.solve(verbose=False)
-    synth_stop = time.time()
-    print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
-    # testing things out
-    # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
-    print("Rolling out Strategy")
-    fw.roll_out_strategy(strategy=strategy, verbose=True)
-    
-    print("Done")
-
-    # test_dynamic_franka_world()
+    # synth_start = time.time() 
+    # strategy = fw.solve()
+    # synth_stop = time.time()
+    # print(f"Time to synthesize strategy: {synth_stop - synth_start} seconds")
+    # # testing things out
+    # # t = fw.get_all_states_interval(upper=4, dd=strategy, lower=4)
+    # print("Done")
