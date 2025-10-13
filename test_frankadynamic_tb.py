@@ -37,17 +37,18 @@ class FrankaWorldDyanmicTurnBased():
         self.manager: Cudd = Cudd()
 
         # create turn variable
-        self.tVar: ADD = self.manager.addVar(0, 't')
+        self.tVar: ADD = [self.manager.addVar(0, 't0'), self.manager.addVar(1, 't1')]
         self.pVars, self.bVars = self.create_latches()
         self.xVars: List[ADD] = self.pVars + [var for box_adds in self.bVars for var in box_adds]
         
         # create prime turn latch
-        self.prime_tVar: ADD = self.manager.addVar(self.manager.size(), "pt")
+        offset = self.manager.size()
+        self.prime_tVar: ADD = [self.manager.addVar(offset, "pt0"), self.manager.addVar(offset + 1, "pt1")]
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
         self.oVars: List[ADD] = self.create_output_vars()
 
-        self.latches: List[ADD] = [self.tVar] + self.xVars
-        self.prime_latches: List[ADD] = [self.prime_tVar] + self.prime_pVars + self.prime_bVars
+        self.latches: List[ADD] = self.tVar + self.xVars
+        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_pVars + self.prime_bVars
         self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
         self.prime_latches_bdd: List[BDD] = [var.bddPattern() for var in self.prime_latches]
 
@@ -63,9 +64,9 @@ class FrankaWorldDyanmicTurnBased():
         self.bVars_map = {b: bidict({}) for b in range(self.boxes)}
         
         # different from frankaworld, we need a turn variable map
-        self.tVar_map = bidict({'robot': '1', 'human': '0'})
-        self.tVar_map_sym = bidict({'robot': self.cube_to_add(self.tVar_map['robot'], [self.tVar]),
-                                    'human': self.cube_to_add(self.tVar_map['human'], [self.tVar])})
+        self.tVar_map = bidict({'robot': '01', 'human': '10'})
+        self.tVar_map_sym = bidict({'robot': self.cube_to_add(self.tVar_map['robot'], self.tVar),
+                                    'human': self.cube_to_add(self.tVar_map['human'], self.tVar)})
         self.create_xVar_map()
         self.create_rAction_map()
 
@@ -199,7 +200,7 @@ class FrankaWorldDyanmicTurnBased():
          Num. of human actions = |boxes| x |locs| + 1 (for no-op action)
         """
         varsize = self.manager.size()
-        num_of_rActions = self.boxes * self.locs + 1
+        num_of_rActions = self.boxes * self.locs + 1 + 1 # to offset the 0-vector
         iVars_size = math.ceil(math.log2(num_of_rActions))
         iVars: List[ADD] =  [self.manager.addVar(h + varsize , 'i' + str(h)) for h in range(iVars_size)]
         return iVars
@@ -236,8 +237,8 @@ class FrankaWorldDyanmicTurnBased():
     
     def create_eAction_map(self) -> None:
         # Add a no-op action for the human
-        self.eAction_map[f'{self.human_action[0]} noop'] = f"{0:0{len(self.iVars)}b}"
-        offset = 1
+        self.eAction_map[f'{self.human_action[0]} noop'] = f"{1:0{len(self.iVars)}b}"
+        offset = 2
         for b in range(self.boxes):
             # TODO: Update this in future to restrict human moves to certain locations only
             for l in range(1, self.locs +1):
@@ -358,7 +359,7 @@ class FrankaWorldDyanmicTurnBased():
 
                 for sidx, s in enumerate(turn_prime_string):
                     if s == '1':
-                        self.transition_relation[self.tVar.bddPattern().__str__()] |= robot_transition_cube
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -425,7 +426,7 @@ class FrankaWorldDyanmicTurnBased():
                 
                 for sidx, s in enumerate(turn_prime_string):
                     if s == '1':
-                        self.transition_relation[self.tVar.bddPattern().__str__()] |= hmove_cube
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube
                 
                 # The moved box `hb` goes to its new location
                 moved_box_prime_str = self.xVar_map[f'b{hb} l{human_to_loc}']
@@ -463,7 +464,7 @@ class FrankaWorldDyanmicTurnBased():
                 
                 for sidx, s in enumerate(self.tVar_map['human']):
                     if s == '1':
-                        self.transition_relation[self.tVar.bddPattern().__str__()] |= self.tVar_map_sym['robot'] & constraint_cube & self.xVar_map_sym[box_pred]
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= self.tVar_map_sym['robot'] & constraint_cube & self.xVar_map_sym[box_pred]
                 
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
@@ -481,7 +482,7 @@ class FrankaWorldDyanmicTurnBased():
                 # turn to robot state after human move
                 for sidx, s in enumerate(self.tVar_map['robot']):
                     if s == '1':
-                        self.transition_relation[self.tVar.bddPattern().__str__()] |= noop_cube & self.xVar_map_sym[box_pred]
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= noop_cube & self.xVar_map_sym[box_pred]
                 # box remmains in the same location if human does not move it
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
@@ -497,7 +498,7 @@ class FrankaWorldDyanmicTurnBased():
             # turn to robot state after human move
             for sidx, s in enumerate(self.tVar_map['robot']):
                 if s == '1':
-                    self.transition_relation[self.tVar.bddPattern().__str__()] |= noop_cube & rConf_cube
+                    self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= noop_cube & rConf_cube
             
             pred_clause_prime_string = self.xVar_map[f'holding l{l}']
             # box_clause_prime_string = self.xVar_map[f'b{b} l0']
@@ -614,7 +615,7 @@ class FrankaWorldDyanmicTurnBased():
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
-        goal_cube = self.tVar & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l2']
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
         # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
         print('Goal state:', goal_cube)
