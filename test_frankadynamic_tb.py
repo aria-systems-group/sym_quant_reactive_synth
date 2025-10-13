@@ -316,7 +316,7 @@ class FrankaWorldDyanmicTurnBased():
         # self.create_transfer_actions()
 
         # add robot frame axioms
-        self.add_robot_frame_axioms()
+        # self.add_robot_frame_axioms()
 
         # finally, we add frame axioms for all boxes that enforce state invariance constraint
         # self.add_frame_axioms()
@@ -416,20 +416,12 @@ class FrankaWorldDyanmicTurnBased():
          Preconditions:
             1. The human can move box b to location l only if location l is empty - (b @ l') & ~(b @ l) predicates are true at current state 
         """
-        # grasp_action_cube = self.rAction_map_sym['grasp']
-        # release_action_cube = self.rAction_map_sym['release']
-        
         turn_bit: ADD = self.tVar_map_sym['human']
-        # human state evolves to robot state
         turn_prime_string = self.tVar_map['robot']
         for hb in range(self.boxes):
-            # constraint - robot not grasping the box the human is attempting to move
-            # not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{hb}'])
             for human_to_loc in self.human_locs:
-                # constraint - robot not about to release box the human is attempting to move
-                # not_release_cube = ~(self.xVar_map_sym[f'holding l{human_to_loc}'] & release_action_cube)
-                hmove_cube = turn_bit & self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] \
-                    & self.locs_empty_constraints[f'l{human_to_loc}'] #& not_grasp_cube #& not_release_cube 
+                hmove_cube = turn_bit & \
+                    self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & self.locs_empty_constraints[f'l{human_to_loc}'] & ~self.xVar_map_sym[f'b{hb} l0']
                 
                 for sidx, s in enumerate(turn_prime_string):
                     if s == '1':
@@ -440,19 +432,14 @@ class FrankaWorldDyanmicTurnBased():
                 for sidx, s in enumerate(moved_box_prime_str):
                     if s == '1':
                         self.transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= hmove_cube
-            
-            # # from every state human can also choose to do nothing
-            # noop_cube = turn_bit & self.eAction_map_sym['hmove noop']
                 
-            # for sidx, s in enumerate(turn_prime_string):
-            #     if s == '1':
-            #         self.transition_relation[self.tVar.bddPattern().__str__()] |= noop_cube
-            
-            # # The moved box `hb` goes to its new location
-            # # moved_box_prime_str = self.xVar_map[f'b{hb} l{human_to_loc}']
-            # for sidx, s in enumerate(moved_box_prime_str):
-            #     if s == '1':
-            #         self.transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= noop_cube
+                # add the fact that holding robot conf remains the same
+                for l in range(1, self.locs + 1):
+                    rConf_cube = self.xVar_map_sym[f'holding l{l}']
+                    holding_box_prime_str = self.xVar_map[f'holding l{l}']
+                    for sidx, s in enumerate(holding_box_prime_str):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube
     
 
     def add_robot_frame_axioms(self):
@@ -627,7 +614,7 @@ class FrankaWorldDyanmicTurnBased():
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
-        goal_cube = self.tVar & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
+        goal_cube = self.tVar & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2']
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
         # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
         print('Goal state:', goal_cube)
