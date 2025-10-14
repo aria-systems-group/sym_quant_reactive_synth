@@ -495,17 +495,17 @@ class FrankaWorldDyanmicTurnBased():
                                 self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube #& ~self.xVar_map_sym[f'b{b} l{from_loc}']
                 
                     
-            # add the human noop action here
-            hmove_cube = turn_bit & self.eAction_map_sym['hmove noop']
+                # add the human noop action here
+                hmove_cube = turn_bit & self.eAction_map_sym['hmove noop']
 
-            for sidx, s in enumerate(turn_prime_string):
-                if s == '1':
-                    self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
-                    
-            pred_clause_prime_string = self.xVar_map[f'to-obj b{b}']
-            for sidx, s in enumerate(pred_clause_prime_string):
-                if s == '1':
-                    self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
+                for sidx, s in enumerate(turn_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
+                        
+                pred_clause_prime_string = self.xVar_map[f'to-obj b{b}']
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
 
 
     def create_human_move_actions(self) -> None:
@@ -709,11 +709,11 @@ class FrankaWorldDyanmicTurnBased():
 
         # ready to transit testing
         # ready l3 -> transit b0 -> in-transit l3 b0
-        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l3 b0']
+        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l2 b0']
 
         # in-transit l3 b0 -> hmove b0 l2 -> to-obj b0
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1']
-        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l2']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] #& self.xVar_map_sym['b0 l2']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1']
 
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
