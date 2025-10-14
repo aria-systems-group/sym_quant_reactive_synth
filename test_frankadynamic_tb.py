@@ -131,9 +131,9 @@ class FrankaWorldDyanmicTurnBased():
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
         varsize = self.manager.size()
         # num. of preds = ready x |locs| + to-obj x |boxes| + holding x |locs| + 1 (to account for l0 being end effector loc) + grasp + release
-        # additional preds: in-transit x |locs| x |boxes| + in-transfer x |locs| x |locs|
+        # additional preds: in-transit x |locs + 1| x |boxes| + in-transfer x |locs| x |locs|
         num_of_preds = 2*self.locs + self.boxes + 2 + 1 # +1 for ready-else state
-        num_of_preds += self.locs * self.boxes # in-transit preds
+        num_of_preds += (self.locs + 1) * self.boxes # in-transit preds +1 for the else location
         num_of_preds += self.locs * self.locs # in-transfer preds
         vars_size: int = math.ceil(math.log2(num_of_preds))
         Vars: List[ADD] = [self.manager.addVar(k + varsize, 'p' + str(k)) for k in range(vars_size)]
@@ -365,20 +365,22 @@ class FrankaWorldDyanmicTurnBased():
         turn_bit: ADD = self.tVar_map_sym['robot']
         state_constraint_cube = self.ee_empty_cube
         robot_act_cube = self.rAction_map_sym['grasp']
+        turn_prime_string = self.tVar_map['human']
         for b in range(self.boxes):
             rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
 
             # for a given box, it can be at any location, so we iterate over all locations
             for loc in range(1, self.locs + 1):
+                rConf_cube_ready = self.xVar_map_sym[f'ready l{loc}']
                 curr_box_pred = f"b{b} l{loc}"
                 bConf_cube = self.xVar_map_sym[curr_box_pred]
                 # need to enforce that only one box is at loc l
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
 
-                robot_transition_cube = turn_bit & rConf_cube & bConf_cube & state_constraint_cube & robot_act_cube
+                robot_transition_cube = turn_bit & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube
+                # robot_transition_cube = turn_bit & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube_ready
 
-                # this is fixed and is independent of the human action
-                turn_prime_string = self.tVar_map['human']
+                # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
                 box_clause_prime_string = self.xVar_map[f'b{b} l0']
 
@@ -797,6 +799,65 @@ class FrankaWorldDyanmicTurnBased():
                 print(f"    -- Actions: ({action})")
         
         return states_action_pairs
+    
+
+    def solve(self):
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            
+            # add the action costs    
+            # preimage = preimage + self.weight
+            preimage = preimage + self.manager.addOne()
+            print("Current Preimage:")
+            self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+
+            # go over all the env actions and preserve the maximum one
+            MaxUpre = []
+            # for env_tr_dd in self.eAction_map.values():
+            for env_tr_dd in self.env_action_cube_list:
+                MaxUpre.append(preimage.restrict(env_tr_dd))
+            
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(Upre.restrict(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            print("Current Winning States:")
+            self.convert_cube_to_state_ADD(next_winning_states)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.init_latch & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
 
 
 
@@ -819,11 +880,11 @@ class FrankaWorldDyanmicTurnBased():
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
 
         # goal state is b0 and l0 and ready l0
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
-        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
-        # goal_cube = self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars)
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map['b1 l0'] & self.xVar_map_sym['holding l2'] 
+        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
+        # goal_cube = self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1']
         print('Goal state:', goal_cube)
         From = goal_cube
 
@@ -831,7 +892,7 @@ class FrankaWorldDyanmicTurnBased():
 
         preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=True)
 
 
 def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
@@ -1197,10 +1258,10 @@ if __name__ == "__main__":
     # sys.exit(0)
     
     # setting things up
-    boxes = 2
-    locs = 3
+    boxes = 1
+    locs = 2
     init = ['ready l3', 'b0 l2']
-    goal = ['b0 l1']
+    goal = ['holding l1', 'b0 l0']
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
 
     print('****************xVars map:****************')
@@ -1220,6 +1281,13 @@ if __name__ == "__main__":
     print("Total num of prime latches: ", len(fw_tb.prime_latches))
     print("Total boolean vars: ", len(fw_tb.latches) + len(fw_tb.prime_latches))
 
+    tic = time.time()
     fw_tb.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
 
     fw_tb.test_pre_image()
+    # tic = time.time()
+    # fw_tb.solve()
+    # toc = time.time()
+    # print(f"Time to synthesize strategy: {toc - tic} seconds")
