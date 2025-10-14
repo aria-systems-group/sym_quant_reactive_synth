@@ -331,7 +331,7 @@ class FrankaWorldDyanmicTurnBased():
         self.create_grasp_actions()
 
         # next we create the release actions
-        # self.create_release_actions()
+        self.create_release_actions()
 
         # next we create the transit actions
         self.create_transit_actions()
@@ -407,8 +407,38 @@ class FrankaWorldDyanmicTurnBased():
         Effects-:
          3. The robot's end effector is empty and not holding b: ~(holding l) ~(b l0) (for all b) predicates are true at next state
         """
-        raise NotImplementedError("Release action not implemented yet")
-    
+        turn_prime_string = self.tVar_map['human']
+        turn_bit = self.tVar_map_sym['robot']
+        robot_act_cube = self.rAction_map_sym['release']
+        for loc in range(1, self.locs + 1):
+            rConf_cube = self.xVar_map_sym[f'holding l{loc}']
+
+            # for a given location, it can be any location, so we iterate over all locations
+            for b in range(self.boxes):
+                curr_box_pred = f"b{b} l0"
+                bConf_cube = self.xVar_map_sym[curr_box_pred]
+                # bConf_cube = self.create_only_b_at_l_cube(b, bConf_cube)
+                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l0', bConf_cube=bConf_cube)
+
+                robot_transition_cube = turn_bit & rConf_cube & bConf_cube & robot_act_cube
+
+                # this is fixed
+                next_box_pred = f"b{b} l{loc}"
+                pred_clause_prime_string = self.xVar_map['ready l' + str(loc)]
+                box_clause_prime_string = self.xVar_map[next_box_pred]
+
+                for sidx, s in enumerate(turn_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                # now we add the transition where the human does all the valid move and the robot grasps the box
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                for sidx, s in enumerate(box_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube    
 
     def create_transit_actions(self) -> None:
         """
@@ -472,7 +502,7 @@ class FrankaWorldDyanmicTurnBased():
 
                     robot_transition_cube = turn_bit & rConf_cube & robot_act_cube # & bConf_cube
 
-                    # next state clauses - (holding to_loc) ; box location does not change
+                    # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
                     
                     for sidx, s in enumerate(turn_prime_string):
@@ -487,24 +517,6 @@ class FrankaWorldDyanmicTurnBased():
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube & bConf_cube
-        
-        # for b in range(self.boxes):
-        #     curr_box_pred = f'b{b} l0'
-        #     bConf_cube = self.xVar_map_sym[curr_box_pred]
-        #     bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l0', bConf_cube=bConf_cube)
-        #     for to_loc in range(1, self.locs + 1):
-        #         robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
-        #         robot_transition_cube = turn_bit & robot_act_cube & bConf_cube
-
-        #         box_clause_prime_string = self.xVar_map[curr_box_pred]
-
-        #         for sidx, s in enumerate(turn_prime_string):
-        #             if s == '1':
-        #                 self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
-                
-        #         for sidx, s in enumerate(box_clause_prime_string):
-        #             if s == '1':
-        #                 self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
     
 
     def create_human_move_transfer(self) -> None:
@@ -576,7 +588,7 @@ class FrankaWorldDyanmicTurnBased():
                         pred_clause_prime_string = self.xVar_map[f'ready l{from_loc}']
                         for sidx, s in enumerate(pred_clause_prime_string):
                             if s == '1':
-                                self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube #& ~self.xVar_map_sym[f'b{b} l{from_loc}']
+                                self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
                 
                     
                 # add the human noop action here
@@ -667,17 +679,18 @@ class FrankaWorldDyanmicTurnBased():
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= haction_cube & self.xVar_map_sym[box_pred]
 
-        # the robot's holding conf. remains the same after human move
+        # the robot's holding and ready conf. remains the same after human move
         for l in range(1, self.locs + 1):
-            rConf_cube = self.xVar_map_sym[f'holding l{l}']
-            for sidx, s in enumerate(self.tVar_map['robot']):
-                if s == '1':
-                    self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= self.tVar_map_sym['human'] & rConf_cube
-            
-            pred_clause_prime_string = self.xVar_map[f'holding l{l}']
-            for sidx, s in enumerate(pred_clause_prime_string):
-                if s == '1':
-                    self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= self.tVar_map_sym['human'] & rConf_cube
+            rConf_cubes_list = [self.xVar_map_sym[f'holding l{l}'], self.xVar_map_sym[f'ready l{l}'] & self.ee_empty_cube]
+            pred_clause_prime_string_list = [self.xVar_map[f'holding l{l}'], self.xVar_map[f'ready l{l}']]
+            for rConf_cube, pred_clause_prime_string in zip(rConf_cubes_list, pred_clause_prime_string_list):
+                for sidx, s in enumerate(self.tVar_map['robot']):
+                    if s == '1':
+                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= self.tVar_map_sym['human'] & rConf_cube
+                
+                for sidx, s in enumerate(pred_clause_prime_string):
+                    if s == '1':
+                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= self.tVar_map_sym['human'] & rConf_cube
 
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
@@ -803,10 +816,10 @@ class FrankaWorldDyanmicTurnBased():
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] #& self.xVar_map_sym['b0 l0']
 
         #  in-transfer l2 l1 b0 l0 -> human noop -> holding l1 b0 l0
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
 
         # goal state is b0 and l0 and ready l0
-        # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] 
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
