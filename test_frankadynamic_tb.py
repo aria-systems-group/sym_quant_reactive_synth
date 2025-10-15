@@ -256,7 +256,7 @@ class FrankaWorldDyanmicTurnBased():
         self.rAction_map['grasp'] = rbit_str
         rbit_str = f"{self.boxes + self.locs + 2:0{len(self.oVars)}b}"
         self.rAction_map['release'] = rbit_str
-    
+
     
     def create_eAction_map(self) -> None:
         # Add a no-op action for the human
@@ -343,12 +343,18 @@ class FrankaWorldDyanmicTurnBased():
         self.add_robot_frame_axioms()
 
         # finally, we add frame axioms for all boxes that enforce state invariance constraint
-        # self.add_frame_axioms()
         self.create_human_move_transit()
         self.create_human_move_transfer()
         self.create_human_move_actions()
 
         self.add_human_frame_axiom()
+
+        curr_pred = [self.tVar_map_sym['robot'], self.tVar_map_sym['human']]
+        next_pred_str = [self.tVar_map['human'], self.tVar_map['robot']]
+        for turn_bit, turn_prime_string in zip(curr_pred, next_pred_str):
+            for sidx, s in enumerate(turn_prime_string):
+                if s == '1':
+                    self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= turn_bit
     
 
     def create_grasp_actions(self) -> None:
@@ -365,7 +371,6 @@ class FrankaWorldDyanmicTurnBased():
         turn_bit: ADD = self.tVar_map_sym['robot']
         state_constraint_cube = self.ee_empty_cube
         robot_act_cube = self.rAction_map_sym['grasp']
-        turn_prime_string = self.tVar_map['human']
         for b in range(self.boxes):
             rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
 
@@ -377,16 +382,11 @@ class FrankaWorldDyanmicTurnBased():
                 # need to enforce that only one box is at loc l
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
 
-                robot_transition_cube = turn_bit & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube
-                # robot_transition_cube = turn_bit & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube_ready
+                robot_transition_cube = turn_bit & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube ## rConf_cube_ready
 
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
                 box_clause_prime_string = self.xVar_map[f'b{b} l0']
-
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -409,7 +409,6 @@ class FrankaWorldDyanmicTurnBased():
         Effects-:
          3. The robot's end effector is empty and not holding b: ~(holding l) ~(b l0) (for all b) predicates are true at next state
         """
-        turn_prime_string = self.tVar_map['human']
         turn_bit = self.tVar_map_sym['robot']
         robot_act_cube = self.rAction_map_sym['release']
         for loc in range(1, self.locs + 1):
@@ -428,10 +427,6 @@ class FrankaWorldDyanmicTurnBased():
                 next_box_pred = f"b{b} l{loc}"
                 pred_clause_prime_string = self.xVar_map['ready l' + str(loc)]
                 box_clause_prime_string = self.xVar_map[next_box_pred]
-
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
                 
                 # now we add the transition where the human does all the valid move and the robot grasps the box
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -453,7 +448,6 @@ class FrankaWorldDyanmicTurnBased():
             3. The robot's location has changed: ~(ready l) predicate is true at next state
         """
         state_constraint_cube = self.ee_empty_cube
-        turn_prime_string = self.tVar_map['human']
         turn_bit = self.tVar_map_sym['robot']
         for b in range(self.boxes):
             robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
@@ -470,10 +464,6 @@ class FrankaWorldDyanmicTurnBased():
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
-                
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def create_transfer_actions(self) -> None:
@@ -486,7 +476,6 @@ class FrankaWorldDyanmicTurnBased():
          Effects-:
             3. The robot's location has changed: ~(holding l) predicate is true at next state
         """
-        turn_prime_string = self.tVar_map['human']
         turn_bit = self.tVar_map_sym['robot'] 
         for b in range(self.boxes):
             curr_box_pred = f'b{b} l0'
@@ -507,9 +496,6 @@ class FrankaWorldDyanmicTurnBased():
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
                     
-                    for sidx, s in enumerate(turn_prime_string):
-                        if s == '1':
-                            self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= robot_transition_cube & bConf_cube
                     
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
@@ -528,7 +514,6 @@ class FrankaWorldDyanmicTurnBased():
           If the human does move a box, the robot conf. goes back to holding org-src and the box conf. of the moved box changes. 
         """
         turn_bit: ADD = self.tVar_map_sym['human']
-        turn_prime_string = self.tVar_map['robot']
         for from_loc in range(1, self.locs + 1):
             for to_loc in range(1, self.locs + 1):
                 if from_loc == to_loc:
@@ -542,9 +527,6 @@ class FrankaWorldDyanmicTurnBased():
                          self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & self.locs_empty_constraints[f'l{human_to_loc}'] \
                             & ~self.xVar_map_sym[f'b{human_box} l0']
 
-                        for sidx, s in enumerate(turn_prime_string):
-                            if s == '1':
-                                self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube
                         
                         pred_clause_prime_string = self.xVar_map[f'holding l{from_loc}']
                         for sidx, s in enumerate(pred_clause_prime_string):
@@ -553,10 +535,6 @@ class FrankaWorldDyanmicTurnBased():
                 
                 # add the human noop action here
                 hmove_cube = turn_bit & self.eAction_map_sym['hmove noop']
-
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube
                         
                 pred_clause_prime_string = self.xVar_map[f'holding l{to_loc}']
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -571,7 +549,6 @@ class FrankaWorldDyanmicTurnBased():
           If the human does not move a box, the robot conf. evolves to to-obj boc and box conf. remain the same for all the boxes. 
         """
         turn_bit: ADD = self.tVar_map_sym['human']
-        turn_prime_string = self.tVar_map['robot']
         for b in range(self.boxes):
             for from_loc in range(1, self.locs + 2):
                 # for all in-transit preds
@@ -583,10 +560,6 @@ class FrankaWorldDyanmicTurnBased():
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & self.locs_empty_constraints[f'l{human_to_loc}'] \
                             & ~self.xVar_map_sym[f'b{human_box} l0']
                         
-                        for sidx, s in enumerate(turn_prime_string):
-                            if s == '1':
-                                self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
-                        
                         pred_clause_prime_string = self.xVar_map[f'ready l{from_loc}']
                         for sidx, s in enumerate(pred_clause_prime_string):
                             if s == '1':
@@ -595,10 +568,6 @@ class FrankaWorldDyanmicTurnBased():
                     
                 # add the human noop action here
                 hmove_cube = turn_bit & self.eAction_map_sym['hmove noop']
-
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube & rConf_cube & self.ee_empty_cube
                         
                 pred_clause_prime_string = self.xVar_map[f'to-obj b{b}']
                 for sidx, s in enumerate(pred_clause_prime_string):
@@ -613,16 +582,11 @@ class FrankaWorldDyanmicTurnBased():
             1. The human can move box b to location l only if location l is empty - (b @ l') & ~(b @ l) predicates are true at current state 
         """
         turn_bit: ADD = self.tVar_map_sym['human']
-        turn_prime_string = self.tVar_map['robot']
         for hb in range(self.boxes):
             for human_to_loc in self.human_locs:
                 hmove_cube = turn_bit & \
                     self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & self.locs_empty_constraints[f'l{human_to_loc}'] \
                         & ~self.xVar_map_sym[f'b{hb} l0']
-                
-                for sidx, s in enumerate(turn_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= hmove_cube
                 
                 # The moved box `hb` goes to its new location
                 moved_box_prime_str = self.xVar_map[f'b{hb} l{human_to_loc}']
@@ -648,10 +612,6 @@ class FrankaWorldDyanmicTurnBased():
                 constraint_cube = self.manager.addOne()
                 not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
                 constraint_cube &= not_grasp_cube & not_release_cube
-                
-                for sidx, s in enumerate(self.tVar_map['human']):
-                    if s == '1':
-                        self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= self.tVar_map_sym['robot'] & constraint_cube & self.xVar_map_sym[box_pred]
                 
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
@@ -802,6 +762,10 @@ class FrankaWorldDyanmicTurnBased():
     
 
     def solve(self):
+        """
+         TODO: Add method to indentify states from which a give human move is valisd are valid
+        """
+        
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
