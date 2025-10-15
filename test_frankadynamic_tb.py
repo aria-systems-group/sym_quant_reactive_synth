@@ -712,11 +712,12 @@ class FrankaWorldDyanmicTurnBased():
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l3 b0']
 
         # in-transit l3 b0 -> hmove b0 l2 -> to-obj b0
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1']
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l2']
 
         # goal state is b0 and l0 and ready l0
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['ready l1'], self.pVars) 
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l1'] & self.xVar_map_sym['b2 l2']  
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l0'], self.bVars[1]) & self.cube_to_add(self.xVar_map['holding l2'], self.pVars) 
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
         # goal_cube = self.cube_to_add(self.xVar_map['b0 l1'], self.bVars[0]) & self.cube_to_add(self.xVar_map['b1 l2'], self.bVars[1]) & self.cube_to_add(self.xVar_map['to-obj b1'], self.pVars)
@@ -839,10 +840,10 @@ def test_dynamic_franka_world():
     prime_turn_str = '0' # human turn
     prime_rConf_str = '011' # holding l1
     prime_bConf_str_b0 = '001' # b0 l0
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=robot_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=robot_action,
+    #                                        tVars=[t])
     transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
                                            rConf_prime_str=prime_rConf_str,
                                            tr_cube=robot_action,
@@ -858,10 +859,10 @@ def test_dynamic_franka_world():
     human_action = holding_l1 & human_turn #& hmove_noop
     prime_turn_str = '1' # robot turn
     prime_rConf_str = '011' # holding l1
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = rconf_cube_to_tr(transition_relation=transition_relation,
                                            rConf_prime_str=prime_rConf_str,
                                            tr_cube=human_action,
@@ -873,10 +874,10 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b1_l3 & l3_empty & (b1_l1 | b1_l2 | b1_l3)
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b1 = '100' # b1 l3
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
@@ -887,10 +888,10 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b1_l2 & l2_empty & (b1_l1 | b1_l2 | b1_l3)
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b1 = '011' # b1 l2
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
@@ -899,10 +900,10 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b1_l1 & l1_empty & (b1_l1 | b1_l2 | b1_l3)
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b1 = '010' # b1 l1
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
@@ -912,10 +913,10 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b0_l3 & l3_empty & ~b0_l0
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b0 = '100' # b0 l3
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
@@ -925,10 +926,10 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b0_l2 & l2_empty & ~b0_l0
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b0 = '011' # b0 l2
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
@@ -937,39 +938,40 @@ def test_dynamic_franka_world():
     human_action = human_turn & hmove_b0_l1 & l1_empty & ~b0_l0
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b0 = '010' # b0 l1
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
 
+    
+    ############################## HUMAN FRAME AXIOMS ##############################
     # add human noop for testng compositional construction
     # (b0 l0) ---- (hmove noop) ---> (b0 l0)
     human_action = b0_l0 & human_turn #& hmove_noop
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b0 = '001' # b0 l0
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
     
-    ############################## HUMAN FRAME AXIOMS ##############################
     human_action = b1_l0 & human_turn #& hmove_noop
     prime_turn_str = '1' # robot turn
-    prime_bConf_str_b0 = '001' # b0 l0
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    prime_bConf_str_b1 = '001' # b1 l0
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
-                                           bConf_prime_str=prime_bConf_str_b0,
+                                           bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
     
@@ -977,10 +979,10 @@ def test_dynamic_franka_world():
     human_action = b1_l2 & human_turn & hmove_noop
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b1 = '011' # b1 l2
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
@@ -991,10 +993,10 @@ def test_dynamic_franka_world():
     human_action = b1_l3 & human_turn & hmove_noop
     prime_turn_str = '1' # robot turn
     prime_bConf_str_b1 = '100' # b1 l3
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=human_action,
@@ -1004,13 +1006,13 @@ def test_dynamic_franka_world():
     #  (b0 l2) ---- (hmove noop) ---> (b0 l2)
     human_action = b0_l2 & human_turn & hmove_noop
     prime_turn_str = '1' # robot turn
-    prime_bConf_str_b1 = '011' # b0 l2
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    prime_bConf_str_b0 = '011' # b0 l2
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
-                                           bConf_prime_str=prime_bConf_str_b1,
+                                           bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
     
@@ -1018,13 +1020,13 @@ def test_dynamic_franka_world():
     # (b0 l3) ---- (hmove noop) ---> (b0 l3)
     human_action = b0_l3 & human_turn & hmove_noop
     prime_turn_str = '1' # robot turn
-    prime_bConf_str_b1 = '100' # b0 l3
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=human_action,
-                                           tVars=[t])
+    prime_bConf_str_b0 = '100' # b0 l3
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=human_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
-                                           bConf_prime_str=prime_bConf_str_b1,
+                                           bConf_prime_str=prime_bConf_str_b0,
                                            bidx=0, tr_cube=human_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
     
@@ -1035,10 +1037,10 @@ def test_dynamic_franka_world():
     robot_action = robot_turn & to_obj_b0 & b1_l3
     prime_turn_str = '0' # human turn
     prime_bConf_str_b1 = '100' # b1 l3
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=robot_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=robot_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=robot_action,
@@ -1047,10 +1049,10 @@ def test_dynamic_franka_world():
     robot_action = robot_turn & to_obj_b0 & b1_l2
     prime_turn_str = '0' # human turn
     prime_bConf_str_b1 = '011' # b1 l2
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=robot_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=robot_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=robot_action,
@@ -1059,18 +1061,32 @@ def test_dynamic_franka_world():
     robot_action = robot_turn & to_obj_b0 & b1_l1
     prime_turn_str = '0' # human turn
     prime_bConf_str_b1 = '010' # b1 l1
-    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
-                                           tConf_prime_str=prime_turn_str,
-                                           tr_cube=robot_action,
-                                           tVars=[t])
+    # transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+    #                                        tConf_prime_str=prime_turn_str,
+    #                                        tr_cube=robot_action,
+    #                                        tVars=[t])
     transition_relation = bconf_cube_to_tr(transition_relation=transition_relation,
                                            bConf_prime_str=prime_bConf_str_b1,
                                            bidx=1, tr_cube=robot_action,
                                            bVars=[[b00, b01, b02], [b10, b11, b12]])
+    
+    robot_action = robot_turn
+    prime_turn_str = '0' # human turn
+    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+                                           tConf_prime_str=prime_turn_str,
+                                           tr_cube=robot_action,
+                                           tVars=[t])
+    
+    robot_action = human_turn
+    prime_turn_str = '1' # robot turn
+    transition_relation = tconf_cube_to_tr(transition_relation=transition_relation,
+                                           tConf_prime_str=prime_turn_str,
+                                           tr_cube=robot_action,
+                                           tVars=[t])
 
 
     # test pre-image computation
-    goal_cube = robot_turn & holding_l1 & b1_l0 & b0_l3
+    goal_cube = human_turn & holding_l1 & b0_l0 & b1_l3
 
     # creae box conf
     # care_set = b0_l0 | b0_l1 | b0_l2 | b0_l3 | b1_l0 | b1_l1 | b1_l2 | b1_l3
@@ -1090,12 +1106,12 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    # test_dynamic_franka_world()
-    # sys.exit(0)
+    test_dynamic_franka_world()
+    sys.exit(0)
     
     # setting things up
-    boxes = 1
-    locs = 2
+    boxes = 3
+    locs = 4
     init = ['ready l3', 'b0 l2']
     goal = ['b0 l1']
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
