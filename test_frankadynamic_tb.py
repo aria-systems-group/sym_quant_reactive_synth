@@ -60,6 +60,7 @@ class FrankaWorldDyanmicTurnBased():
         self.xVar_map = dict()
         self.rAction_map = bidict({})
         self.xVar_map_sym  = dict()
+        self.bVar_map_sym =  dict()
         
         # maps needs for lookup of the states corresponding to cubes
         self.pVar_map = bidict({})
@@ -92,11 +93,6 @@ class FrankaWorldDyanmicTurnBased():
         # precompute cubes of oVars - needed for synthesis
         self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
 
-        # state invariance constraint - end-effector empty cube - used in transit and grasp actions
-        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
-        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
-        self.create_loc_empty_constraint()
-
         # create env move related vars and maps
         self.human_action: List[str] = ['hmove']
         self.iVars: List[ADD] = self.create_input_vars()
@@ -107,6 +103,21 @@ class FrankaWorldDyanmicTurnBased():
 
         # precompute cubes for iVars and oVars - needed for synthesis
         self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
+
+        # create relevant env and robot actions; boxes
+        self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
+        self.relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.rAction_map_sym.values())
+        self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
+        self.relevant_box_preds_sym = defaultdict(lambda: self.manager.addZero())
+        self.create_relevant_env_actions_per_box()
+        self.create_relevant_box_predicates()
+        self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
+        self.create_monoltithic_box_conf_cube()
+
+        # state invariance constraint - end-effector empty cube - used in transit and grasp actions
+        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
+        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
+        self.create_loc_empty_constraint()
     
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
@@ -238,6 +249,7 @@ class FrankaWorldDyanmicTurnBased():
         for bidx, d in self.bVars_map.items():
             for k, v in d.items():
                 self.xVar_map_sym[k] = self.cube_to_add(v, self.bVars[bidx])
+                self.bVar_map_sym[k] = self.cube_to_add(v, self.bVars[bidx])
 
     def create_rAction_map(self) -> None:
         for ract in self.robot_actions:
@@ -308,9 +320,9 @@ class FrankaWorldDyanmicTurnBased():
         bConf_cube = self.manager.addOne()
         for b in range(self.boxes):
             bConf_cube &= ~self.xVar_map_sym['b' + str(b) + ' l0']
-        return bConf_cube
+        return bConf_cube & self.monolithic_relevant_box_preds
     
-    def create_only_b_at_l_cube(self, curr_box: int, curr_loc: int, bConf_cube: ADD) -> ADD:
+    def create_only_b_at_l_cube(self, curr_box: int, curr_loc: str, bConf_cube: ADD) -> ADD:
         # need to add that other boxes are not at end-effector location
         for ob in range(self.boxes):
             if ob == curr_box:
@@ -318,7 +330,46 @@ class FrankaWorldDyanmicTurnBased():
             bConf_cube &= ~self.xVar_map_sym['b' + str(ob) + f' {curr_loc}']
         return bConf_cube
     
+
+    def create_relevant_env_actions_per_box(self):
+        """
+         A tiny method to create relevant env actions for the human moves for each box.
+        """
+        for b in range(self.boxes):
+            for act_str, act_add in self.eAction_map_sym.items():
+                if f'b{b}' in act_str:
+                    self.relevant_env_actions_per_box[b] |= act_add
+
+
+    def create_relevant_box_predicates(self):
+        """
+         A tiny method to create relevant box predicates for each box.
+        """
+        # for b in range(self.boxes):
+        for box_str, box_add in self.bVar_map_sym.items():
+            box_id = int(box_str.split(' ')[0][-1])
+            assert isinstance(box_id, int) and box_id in range(self.boxes), "Error in extracting box id. Fix this!!!"
+            # if f'b{b}' in act_str:
+            self.relevant_box_preds_sym[box_id] |= box_add
     
+
+    def create_monoltithic_box_conf_cube(self):
+        """
+        Let try to use ITS method to crate valid set of box configurations. Basically, monolithic_relevant_box_preds variable capturre all possible
+          combinations of box configuration. Within this set, we need to enforce that no two boxes can be at the same location.
+        """
+        # if b0 is at l1, then b1 cannot be at l1
+        self.bVar_map_sym['b0 l1'].ite(~self.bVar_map_sym['b1 l1'], self.manager.addOne())
+
+        # add this to monolithic relevant box preds
+        for b in range(self.boxes):
+            for l in range(0, self.locs + 1):
+                self.monolithic_relevant_box_preds &= self.bVar_map_sym[f'b{b} l{l}'].ite(self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{l}', bConf_cube=self.manager.addOne()), self.manager.addOne())
+        # print("Monolithic box conf cube: ", self.monolithic_relevant_box_preds)
+        # self.convert_cube_to_state_ADD(self.monolithic_relevant_box_preds, human_action=False, robot_action=False)
+        # sys.exit(0)
+
+
 
     def create_transition_relation(self):
         """
