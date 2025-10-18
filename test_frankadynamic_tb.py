@@ -369,9 +369,6 @@ class FrankaWorldDyanmicTurnBased():
         Let try to use ITS method to crate valid set of box configurations. Basically, monolithic_relevant_box_preds variable capturre all possible
           combinations of box configuration. Within this set, we need to enforce that no two boxes can be at the same location.
         """
-        # if b0 is at l1, then b1 cannot be at l1
-        self.bVar_map_sym['b0 l1'].ite(~self.bVar_map_sym['b1 l1'], self.manager.addOne())
-
         # add this to monolithic relevant box preds
         for b in range(self.boxes):
             for l in range(0, self.locs + 1):
@@ -876,20 +873,20 @@ class FrankaWorldDyanmicTurnBased():
 
         # ready to transit testing
         # ready l3 -> transit b0 -> in-transit l3 b0
-        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l2 b0'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2']
+        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l2 b0'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2']
 
         # in-transit l3 b0 -> hmove b0 l2 -> to-obj b0
-        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l3']
-        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l2'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l3']
 
         # holding l2 b0 l0 -> transfer l1 -> in-transfer l2 l1 b0 l0
-        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l0']
+        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l0']
 
         #  in-transfer l2 l1 b0 l0 -> human noop -> holding l1 b0 l0
-        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
 
         # goal state is b0 and l0 and ready l0
-        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] #& self.xVar_map_sym['b1 l3']
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map['b1 l0'] & self.xVar_map_sym['holding l2'] 
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l1']
         # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
@@ -901,7 +898,7 @@ class FrankaWorldDyanmicTurnBased():
 
         preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=True)
+        self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False)
 
 
 def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
@@ -1263,14 +1260,15 @@ def test_dynamic_franka_world():
 
 
 if __name__ == "__main__":
-    # test_dynamic_franka_world()
-    # sys.exit(0)
+    test_dynamic_franka_world()
+    sys.exit(0)
     
     # setting things up
-    boxes = 2
-    locs = 3
+    boxes = 1
+    locs = 2
     init = ['ready l3', 'b0 l2']
     goal = ['holding l1', 'b0 l0']
+    # goal = ['b0 l1']
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=range(1, locs + 1))
 
     print('****************xVars map:****************')
@@ -1295,8 +1293,8 @@ if __name__ == "__main__":
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
 
-    fw_tb.test_pre_image()
-    # tic = time.time()
-    # fw_tb.solve()
-    # toc = time.time()
-    # print(f"Time to synthesize strategy: {toc - tic} seconds")
+    # fw_tb.test_pre_image()
+    tic = time.time()
+    fw_tb.solve()
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
