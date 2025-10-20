@@ -850,7 +850,7 @@ class FrankaWorldDyanmicTurnBased():
             
             try:
                 print(f"[({self.tVar_map.inv[tConf_exist_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
-                states_action_pairs.append([((self.pVar_map.inv[rConf_cube_str], box_states), val), None])
+                states_action_pairs.append([((self.tVar_map.inv[tConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
             except KeyError:
                 continue
             
@@ -874,9 +874,172 @@ class FrankaWorldDyanmicTurnBased():
         return states_action_pairs
     
 
-    def solve(self):
+    def get_next_state_human(self, curr_state: List[str], action: str) -> ADD:
         """
-         TODO: Add method to indentify states from which a give human move is valisd are valid
+         A helper function to get the next state under human action given the current state and human action.
+        """
+        turn_var_idx = 0
+        rConf_idx = 1
+        box_idx = 2
+        if action.startswith('hmove noop'):
+            # boxes do not change location but we need to update robot confguration
+            if curr_state[rConf_idx].startswith('in-transit'):
+                # the rConf state is of the form in-transit from_loc b_idx
+                to_box = curr_state[rConf_idx].split(' ')[2]
+                curr_state[rConf_idx] = f'to-obj {to_box}'
+            elif curr_state[rConf_idx].startswith('in-transfer'):
+                # the rConf state is of the form in-transfer from_loc to_loc
+                to_loc = curr_state[rConf_idx].split(' ')[2]
+                curr_state[rConf_idx] = f'holding {to_loc}'
+            elif curr_state[rConf_idx].startswith('ready') or curr_state[rConf_idx].startswith('holding'):
+                pass
+            else:
+                print("Unknown robot configuration during human move action. Cannot proceed!!")
+                sys.exit(-1)
+        elif action.startswith('hmove'):
+            # update box configuration
+            b_idx = action.split(' ')[1]
+            hmove_to_loc = action.split(' ')[2]
+            # the box str will be of the form b0 l1, b1 l3, etc..
+            split_str = curr_state[box_idx].split(', ')
+            split_str[int(b_idx[-1])] = f'{b_idx} {hmove_to_loc}'
+            curr_state[box_idx] = ', '.join(split_str)
+            # update robot configuration based on current robot configuration if the human moves a box        
+            # if curr_state[rConf_idx].startswith('ready'):
+            #     curr_state[rConf_idx] = curr_state[rConf_idx]
+            if curr_state[rConf_idx].startswith('in-transit'):
+                # the rConf state is of the form in-transit from_loc b_idx
+                from_loc = curr_state[rConf_idx].split(' ')[1]
+                curr_state[rConf_idx] = f'ready {from_loc}'
+            elif curr_state[rConf_idx].startswith('in-transfer'):
+                # the rConf state is of the form in-transfer from_loc to_loc
+                from_loc = curr_state[rConf_idx].split(' ')[1]
+                curr_state[rConf_idx] = f'holding {from_loc}'
+            elif curr_state[rConf_idx].startswith('ready') or curr_state[rConf_idx].startswith('holding'):
+                pass
+            else:
+                print("Unknown robot configuration during human move action. Cannot proceed!!")
+                sys.exit(-1)
+        
+        # update state turn
+        curr_state[turn_var_idx] = 'human' if curr_state[turn_var_idx] == 'robot' else 'robot'
+        # convert the string of boxes location to sperate state
+        split_str = curr_state[box_idx].split(', ')
+        return self.tVar_map_sym[curr_state[turn_var_idx]] & \
+              self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
+
+
+    def get_next_state_robot(self, curr_state: List[str], action: str) -> ADD:
+        """
+         A helper function to get the next state under robot action given the current state and robot action.
+        """
+        turn_var_idx = 0
+        rConf_idx = 1
+        box_idx = 2
+        # if action is transit then, update the robot configuration
+        if action.startswith('transit'):
+            assert curr_state[rConf_idx].startswith('ready'), "Make sure the robot is ready to transit!!!"
+            from_loc = curr_state[rConf_idx].split(' ')[1]
+            b_idx = action.split(' ')[1]
+            # from ready you evolve to in-transit
+            curr_state[rConf_idx] = f'in-transit {from_loc} {b_idx}'
+        
+        # if action is grasp then, update the robot configuration and box configuration
+        elif action.startswith('grasp'):
+            assert curr_state[rConf_idx].startswith('to-obj'), "Make sure the robot is in to-obj status when grasping!!!"
+            box: str = curr_state[rConf_idx].split(' ')[1]
+            b_idx = int(box[-1])
+            # the box str will of the form b0 l1, b1 l3, etc..
+            split_str = curr_state[box_idx].split(', ')
+            l_idx = split_str[b_idx].split(' ')[1] 
+            split_str[b_idx] = f'{box} l0'
+            curr_state[box_idx] = ', '.join(split_str)
+            # update the robot configuration
+            curr_state[rConf_idx] = f'holding {l_idx}'
+
+        # if action is release then, update the robot configuration and box configuration
+        elif action.startswith('release'):
+            assert curr_state[rConf_idx].startswith('holding'), "Make sure the robot is in holding status when releasing!!!"
+            l_idx = curr_state[rConf_idx].split(' ')[1]
+            # change the box location from l0 to l_idx
+            split_str = curr_state[box_idx].split(', ')
+            for bidx, b in enumerate(split_str):
+                if b.endswith('l0'):
+                    box = b.split(' ')[0]
+                    split_str[bidx] = f'{box} {l_idx}'
+                    break
+            # update the robot configuration
+            curr_state[box_idx] = ', '.join(split_str)
+            curr_state[rConf_idx] = f'ready {l_idx}'
+
+        
+        # if action is transfer then, update the robot configuration 
+        elif action.startswith('transfer'):
+            assert curr_state[rConf_idx].startswith('holding'), "Make sure the robot is holding when transfering to another loc!!!"
+            from_loc = curr_state[rConf_idx].split(' ')[1]
+            to_loc = action.split(' ')[1]
+            curr_state[rConf_idx] = f'in-transfer {from_loc} {to_loc}'
+
+        else:
+            print("Unknown action. Cannot compute next state!!")
+            sys.exit(-1)
+
+        # update state turn
+        curr_state[turn_var_idx] = 'human' if curr_state[turn_var_idx] == 'robot' else 'robot'
+        # convert the string of boxes location to sperate state
+        split_str = curr_state[box_idx].split(', ')
+        return self.tVar_map_sym[curr_state[turn_var_idx]] & \
+              self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
+    
+    
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a give strategy
+        """
+        curr_state = self.init_latch
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+
+        while (curr_state & self.goal_latch).isZero():
+            if verbose:
+                print("Current State:")
+                curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, robot_action=False)
+                assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+                "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            opt_sval = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+
+            # get the action to be taken at the current state
+            if curr_state_exp[0][0][0][0] == 'robot':
+                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+            elif curr_state_exp[0][0][0][0] == 'human':
+                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            else:
+                print("Unknown turn variable value. Cannot proceed with rollout!!")
+                return
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            if verbose:
+                try:
+                    act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
+                        else self.eAction_map.inv[act_cube_string]
+                    print(f"Robot Action: {act_name}")
+                except KeyError:
+                    print("No robot action found!!")
+                    return
+           
+            # get the next state
+            if curr_state_exp[0][0][0][0] == 'robot':
+                curr_state: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0]), act_name)
+            elif curr_state_exp[0][0][0][0] == 'human':
+                curr_state: ADD = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
+
+
+    def solve(self, verbose: bool = False):
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
         """
         
         # initialize goal state with 0 state value and add it to the winnign regiom
@@ -896,33 +1059,29 @@ class FrankaWorldDyanmicTurnBased():
             preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
 
             # add the action costs associated with the robot actions   
-            if layer % 2 != 0: 
-                preimage = preimage + self.weight
-            # preimage = preimage + self.manager.addOne()
+            preimage = preimage + self.weight
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-            # if turn_bit.isZero():
-            if layer % 2 == 0:
-                # go over all the env actions and preserve the maximum one
-                MaxUpre = []
-                # for env_tr_dd in self.eAction_map.values():
-                for env_tr_dd in self.env_action_cube_list:
-                    MaxUpre.append(preimage.restrict(env_tr_dd))
-                next_winning_states = reduce(lambda x, y: x.max(y), MaxUpre)
+            # go over all the env actions and preserve the maximum one
+            MaxUpre = []
+            # for env_tr_dd in self.eAction_map.values():
+            for env_tr_dd in self.env_action_cube_list:
+                MaxUpre.append(preimage.restrict(env_tr_dd))
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
-            # elif turn_bit.isOne():
-            elif layer % 2 == 1:
-                # go over all the sys actions and preserve the manimum one
-                Minpre = []
-                for robot_tr_dd in self.robot_action_cube_list:
-                    Minpre.append(preimage.restrict(robot_tr_dd))
-                next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            # elif layer % 2 == 1:
+            # go over all the sys actions and preserve the manimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                Minpre.append(Upre.restrict(robot_tr_dd))
             
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
-            print("Current Winning States:")
-            self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
@@ -956,28 +1115,26 @@ class FrankaWorldDyanmicTurnBased():
     def test_pre_image(self):
         # convert transition relation to latches bdd
         # tr_bdd = [dd.bddPattern() for dd in self.transition_relation.values()]
-        goal_cube = ~self.error_latch[0]
-
         # ready to transit testing
         # ready l3 -> transit b0 -> in-transit l3 b0
-        # goal_cube &= self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l2 b0'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2']
+        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit l2 b0'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l2']
 
         # in-transit l3 b0 -> hmove b0 l2 -> to-obj b0
-        # goal_cube &= self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l2'] #& self.xVar_map_sym['b1 l3']
-        goal_cube &= self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l2'] #& self.xVar_map_sym['b1 l3']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l3']
 
         # holding l2 b0 l0 -> transfer l1 -> in-transfer l2 l1 b0 l0
-        # goal_cube &= self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l0']
+        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l0']
 
         #  in-transfer l2 l1 b0 l0 -> human noop -> holding l1 b0 l0
-        # goal_cube &= self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
 
         # goal state is b0 and l0 and ready l0
-        # goal_cube &= self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] #& self.xVar_map_sym['b1 l3']
-        # goal_cube &= self.xVar_map_sym['b0 l1'] & self.xVar_map['b1 l0'] & self.xVar_map_sym['holding l2'] 
-        # goal_cube &= self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l1']
-        # goal_cube &= self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
-        # goal_cube &= self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map['b1 l0'] & self.xVar_map_sym['holding l2'] 
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.xVar_map_sym['b1 l2'] #& self.xVar_map_sym['b2 l1']
+        # goal_cube = self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['to-obj b1']
+        # goal_cube = self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1']
         print('Goal state:', goal_cube)
         # From = goal_cube
 
@@ -1295,12 +1452,12 @@ if __name__ == "__main__":
     
     # setting things up
     boxes = 1
-    locs = 2
-    init = ['ready l3', 'b0 l2']
+    locs = 5
+    init = ['ready l3', 'b0 l1']
     # goal = ['holding l1', 'b0 l0']
-    goal = ['b0 l1']
-    # human_locs =  [3, 4] #range(1, locs + 1)
-    human_locs = []
+    goal = ['b0 l2']
+    human_locs =  [3, 4] #range(1, locs + 1)
+    # human_locs = []
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=human_locs)
 
     print('****************xVars map:****************')
@@ -1328,6 +1485,8 @@ if __name__ == "__main__":
     # fw_tb.test_pre_image_restricted_human_moves()
     # fw_tb.test_pre_image()
     tic = time.time()
-    fw_tb.solve()
+    strategy = fw_tb.solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    fw_tb.roll_out_strategy(strategy=strategy, verbose=True)
