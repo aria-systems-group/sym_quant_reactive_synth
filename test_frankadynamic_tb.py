@@ -30,7 +30,7 @@ class FrankaWorldDyanmicTurnBased():
         self.boxes: int = boxes
         self.locs: int = locs
         self.human_locs: List[int] = human_locs
-        self.restricted_humanc_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
+        self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
         self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
         self.init = init
@@ -598,7 +598,7 @@ class FrankaWorldDyanmicTurnBased():
                          self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}']
                         
                         constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
-                        for restrcited_loc in self.restricted_humanc_locs:
+                        for restrcited_loc in self.restricted_human_locs:
                             constraint_cube &= ~self.xVar_map_sym[f'b{human_box} l{restrcited_loc}']
                         hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
@@ -610,7 +610,7 @@ class FrankaWorldDyanmicTurnBased():
                         
                         ##### INVALID MOVE CASE #####
                         constraint_cube = ~self.locs_empty_constraints[f'l{human_to_loc}']
-                        for restrcited_loc in self.restricted_humanc_locs:
+                        for restrcited_loc in self.restricted_human_locs:
                             constraint_cube |= self.xVar_map_sym[f'b{human_box} l{restrcited_loc}']
                         invalid_hmove_cube |=  turn_bit & \
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
@@ -643,7 +643,7 @@ class FrankaWorldDyanmicTurnBased():
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}']
                         
                         constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
-                        for restrcited_loc in self.restricted_humanc_locs:
+                        for restrcited_loc in self.restricted_human_locs:
                             constraint_cube &= ~self.xVar_map_sym[f'b{human_box} l{restrcited_loc}']
                         hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
                             
@@ -655,7 +655,7 @@ class FrankaWorldDyanmicTurnBased():
 
                         ##### INVALID MOVE CASE #####
                         constraint_cube = ~self.locs_empty_constraints[f'l{human_to_loc}']
-                        for restrcited_loc in self.restricted_humanc_locs:
+                        for restrcited_loc in self.restricted_human_locs:
                             constraint_cube |= self.xVar_map_sym[f'b{human_box} l{restrcited_loc}']
                         invalid_hmove_cube |=  turn_bit & \
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
@@ -687,7 +687,7 @@ class FrankaWorldDyanmicTurnBased():
                         self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}']
                     
                     constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
-                    for restrcited_loc in self.restricted_humanc_locs:
+                    for restrcited_loc in self.restricted_human_locs:
                         constraint_cube &= ~self.xVar_map_sym[f'b{hb} l{restrcited_loc}']
                     hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
                     
@@ -700,7 +700,7 @@ class FrankaWorldDyanmicTurnBased():
                     ##### INVALID MOVE CASE #####
                     # if it not a valid move, then human action should not have any affect
                     constraint_cube = ~self.locs_empty_constraints[f'l{human_to_loc}']
-                    for restrcited_loc in self.restricted_humanc_locs:
+                    for restrcited_loc in self.restricted_human_locs:
                         constraint_cube |= self.xVar_map_sym[f'b{hb} l{restrcited_loc}']
                     invalid_hmove_cube |= turn_bit & \
                         self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
@@ -742,13 +742,13 @@ class FrankaWorldDyanmicTurnBased():
         for b in range(self.boxes):
             for l in range(0, self.locs + 1):
                 box_pred = f"b{b} l{l}"
-                if l in self.restricted_humanc_locs:
+                if l in self.restricted_human_locs:
                     haction_cube = self.tVar_map_sym['human'] & self.xVar_map_sym[box_pred]
                 else:
                     haction_cube = self.tVar_map_sym['human'] \
                         & self.xVar_map_sym[box_pred] & (self.monolithic_hnoop | self.hmove_not_b[b])
                     constraint_cube = self.manager.addOne()
-                    for restrcited_loc in self.restricted_humanc_locs:
+                    for restrcited_loc in self.restricted_human_locs:
                         constraint_cube &= ~self.xVar_map_sym[f'b{b} l{restrcited_loc}']
                     haction_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
@@ -872,15 +872,55 @@ class FrankaWorldDyanmicTurnBased():
                 print(f"    -- Actions: ({action})")
         
         return states_action_pairs
-    
 
-    def get_next_state_human(self, curr_state: List[str], action: str) -> ADD:
+    def check_valid_human_move(self, curr_state: List[str], action: str) -> bool:
+        """
+         A helper function to check if a human move action is valid given the current state and human action.
+         Things to check:
+         1. if human is moving a box to a location that is already occupied by another box, return hmove noop
+         2. if human is moving a box that is currently at a restricted location, return hmove noop
+         3. if human is moving a box to a restricted location, return hmove noop
+         4. else return the human move action as is.
+
+        """
+        box_idx = 2
+        if action.startswith('hmove noop'):
+            return 'hmove noop'
+        elif action.startswith('hmove'):
+            # Chekcing point 1.
+            b_idx = action.split(' ')[1]
+            hmove_to_loc = action.split(' ')[2]
+            # the box str will be of the form b0 l1, b1 l3, etc..
+            split_str = curr_state[box_idx].split(', ')
+            # check if the location is already occupied by another box
+            for s in split_str:
+                # if s != split_str[int(b_idx[-1])]:
+                loc = s.split(' ')[1]
+                if loc == hmove_to_loc:
+                    return 'hmove noop'
+            
+            # checking point 2
+            curr_box__loc = split_str[int(b_idx[-1])].split(' ')[1]
+            if int(curr_box__loc[1:]) in self.restricted_human_locs:
+                return 'hmove noop'
+            
+            # checking point 3
+            if int(hmove_to_loc[1:]) in self.restricted_human_locs:
+                return 'hmove noop'
+        else:
+            print("Unknown human action. Cannot proceed!!")
+            sys.exit(-1)
+        
+        return action
+
+    def get_next_state_human(self, curr_state: List[str], action: str) -> Tuple[ADD, str] :
         """
          A helper function to get the next state under human action given the current state and human action.
         """
         turn_var_idx = 0
         rConf_idx = 1
         box_idx = 2
+        action: str = self.check_valid_human_move(curr_state=curr_state, action=action)
         if action.startswith('hmove noop'):
             # boxes do not change location but we need to update robot confguration
             if curr_state[rConf_idx].startswith('in-transit'):
@@ -905,8 +945,6 @@ class FrankaWorldDyanmicTurnBased():
             split_str[int(b_idx[-1])] = f'{b_idx} {hmove_to_loc}'
             curr_state[box_idx] = ', '.join(split_str)
             # update robot configuration based on current robot configuration if the human moves a box        
-            # if curr_state[rConf_idx].startswith('ready'):
-            #     curr_state[rConf_idx] = curr_state[rConf_idx]
             if curr_state[rConf_idx].startswith('in-transit'):
                 # the rConf state is of the form in-transit from_loc b_idx
                 from_loc = curr_state[rConf_idx].split(' ')[1]
@@ -926,7 +964,7 @@ class FrankaWorldDyanmicTurnBased():
         # convert the string of boxes location to sperate state
         split_str = curr_state[box_idx].split(', ')
         return self.tVar_map_sym[curr_state[turn_var_idx]] & \
-              self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
+              self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
 
 
     def get_next_state_robot(self, curr_state: List[str], action: str) -> ADD:
@@ -1020,20 +1058,28 @@ class FrankaWorldDyanmicTurnBased():
                 return
             act_cube_string = act_cube.cubeString().replace('-', '')
 
-            if verbose:
-                try:
-                    act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
-                        else self.eAction_map.inv[act_cube_string]
-                    print(f"Robot Action: {act_name}")
-                except KeyError:
-                    print("No robot action found!!")
-                    return
+            # if verbose:
+            try:
+                act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
+                    else self.eAction_map.inv[act_cube_string]
+                # print(f"Robot Action: {act_name}")
+            except KeyError:
+                print("No robot action found!!")
+                return
            
             # get the next state
             if curr_state_exp[0][0][0][0] == 'robot':
                 curr_state: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0]), act_name)
             elif curr_state_exp[0][0][0][0] == 'human':
-                curr_state: ADD = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
+                curr_state, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
+            
+            # printingn the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            if verbose:
+                # act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
+                #     else self.eAction_map.inv[act_cube_string]
+                print(f"Robot Action: {act_name}")
+            
 
 
     def solve(self, verbose: bool = False):
@@ -1452,11 +1498,12 @@ if __name__ == "__main__":
     
     # setting things up
     boxes = 1
-    locs = 5
-    init = ['ready l3', 'b0 l1']
+    locs = 2
+    init = ['ready l2', 'b0 l2']
     # goal = ['holding l1', 'b0 l0']
-    goal = ['b0 l2']
-    human_locs =  [3, 4] #range(1, locs + 1)
+    goal = ['b0 l1']
+    human_locs = range(1, locs + 1)
+    # human_locs =  [3, 4] #range(1, locs + 1)
     # human_locs = []
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=human_locs)
 
