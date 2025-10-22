@@ -41,13 +41,11 @@ class FrankaWorldDyanmicTurnBased():
         self.tVar: List[ADD] = [self.manager.addVar(0, 't0')]
         self.pVars, self.bVars = self.create_latches()
         self.xVars: List[ADD] = self.pVars + [var for box_adds in self.bVars for var in box_adds]
-        # self.error_latch: List[ADD] = [self.manager.addVar(len(self.tVar) + len(self.xVars), 'e')]
         
         # create prime turn latch
         offset = self.manager.size()
         self.prime_tVar: List[ADD] = [self.manager.addVar(offset, "pt0")]
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
-        # self.prime_error_latch: List[ADD] = [self.manager.addVar(offset + len(self.prime_tVar) + len(self.prime_pVars) + len(self.prime_bVars), 'pe')]
         self.oVars: List[ADD] = self.create_output_vars()
 
         self.latches: List[ADD] = self.tVar + self.xVars #+ self.error_latch
@@ -322,11 +320,13 @@ class FrankaWorldDyanmicTurnBased():
     
 
     def set_goal_latch(self) -> ADD:
-        goal_cube = self.tVar_map_sym['robot']
-        goal_cube = self.manager.addOne()
-        for s in self.goal:
-            goal_cube &= self.xVar_map_sym[s]
-        return goal_cube
+        mono_goal_cube = self.manager.addZero()
+        for state in self.goal:
+            goal_cube = self.tVar_map_sym['robot']
+            for s in state:
+                goal_cube &= self.xVar_map_sym[s]
+            mono_goal_cube |= goal_cube
+        return mono_goal_cube
     
 
     def create_ee_empty_cube(self) -> ADD:
@@ -1038,7 +1038,8 @@ class FrankaWorldDyanmicTurnBased():
         oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
         iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
 
-        while (curr_state & self.goal_latch).isZero():
+        while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
+        # while (curr_state & self.goal_latch).isZero():
             if verbose:
                 print("Current State:")
                 curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, robot_action=False)
@@ -1167,7 +1168,8 @@ class FrankaWorldDyanmicTurnBased():
 
         # in-transit l3 b0 -> hmove b0 l2 -> to-obj b0
         # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l2'] #& self.xVar_map_sym['b1 l3']
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l3']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['b0 l2'] & self.xVar_map_sym['b1 l5']
 
         # holding l2 b0 l0 -> transfer l1 -> in-transfer l2 l1 b0 l0
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l0']
@@ -1183,12 +1185,13 @@ class FrankaWorldDyanmicTurnBased():
         # goal_cube = self.xVar_map_sym['b1 l2'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['ready l1']
         print('Goal state:', goal_cube)
         # From = goal_cube
-
-        From = goal_cube.swapVariables(self.latches, self.prime_latches)
-
-        preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        preimage = preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
+
+        # preimage2 = preimage_test(From=preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
+        # print('Preimage2: ', preimage2)
+        # self.convert_cube_to_state_ADD(preimage2, human_action=False, robot_action=False)
 
 
 def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
@@ -1497,13 +1500,14 @@ if __name__ == "__main__":
     # sys.exit(0)
     
     # setting things up
-    boxes = 1
-    locs = 2
-    init = ['ready l2', 'b0 l2']
+    boxes = 2
+    locs = 5
+    init = ['ready l2', 'b0 l2', 'b1 l1']
+    goal = [['ready l2', 'b0 l2', 'b1 l5']]
     # goal = ['holding l1', 'b0 l0']
-    goal = ['b0 l1']
-    human_locs = range(1, locs + 1)
-    # human_locs =  [3, 4] #range(1, locs + 1)
+    # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
+    # human_locs = range(1, locs + 1)
+    human_locs =  [3, 4] #range(1, locs + 1)
     # human_locs = []
     fw_tb = FrankaWorldDyanmicTurnBased(boxes=boxes, locs=locs, init=init, goal=goal, human_locs=human_locs)
 
