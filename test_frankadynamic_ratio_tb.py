@@ -360,7 +360,8 @@ class FrankaWorldDyanmicRatioTurnBased():
     def set_goal_latch(self) -> ADD:
         mono_goal_cube = self.manager.addZero()
         for state in self.goal:
-            goal_cube = self.tVar_map_sym['robot']
+            # goal_cube = self.tVar_map_sym['robot']
+            goal_cube = self.manager.addOne()
             for s in state:
                 goal_cube &= self.xVar_map_sym[s]
             mono_goal_cube |= goal_cube
@@ -1051,7 +1052,7 @@ class FrankaWorldDyanmicRatioTurnBased():
             
             try:
                 print(f"[({self.tVar_map.inv[tConf_exist_str]}, {self.kVar_map.inv[kConf_exist_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
-                states_action_pairs.append([((self.tVar_map.inv[tConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
+                states_action_pairs.append([((self.tVar_map.inv[tConf_exist_str], self.kVar_map.inv[kConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
             except KeyError:
                 continue
             
@@ -1081,10 +1082,12 @@ class FrankaWorldDyanmicRatioTurnBased():
          1. if human is moving a box to a location that is already occupied by another box, return hmove noop
          2. if human is moving a box that is currently at a restricted location, return hmove noop
          3. if human is moving a box to a restricted location, return hmove noop
+         4. if human has reached the max number of interventions in this robot turn, return hmove noop
          4. else return the human move action as is.
 
         """
-        box_idx = 2
+        box_idx = 3
+        human_move_idx = 1
         if action.startswith('hmove noop'):
             return 'hmove noop'
         elif action.startswith('hmove'):
@@ -1095,7 +1098,6 @@ class FrankaWorldDyanmicRatioTurnBased():
             split_str = curr_state[box_idx].split(', ')
             # check if the location is already occupied by another box
             for s in split_str:
-                # if s != split_str[int(b_idx[-1])]:
                 loc = s.split(' ')[1]
                 if loc == hmove_to_loc:
                     return 'hmove noop'
@@ -1108,6 +1110,11 @@ class FrankaWorldDyanmicRatioTurnBased():
             # checking point 3
             if int(hmove_to_loc[1:]) in self.restricted_human_locs:
                 return 'hmove noop'
+
+            # checking point 4
+            kval = int(curr_state[human_move_idx][-1])
+            if (self.ratio == 0 and kval == 0) or kval >= self.ratio:
+                return 'hmove noop'
         else:
             print("Unknown human action. Cannot proceed!!")
             sys.exit(-1)
@@ -1119,8 +1126,9 @@ class FrankaWorldDyanmicRatioTurnBased():
          A helper function to get the next state under human action given the current state and human action.
         """
         turn_var_idx = 0
-        rConf_idx = 1
-        box_idx = 2
+        human_move_idx = 1
+        rConf_idx = 2
+        box_idx = 3
         action: str = self.check_valid_human_move(curr_state=curr_state, action=action)
         if action.startswith('hmove noop'):
             # boxes do not change location but we need to update robot confguration
@@ -1137,9 +1145,14 @@ class FrankaWorldDyanmicRatioTurnBased():
             else:
                 print("Unknown robot configuration during human move action. Cannot proceed!!")
                 sys.exit(-1)
+            
+            # if did not move any box then the K var resets to 0
+            curr_state[human_move_idx] = 'k0'
+        
         elif action.startswith('hmove'):
             # update box configuration
             b_idx = action.split(' ')[1]
+            kval = int(curr_state[human_move_idx][-1])
             hmove_to_loc = action.split(' ')[2]
             # the box str will be of the form b0 l1, b1 l3, etc..
             split_str = curr_state[box_idx].split(', ')
@@ -1159,12 +1172,17 @@ class FrankaWorldDyanmicRatioTurnBased():
             else:
                 print("Unknown robot configuration during human move action. Cannot proceed!!")
                 sys.exit(-1)
-        
+            # update K var - increment K by 1
+            if kval < self.ratio:
+                curr_state[human_move_idx] = f'k{kval + 1}'
+            # else:
+            #     curr_state[human_move_idx] = f'k0'  # stays the same if already at max
+            
         # update state turn
         curr_state[turn_var_idx] = 'human' if curr_state[turn_var_idx] == 'robot' else 'robot'
         # convert the string of boxes location to sperate state
         split_str = curr_state[box_idx].split(', ')
-        return self.tVar_map_sym[curr_state[turn_var_idx]] & \
+        return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] & \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
 
 
@@ -1173,8 +1191,9 @@ class FrankaWorldDyanmicRatioTurnBased():
          A helper function to get the next state under robot action given the current state and robot action.
         """
         turn_var_idx = 0
-        rConf_idx = 1
-        box_idx = 2
+        human_move_idx = 1
+        rConf_idx = 2
+        box_idx = 3
         # if action is transit then, update the robot configuration
         if action.startswith('transit'):
             assert curr_state[rConf_idx].startswith('ready'), "Make sure the robot is ready to transit!!!"
@@ -1227,7 +1246,7 @@ class FrankaWorldDyanmicRatioTurnBased():
         curr_state[turn_var_idx] = 'human' if curr_state[turn_var_idx] == 'robot' else 'robot'
         # convert the string of boxes location to sperate state
         split_str = curr_state[box_idx].split(', ')
-        return self.tVar_map_sym[curr_state[turn_var_idx]] & \
+        return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] &  \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
     
     
@@ -1240,7 +1259,6 @@ class FrankaWorldDyanmicRatioTurnBased():
         iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
 
         while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
-        # while (curr_state & self.goal_latch).isZero():
             if verbose:
                 print("Current State:")
                 curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, robot_action=False)
@@ -1260,11 +1278,9 @@ class FrankaWorldDyanmicRatioTurnBased():
                 return
             act_cube_string = act_cube.cubeString().replace('-', '')
 
-            # if verbose:
             try:
                 act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
                     else self.eAction_map.inv[act_cube_string]
-                # print(f"Robot Action: {act_name}")
             except KeyError:
                 print("No robot action found!!")
                 return
@@ -1275,11 +1291,9 @@ class FrankaWorldDyanmicRatioTurnBased():
             elif curr_state_exp[0][0][0][0] == 'human':
                 curr_state, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
             
-            # printingn the action here as the human action is overriden above. This because invalid human moves
+            # printing the action here as the human action is overriden above. This because invalid human moves
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
-                # act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
-                #     else self.eAction_map.inv[act_cube_string]
                 print(f"Robot Action: {act_name}")
             
 
@@ -1294,6 +1308,13 @@ class FrankaWorldDyanmicRatioTurnBased():
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
+
+        # print the initial winning states
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not retuen cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), robot_action=False)
         
         # intialize the iteration counter
         layer = 0
@@ -1698,11 +1719,11 @@ if __name__ == "__main__":
     
     # setting things up
     boxes = 1
-    locs = 2
-    ratio = 1
-    # init = ['ready l2', 'b0 l2', 'b1 l1']
-    # goal = [['ready l2', 'b0 l2', 'b1 l5']]
-    init = ['ready l2', 'b0 l2']
+    locs = 20
+    ratio = 5
+    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    # goal = [['b0 l1']]
+    init = ['ready l3', 'b0 l2']
     goal = [['b0 l1']]
     # goal = ['holding l1', 'b0 l0']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
@@ -1726,6 +1747,11 @@ if __name__ == "__main__":
     print("*****************Ratio Map:*****************")
     for k, v in fw_tb.kVar_map.items():
         print(f"{k} : {v}")
+    
+    # print the number of explicit states
+    sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
+    env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
+    print("Total num of explicit states: ", env_states + sys_states)
 
 
     print("Total num of latches: ", len(fw_tb.latches))
@@ -1740,8 +1766,9 @@ if __name__ == "__main__":
     # fw_tb.test_pre_image_restricted_human_moves()
     # fw_tb.test_pre_image()
     tic = time.time()
-    strategy = fw_tb.solve(verbose=True)
+    strategy = fw_tb.solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
-    # fw_tb.roll_out_strategy(strategy=strategy, verbose=True)
+    if strategy is not None:
+        fw_tb.roll_out_strategy(strategy=strategy, verbose=True)
