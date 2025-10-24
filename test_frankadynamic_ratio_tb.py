@@ -927,45 +927,6 @@ class FrankaWorldDyanmicRatioTurnBased():
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= haction_cube
 
-        # when human choose not to intervene, k resets to 0
-        # for k in range(self.ratio + 1):
-        #     kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-        #     for b in range(self.boxes):
-        #         for l in range(0, self.locs + 1):
-        #             box_pred = f"b{b} l{l}"
-        #             # if box at ee location/ restricted locs from which human can not move then hnoop and move_b are all invalid
-        #             if l in self.restricted_human_locs:
-        #                 haction_cube = self.tVar_map_sym['human'] & self.xVar_map_sym[box_pred] & (self.monolithic_hnoop | self.relevant_env_actions_per_box[b]) & kVal_cube
-        #             else:
-        #                 haction_cube = self.tVar_map_sym['human'] & self.xVar_map_sym[box_pred] & self.monolithic_hnoop & kVal_cube
-                    
-        #             # k value resets to 0
-        #             for sidx, s in enumerate(self.kVar_map['k0']):
-        #                 if s == '1':
-        #                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  haction_cube
-
-        # # the robot's holding and ready conf. remains the same after human move
-        # for k in range(self.ratio + 1):
-        #     kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-        #     for l in range(1, self.locs + 1):
-        #         rConf_cubes_list = [self.xVar_map_sym[f'holding l{l}'], self.xVar_map_sym[f'ready l{l}'] & self.ee_empty_cube]
-        #         pred_clause_prime_string_list = [self.xVar_map[f'holding l{l}'], self.xVar_map[f'ready l{l}']]
-        #         for rConf_cube, pred_clause_prime_string in zip(rConf_cubes_list, pred_clause_prime_string_list):
-        #             haction_cube = self.tVar_map_sym['human'] & rConf_cube & kVal_cube
-                    
-        #             for sidx, s in enumerate(pred_clause_prime_string):
-        #                 if s == '1':
-        #                     self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= haction_cube
-                    
-        #             if k == 0 or k % self.ratio != 0:
-        #                 for sidx, s in enumerate(self.kVar_map[f'k{k}']):
-        #                     if s == '1':
-        #                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  haction_cube
-        #             else:
-        #                 for sidx, s in enumerate(self.kVar_map['k0']):
-        #                     if s == '1':
-        #                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  haction_cube
-
     
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
@@ -1175,8 +1136,6 @@ class FrankaWorldDyanmicRatioTurnBased():
             # update K var - increment K by 1
             if kval < self.ratio:
                 curr_state[human_move_idx] = f'k{kval + 1}'
-            # else:
-            #     curr_state[human_move_idx] = f'k0'  # stays the same if already at max
             
         # update state turn
         curr_state[turn_var_idx] = 'human' if curr_state[turn_var_idx] == 'robot' else 'robot'
