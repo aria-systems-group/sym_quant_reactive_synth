@@ -22,7 +22,6 @@ from cudd import Cudd, ADD, BDD
 
 
 
-
 class FrankaWorldDyanmicRatioTurnBased():
 
     def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, human_locs: List[int]):
@@ -1369,7 +1368,7 @@ class FrankaWorldDyanmicRatioTurnBased():
         # preimage2 = preimage_test(From=preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         # print('Preimage2: ', preimage2)
         # self.convert_cube_to_state_ADD(preimage2, human_action=False, robot_action=False)
-
+        
 
 def preimage_test(From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
     From = From.swapVariables(latches, prime_latches)
