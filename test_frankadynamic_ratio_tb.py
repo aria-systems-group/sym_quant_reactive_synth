@@ -117,11 +117,13 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.create_relevant_env_actions_per_box()
         self.create_relevant_box_predicates()
         self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
-        self.create_monoltithic_box_conf_cube()
-        self.create_hmove_not_b()
-
+        
         # state invariance constraint - end-effector empty cube - used in transit and grasp actions
         self.ee_empty_cube: ADD = self.create_ee_empty_cube()
+        self.create_monoltithic_box_conf_cube()
+        self.create_hmove_not_b()
+        self.create_valid_state_constraints()
+        
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
         self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
@@ -417,13 +419,34 @@ class FrankaWorldDyanmicRatioTurnBased():
 
     def create_monoltithic_box_conf_cube(self):
         """
-        Let try to use ITS method to crate valid set of box configurations. Basically, monolithic_relevant_box_preds variable capturre all possible
+        Let try to use ITE method to create valid set of box configurations. Basically, monolithic_relevant_box_preds variable capturre all possible
           combinations of box configuration. Within this set, we need to enforce that no two boxes can be at the same location.
         """
         # add this to monolithic relevant box preds
         for b in range(self.boxes):
             for l in range(0, self.locs + 1):
                 self.monolithic_relevant_box_preds &= self.bVar_map_sym[f'b{b} l{l}'].ite(self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{l}', bConf_cube=self.manager.addOne()), self.manager.addOne())
+
+
+    def create_valid_state_constraints(self):
+        """
+         A method to create valid state constraints that capture the relationship between robot configuration and box configurations.
+        """
+        # now lets add constraints that is rConf is ready then no box is at ee-location
+        for b in range(self.boxes):
+            for at_loc in range(1, self.locs + 2):
+                self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'ready l{at_loc}'] | self.xVar_map_sym[f'in-transit l{at_loc} b{b}']).ite(self.ee_empty_cube, self.manager.addOne())
+            
+        # now lets add constraints that is rConf is holding then some box is at ee-location
+        some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
+        for from_loc in range(1, self.locs + 1):
+            for to_loc in range(1, self.locs + 1):
+                if from_loc == to_loc:
+                    continue
+                self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(some_box_at_ee, self.manager.addOne())
+        
+        for at_loc in range(1, self.locs + 1):
+            self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'holding l{at_loc}']).ite(some_box_at_ee, self.manager.addOne())
 
 
     def add_turn_var_update_rule(self):
@@ -1261,7 +1284,6 @@ class FrankaWorldDyanmicRatioTurnBased():
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
         """
-        
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
@@ -1706,6 +1728,9 @@ if __name__ == "__main__":
     for k, v in fw_tb.kVar_map.items():
         print(f"{k} : {v}")
     
+    # print("*****************Valid State Conf*****************")
+    # fw_tb.convert_cube_to_state_ADD(fw_tb.monolithic_relevant_box_preds, robot_action=False, human_action=False)
+    # sys.exit(-1)
     # print the number of explicit states
     sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
     env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
