@@ -29,15 +29,20 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.locs: int = locs
         self.ratio: int = ratio
         self.human_locs: List[int] = human_locs
-        self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
+        self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs)
         self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
         self.init = init
         self.goal = goal
         self.manager: Cudd = Cudd()
 
+        # create robot action vars (oVras) and human action vars (iVars)
+        self.oVars: List[ADD] = self.create_output_vars()
+        self.iVars: List[ADD] = self.create_input_vars()
+
         # create turn variable
-        self.tVar: List[ADD] = [self.manager.addVar(0, 't0')]
+        offset = self.manager.size()
+        self.tVar: List[ADD] = [self.manager.addVar(offset, 't0')]
         self.kVars: List[ADD] = self.create_ratio_vars()
         self.pVars, self.bVars = self.create_latches()
         self.xVars: List[ADD] = self.kVars + self.pVars + [var for box_adds in self.bVars for var in box_adds]
@@ -47,12 +52,9 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.prime_tVar: List[ADD] = [self.manager.addVar(offset, "pt0")]
         self.prime_kVars: List[ADD] = self.create_prime_ratio_vars()
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
-        self.oVars: List[ADD] = self.create_output_vars()
 
         self.latches: List[ADD] = self.tVar + self.xVars
         self.prime_latches: List[ADD] = self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_bVars
-        self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
-        self.prime_latches_bdd: List[BDD] = [var.bddPattern() for var in self.prime_latches]
 
         self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
         self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
@@ -97,7 +99,6 @@ class FrankaWorldDyanmicRatioTurnBased():
 
         # create env move related vars and maps
         self.human_action: List[str] = ['hmove']
-        self.iVars: List[ADD] = self.create_input_vars()
         self.eAction_map = bidict({})
         self.create_eAction_map()
         self.eAction_map_sym = bidict({k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()})
