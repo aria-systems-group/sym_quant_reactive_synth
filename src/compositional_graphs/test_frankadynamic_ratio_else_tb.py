@@ -506,19 +506,19 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
 
 if __name__ == "__main__":
     # setting things up
-    boxes = 2
-    locs = 5
+    boxes = 4
+    locs = 10
     ratio = 1
-    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    # goal = [['b0 l1']]
-    init = ['ready l2', 'b0 l2', 'b1 l3']
+    init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    goal = [['b0 l1']]
+    # init = ['ready l2', 'b0 l2', 'b1 l3']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
     # init = ['ready l2', 'b0 l2']
-    goal = [['b0 l1']]
+    # goal = [['b0 l1']]
     # goal = ['holding l1', 'b0 l0']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
     # human_locs = range(1, locs + 1)
-    human_locs =  [3, 4] #range(1, locs + 1)
+    human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = []
     fw_tb = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, restricted_human_locs=human_locs)
 
@@ -558,7 +558,7 @@ if __name__ == "__main__":
 
 
     tic = time.time()
-    strategy = fw_tb.solve(verbose=True)
+    strategy = fw_tb.solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
