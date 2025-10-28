@@ -532,7 +532,7 @@ class FrankaWorldDyanmicRatioTurnBased():
                 # need to enforce that only one box is at loc l
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
 
-                robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & rConf_cube ## rConf_cube_ready
+                robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & (rConf_cube | rConf_cube_ready)
 
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
@@ -603,13 +603,20 @@ class FrankaWorldDyanmicRatioTurnBased():
             for from_loc in range(1, self.locs + 2):
                 rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
 
-                robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube
+                for to_loc in range(1, self.locs + 1):
+                    if from_loc == to_loc:
+                        continue
+                    curr_box_pred = f"b{b} l{to_loc}"
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{to_loc}', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
-                pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
-                
-                for sidx, s in enumerate(pred_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
+
+                    pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
+                    
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
 
 
     def create_transfer_actions(self) -> None:
@@ -787,7 +794,7 @@ class FrankaWorldDyanmicRatioTurnBased():
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
             for hb in range(self.boxes):
-                # boxes can be "grounded" at any location (except for 0 and else := |locs| location)
+                # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
                     box_pred = f"b{hb} l{from_loc}"
@@ -847,10 +854,9 @@ class FrankaWorldDyanmicRatioTurnBased():
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
             for hb in range(self.boxes):
-                # boxes can be "grounded" at any location (except for 0 and else := |locs| location)
+                # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
-                    # rConf_cube = self.xVar_map_sym[f'holding l{from_loc}']
                     rConf_cubes_list = [self.xVar_map_sym[f'holding l{from_loc}'], self.xVar_map_sym[f'ready l{from_loc}'] & self.ee_empty_cube]
                     pred_clause_prime_string_list = [self.xVar_map[f'holding l{from_loc}'], self.xVar_map[f'ready l{from_loc}']]
                     for rConf_cube, pred_clause_prime_string in zip(rConf_cubes_list, pred_clause_prime_string_list):
@@ -873,7 +879,6 @@ class FrankaWorldDyanmicRatioTurnBased():
                                 self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
                             
                             if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
-                                # pred_clause_prime_string = self.xVar_map[f'holding l{from_loc}']
                                 for sidx, s in enumerate(pred_clause_prime_string):
                                     if s == '1':
                                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube 
@@ -913,8 +918,9 @@ class FrankaWorldDyanmicRatioTurnBased():
         grasp_action_cube = self.rAction_map_sym['grasp']
         release_action_cube = self.rAction_map_sym['release']
         for b in range(self.boxes):
-            not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
+            # not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
             for l in range(1, self.locs + 1):
+                not_grasp_cube = ~((self.xVar_map_sym[f'to-obj b{b}'] | self.xVar_map_sym[f'ready l{l}']) & grasp_action_cube)
                 box_pred = f"b{b} l{l}"
                 constraint_cube = self.manager.addOne()
                 not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
@@ -1346,7 +1352,7 @@ class FrankaWorldDyanmicRatioTurnBased():
 
     
     def test_pre_image_restricted_human_moves(self):
-        goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['in-transfer l2 l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
+        goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
@@ -1749,7 +1755,7 @@ if __name__ == "__main__":
     # fw_tb.test_pre_image_restricted_human_moves()
     # fw_tb.test_pre_image()
     tic = time.time()
-    strategy = fw_tb.solve(verbose=True)
+    strategy = fw_tb.solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

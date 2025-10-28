@@ -88,9 +88,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for to_loc in range(1, self.locs + 1):
             self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'in-transfer l{to_loc}'] | self.xVar_map_sym[f'holding l{to_loc}']).ite(some_box_at_ee, self.manager.addOne())
-        
-        # for at_loc in range(1, self.locs + 1):
-        #     self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'holding l{at_loc}']).ite(some_box_at_ee, self.manager.addOne())
 
     def create_transit_actions(self):
         """
@@ -105,13 +102,20 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
             for from_loc in range(1, self.locs + 2):
                 rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
 
-                robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube
-
-                pred_clause_prime_string = self.xVar_map[f"in-transit b{b}"]
+                for to_loc in range(1, self.locs + 1):
+                    if from_loc == to_loc:
+                        continue
+                    curr_box_pred = f"b{b} l{to_loc}"
+                    bConf_cube = self.xVar_map_sym[curr_box_pred]
+                    bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{to_loc}', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
                 
-                for sidx, s in enumerate(pred_clause_prime_string):
-                    if s == '1':
-                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
+
+                    pred_clause_prime_string = self.xVar_map[f"in-transit b{b}"]
+                    
+                    for sidx, s in enumerate(pred_clause_prime_string):
+                        if s == '1':
+                            self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
     
     def create_transfer_actions(self):
         """
@@ -180,7 +184,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
                         invalid_hmove_cube |=  turn_bit & kVal_cube & \
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
 
-                        # If the human can still intervene then add it set of valis moves and increment k by 1
+                        # If the human can still intervene then add it set of valid moves and increment k by 1
                         if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
                             pred_clause_prime_string = self.xVar_map[f'ready l{self.locs + 1}'] # ready else location
                             for sidx, s in enumerate(pred_clause_prime_string):
@@ -332,7 +336,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         split_str = curr_state[box_idx].split(', ')
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] & \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
-    
     
     def get_next_state_robot(self, curr_state: List[str], action: str) -> ADD:
         """
