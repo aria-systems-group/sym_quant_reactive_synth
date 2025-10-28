@@ -18,13 +18,13 @@ from collections import defaultdict
 
 
 from bidict import bidict
-from cudd import Cudd, ADD, BDD
+from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 
 
 class FrankaWorldDyanmicRatioTurnBased():
 
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, human_locs: List[int]):
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, human_locs: List[int], enable_reordering: bool = False):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
@@ -127,6 +127,20 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
         self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
+
+        # enable reordering - as VectorCompose and Restrict/Cofactor operate over mutually set of variables, 
+        # we create groups for the variables to avoid reordering across groups. We use CUDD's Tree Nodes for this.
+        # NOTE: Enabling reordering seems to slow down the synthesis algorithm. So, we disable it by default. 
+        # This also a hint that our variable ordering is not too bad after all.
+        if enable_reordering:
+            # self.manager.reduceHeap()
+            self.manager.enableReorderingReporting()
+            self.manager.makeTreeNode(0, len(self.latches))
+            self.manager.makeTreeNode(len(self.latches), len(self.prime_latches))
+            self.manager.makeTreeNode(2*len(self.latches), len(self.oVars))
+            self.manager.makeTreeNode(2*len(self.latches) + len(self.oVars), len(self.iVars))
+            self.manager.reduceHeap(REORDER_GROUP_SIFT_CONV)
+            print('order:', ' '.join(self.manager.bddOrder()))
     
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
