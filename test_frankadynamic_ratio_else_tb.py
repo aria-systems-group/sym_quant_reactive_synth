@@ -508,7 +508,7 @@ if __name__ == "__main__":
     # setting things up
     boxes = 2
     locs = 5
-    ratio = 100
+    ratio = 1
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     # goal = [['b0 l1']]
     init = ['ready l2', 'b0 l2', 'b1 l3']
@@ -558,7 +558,7 @@ if __name__ == "__main__":
 
 
     tic = time.time()
-    strategy = fw_tb.solve(verbose=False)
+    strategy = fw_tb.solve(verbose=True)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

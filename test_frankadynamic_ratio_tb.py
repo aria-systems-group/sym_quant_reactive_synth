@@ -1698,17 +1698,17 @@ if __name__ == "__main__":
     # sys.exit(0)
     
     # setting things up
-    boxes = 1
-    locs = 20
-    ratio = 5
+    boxes = 2
+    locs = 5
+    ratio = 1
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     # goal = [['b0 l1']]
-    init = ['ready l3', 'b0 l2']
+    init = ['ready l2', 'b0 l2', 'b1 l4']
     goal = [['b0 l1']]
     # goal = ['holding l1', 'b0 l0']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
-    human_locs = range(1, locs + 1)
-    # human_locs =  [3, 4] #range(1, locs + 1)
+    # human_locs = range(1, locs + 1)
+    human_locs =  [3, 4] #range(1, locs + 1)
     # human_locs = []
     fw_tb = FrankaWorldDyanmicRatioTurnBased(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, human_locs=human_locs)
 
@@ -1749,7 +1749,7 @@ if __name__ == "__main__":
     # fw_tb.test_pre_image_restricted_human_moves()
     # fw_tb.test_pre_image()
     tic = time.time()
-    strategy = fw_tb.solve(verbose=False)
+    strategy = fw_tb.solve(verbose=True)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
