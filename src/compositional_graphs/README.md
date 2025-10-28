@@ -49,10 +49,10 @@ Each state in the game tuples consists of: `(Player Token; State Predicates)` an
 
 1. `Player Token`: player token represented by `tVar` (`t`). `t` being high (`1`) corresponds to Sys player and low (`0`) corresponds Env player, respectively. 
 2. `State Predicate`: Can be further categorized as `(rConf, bConf)` where `rConf` is short for robot configuration and `bConf` is short for box configuration.
-	2.1. `rConf`: The set of valid robot conf. are `ready l#`, `to-obj b#`, and `holding l#`. `rConf` is represented using `pVars`  (`p`) 
-	2.2. `rConf`: Another set of valid robot conf. is used to represent robot's status of executing an action. We assume that `grasp` and `release` are instantaneous and thus under these actions the robot does **not** evolve to an intermediate state. We introduce `in-transit l# b#` to denote robot executing `transit b#` action from `ready l#` conf. Similarly, we introduce `in-transfer from_l# to_l#` to denote robot executing `transfer to_l#` from `holding from_l#` conf. 
-	2.3. `bConf`: The set of valid box conf. are `b# l#`, interpreted as `b#` at `l#`. *NOTE: we reserve l0 for end-effector location and |l| + 1 to be the else location*
-		2.3.1. We create a dedicated set of boolean variables (`bVars`) for each box as this encoding is more precise, i.e., `b0 l#` is combination of `b0` boolean variables and `b1 l#` is a combination of `b1` boolean variables.
+	1. `rConf`: The set of valid robot conf. are `ready l#`, `to-obj b#`, and `holding l#`. `rConf` is represented using `pVars`  (`p`) 
+	2. `rConf`: Another set of valid robot conf. is used to represent robot's status of executing an action. We assume that `grasp` and `release` are instantaneous and thus under these actions the robot does **not** evolve to an intermediate state. We introduce `in-transit l# b#` to denote robot executing `transit b#` action from `ready l#` conf. Similarly, we introduce `in-transfer from_l# to_l#` to denote robot executing `transfer to_l#` from `holding from_l#` conf. 
+	3. `bConf`: The set of valid box conf. are `b# l#`, interpreted as `b#` at `l#`. *NOTE: we reserve l0 for end-effector location and |l| + 1 to be the else location*
+		1. We create a dedicated set of boolean variables (`bVars`) for each box as this encoding is more precise, i.e., `b0 l#` is combination of `b0` boolean variables and `b1 l#` is a combination of `b1` boolean variables.
 3. Actions: We use `iVars` (`i`) to denote human action and `oVars` (`o`) to denote robot actions, respectively. Intuition: we consider the game as a boolean circuit where the input values (value of `i`s) are chosen by the Env player and the circuit needs to ensure that output satisfies some specification by choosing values of `o`  accordingly.
 
 #### FrankaworldDynamic_ratio_tb - K Human Moves per Robot move
