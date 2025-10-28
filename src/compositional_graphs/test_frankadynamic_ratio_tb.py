@@ -1191,16 +1191,32 @@ class FrankaWorldDyanmicRatioTurnBased():
         
         # if action is grasp then, update the robot configuration and box configuration
         elif action.startswith('grasp'):
-            assert curr_state[rConf_idx].startswith('to-obj'), "Make sure the robot is in to-obj status when grasping!!!"
-            box: str = curr_state[rConf_idx].split(' ')[1]
-            b_idx = int(box[-1])
-            # the box str will of the form b0 l1, b1 l3, etc..
-            split_str = curr_state[box_idx].split(', ')
-            l_idx = split_str[b_idx].split(' ')[1] 
-            split_str[b_idx] = f'{box} l0'
-            curr_state[box_idx] = ', '.join(split_str)
-            # update the robot configuration
-            curr_state[rConf_idx] = f'holding {l_idx}'
+            # assert curr_state[rConf_idx].startswith('to-obj'), "Make sure the robot is in to-obj status when grasping!!!"
+            if curr_state[rConf_idx].startswith('to-obj'):
+                box: str = curr_state[rConf_idx].split(' ')[1]
+                b_idx = int(box[-1])
+                # the box str will of the form b0 l1, b1 l3, etc..
+                split_str = curr_state[box_idx].split(', ')
+                l_idx = split_str[b_idx].split(' ')[1] 
+                split_str[b_idx] = f'{box} l0'
+                curr_state[box_idx] = ', '.join(split_str)
+                # update the robot configuration
+                curr_state[rConf_idx] = f'holding {l_idx}'
+            elif curr_state[rConf_idx].startswith('ready'):
+                l_idx = curr_state[rConf_idx].split(' ')[1]
+                curr_state[rConf_idx] = f'holding {l_idx}'
+
+                # need to find which box is at l_idx
+                split_str = curr_state[box_idx].split(', ')
+                for bidx, b in enumerate(split_str):
+                    if b.endswith(l_idx):
+                        box = b.split(' ')[0]
+                        split_str[bidx] = f'{box} l0'
+                        break
+                curr_state[box_idx] = ', '.join(split_str)
+            else:
+                print("Unknown robot configuration during grasp action. Cannot proceed!!")
+                sys.exit(-1)
 
         # if action is release then, update the robot configuration and box configuration
         elif action.startswith('release'):

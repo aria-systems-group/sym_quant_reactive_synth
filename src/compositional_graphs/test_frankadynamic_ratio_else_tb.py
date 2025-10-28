@@ -314,12 +314,10 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
             curr_state[box_idx] = ', '.join(split_str)
             # update robot configuration based on current robot configuration if the human moves a box        
             if curr_state[rConf_idx].startswith('in-transit'):
-                # the rConf state is of the form in-transit from_loc b_idx
-                # from_loc = curr_state[rConf_idx].split(' ')[1]
+                # the rConf state is of the form in-transit b_idx
                 curr_state[rConf_idx] = f'ready l{self.locs + 1}' # ready else location
             elif curr_state[rConf_idx].startswith('in-transfer'):
-                # the rConf state is of the form in-transfer from_loc to_loc
-                # from_loc = curr_state[rConf_idx].split(' ')[1]
+                # the rConf state is of the form in-transfer to_loc
                 curr_state[rConf_idx] = f'holding l{self.locs + 1}' # holding else location
             elif curr_state[rConf_idx].startswith('ready') or curr_state[rConf_idx].startswith('holding'):
                 pass
@@ -356,16 +354,31 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         
         # if action is grasp then, update the robot configuration and box configuration
         elif action.startswith('grasp'):
-            assert curr_state[rConf_idx].startswith('to-obj'), "Make sure the robot is in to-obj status when grasping!!!"
-            box: str = curr_state[rConf_idx].split(' ')[1]
-            b_idx = int(box[-1])
-            # the box str will of the form b0 l1, b1 l3, etc..
-            split_str = curr_state[box_idx].split(', ')
-            l_idx = split_str[b_idx].split(' ')[1] 
-            split_str[b_idx] = f'{box} l0'
-            curr_state[box_idx] = ', '.join(split_str)
-            # update the robot configuration
-            curr_state[rConf_idx] = f'holding {l_idx}'
+            if curr_state[rConf_idx].startswith('to-obj'):
+                box: str = curr_state[rConf_idx].split(' ')[1]
+                b_idx = int(box[-1])
+                # the box str will of the form b0 l1, b1 l3, etc..
+                split_str = curr_state[box_idx].split(', ')
+                l_idx = split_str[b_idx].split(' ')[1] 
+                split_str[b_idx] = f'{box} l0'
+                curr_state[box_idx] = ', '.join(split_str)
+                # update the robot configuration
+                curr_state[rConf_idx] = f'holding {l_idx}'
+            elif curr_state[rConf_idx].startswith('ready'):
+                l_idx = curr_state[rConf_idx].split(' ')[1]
+                curr_state[rConf_idx] = f'holding {l_idx}'
+
+                # need to find which box is at l_idx
+                split_str = curr_state[box_idx].split(', ')
+                for bidx, b in enumerate(split_str):
+                    if b.endswith(l_idx):
+                        box = b.split(' ')[0]
+                        split_str[bidx] = f'{box} l0'
+                        break
+                curr_state[box_idx] = ', '.join(split_str)
+            else:
+                print("Unknown robot configuration during grasp action. Cannot proceed!!")
+                sys.exit(-1)
 
         # if action is release then, update the robot configuration and box configuration
         elif action.startswith('release'):
@@ -406,18 +419,13 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
           to reach the goal state.
         """
         
-        # initialize a weight ADD that assins cost to each robot state
+        # initialize a weight ADD that assigns cost to each robot state
         self.weight = self.manager.addZero()
         for rConf in self.pVar_map.keys():
-            if rConf.startswith('in-transit') or rConf.startswith('in-transfer'):
-                print('Skipping weight assignment for Human configuration:', rConf)
-            elif rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-                # self.weight |= self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[rConf] & self.monolithic_relevant_box_preds
+            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
                 self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
-            else:
-                print('Skipping weight assignment for Robot configuration:', rConf)
         
-        # initialize goal state with 0 state value and add it to the winnign regiom
+        # initialize goal state with 0 state value and add it to the winning region
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
@@ -425,7 +433,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         # print the initial winning states
         if verbose:
             print("Initial Winning States:")
-            # by default generate cubes does not retuen cubes that point to 0 leaf. 
+            # by default generate cubes does not return cubes that point to 0 leaf. 
             # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
             self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), robot_action=False)
         
@@ -446,13 +454,15 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
             for env_tr_dd in self.env_action_cube_list:
-                MaxUpre.append(preimage.restrict(env_tr_dd))
+                # MaxUpre.append(preimage.restrict(env_tr_dd))
+                MaxUpre.append(preimage.cofactor(env_tr_dd))
             Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
-            # go over all the sys actions and preserve the manimum one
+            # go over all the sys actions and preserve the minimum one
             Minpre = []
             for robot_tr_dd in self.robot_action_cube_list:
-                Minpre.append(Upre.restrict(robot_tr_dd))
+                # Minpre.append(Upre.restrict(robot_tr_dd))
+                Minpre.append(Upre.cofactor(robot_tr_dd))
             
             next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
             next_winning_states = next_winning_states.min(goal)
@@ -485,43 +495,43 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
 
     def test_pre_image(self):
         # convert transition relation to latches bdd
-        goal_cube = self.tVar_map_sym['robot'] & (self.kVar_map_sym['k1'] | self.kVar_map_sym['k0']) & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & \
-        (self.xVar_map_sym['b1 l4'] | self.xVar_map_sym['b1 l3'])
+        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] #& \
+        #(self.xVar_map_sym['b1 l4'] | self.xVar_map_sym['b1 l3'])
 
         # goal state is b0 and l0 and ready l0
         print('Goal state:', goal_cube)
         # From = goal_cube
         preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        MaxUpre = []
-        for env_tr_dd in self.env_action_cube_list:
-            MaxUpre.append(preimage.restrict(env_tr_dd))
-        Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+        # MaxUpre = []
+        # for env_tr_dd in self.env_action_cube_list:
+        #     MaxUpre.append(preimage.restrict(env_tr_dd))
+        # Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
-        # go over all the sys actions and preserve the manimum one
-        Minpre = []
-        for robot_tr_dd in self.robot_action_cube_list:
-            Minpre.append(Upre.restrict(robot_tr_dd))
+        # # go over all the sys actions and preserve the manimum one
+        # Minpre = []
+        # for robot_tr_dd in self.robot_action_cube_list:
+        #     Minpre.append(Upre.restrict(robot_tr_dd))
         
-        next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-        self.convert_cube_to_state_ADD(next_winning_states, human_action=False, robot_action=False)
+        # next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
 
 
 if __name__ == "__main__":
     # setting things up
-    boxes = 4
-    locs = 10
+    boxes = 1
+    locs = 3
     ratio = 1
-    init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    goal = [['b0 l1']]
+    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    # goal = [['b0 l1']]
     # init = ['ready l2', 'b0 l2', 'b1 l3']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
-    # init = ['ready l2', 'b0 l2']
-    # goal = [['b0 l1']]
+    init = ['ready l2', 'b0 l2']
+    goal = [['b0 l1']]
     # goal = ['holding l1', 'b0 l0']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
-    # human_locs = range(1, locs + 1)
-    human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
+    human_locs = range(1, locs + 1)
+    # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = []
     fw_tb = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, restricted_human_locs=human_locs)
 
