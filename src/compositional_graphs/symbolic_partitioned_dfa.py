@@ -43,7 +43,7 @@ class SymbolicPartitionedDFA():
         self.init_latch: ADD = self.manager.addZero()
         self.goal_latch: ADD = self.manager.addZero()        
 
-        # create transition relation symbolic representation
+        # intialize transition relation handle
         self.dfa_transition_relation = {}
 
         # set the initial and goal states in explicit form
@@ -63,7 +63,7 @@ class SymbolicPartitionedDFA():
         raise NotImplementedError()
 
     
-    def create_latches_and_map(self) -> List[ADD]:
+    def create_latches_and_map(self):
         varsize = self.manager.size()
         qVars_size: int = math.ceil(math.log2(self.num_of_states))
         qVars_size = qVars_size + 1 if pow(2, qVars_size) == self.num_of_states else qVars_size
@@ -71,13 +71,12 @@ class SymbolicPartitionedDFA():
         self.create_qVar_map()
         self.qVar_map_sym = bidict({k: self.cube_to_add(v, self.qVars) for k, v in self.qVar_map.items()})
 
-    def create_prime_latches(self) -> List[ADD]:
+    def create_prime_latches(self):
         """
          We create prime latches for the DFA states. Note that we do not create mapping for prime latches as they are not needed.
         """
         varsize = self.manager.size()
-        prime_qVars: List[ADD] = [self.manager.addVar(k + varsize, 'pq' + str(k)) for k in range(len(self.qVars))]
-        return prime_qVars
+        self.prime_qVars: List[ADD] = [self.manager.addVar(k + varsize, 'pq' + str(k)) for k in range(len(self.qVars))]
     
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         """
@@ -168,7 +167,6 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
         num_of_states = dfa.num_of_states
 
         return dfa, num_of_states
-
 
     def set_init_goal_states(self):
         self.init: List[int] = self.dfa.init_state
