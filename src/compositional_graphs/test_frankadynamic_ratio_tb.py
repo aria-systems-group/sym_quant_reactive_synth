@@ -163,6 +163,7 @@ class FrankaWorldDyanmicRatioTurnBased():
         num_of_preds += (self.locs + 1) * self.boxes # in-transit preds +1 for the else location
         num_of_preds += self.locs * (self.locs - 1) # in-transfer preds
         vars_size: int = math.ceil(math.log2(num_of_preds))
+        vars_size = vars_size + 1 if pow(2, vars_size) == num_of_preds else vars_size
         Vars: List[ADD] = [self.manager.addVar(k + varsize, 'p' + str(k)) for k in range(vars_size)]
         return Vars
 
@@ -1317,6 +1318,14 @@ class FrankaWorldDyanmicRatioTurnBased():
         split_str = curr_state[box_idx].split(', ')
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] &  \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
+
+    def _state_parser(self, state: List) -> List[str]:
+        """
+         A helper function to parse a state returned by convert_cube_to_state_ADD into a flat list of state components.
+        """
+        state = state.replace('(', '').replace(')', '').replace(' ', '')
+        state_components = state.split(',')
+        return state_components
     
     
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):

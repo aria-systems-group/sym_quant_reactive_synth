@@ -5,7 +5,7 @@ import time
 from functools import reduce
 from typing import List, Tuple
 
-from test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
+from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
 
 from cudd import Cudd, ADD, BDD
 
@@ -21,12 +21,13 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
         varsize = self.manager.size()
-        # num. of preds = ready x |locs| + to-obj x |boxes| + holding x |locs| + 1 (to account for l0 being end effector loc)
+        # num. of preds = ready x |locs + 1| + to-obj x |boxes| + holding x |locs + 1| + 1 (to account for l0 being end effector loc)
         # additional preds: in-transit x |boxes| (in-transit box) + in-transfer x |locs| (in-transfer to_loc)
-        num_of_preds = 2*self.locs + self.boxes + 2 + 1 # +2 for reasy else and 
-        num_of_preds += self.boxes # in-transit preds +1 for the else location
+        num_of_preds = 2*self.locs + self.boxes + 2 + 1 # +2 for reasy else and holding else
+        num_of_preds += self.boxes # in-transit preds
         num_of_preds += self.locs # in-transfer preds
         vars_size: int = math.ceil(math.log2(num_of_preds))
+        vars_size = vars_size + 1 if pow(2, vars_size) == num_of_preds else vars_size
         Vars: List[ADD] = [self.manager.addVar(k + varsize, 'p' + str(k)) for k in range(vars_size)]
         return Vars
     
