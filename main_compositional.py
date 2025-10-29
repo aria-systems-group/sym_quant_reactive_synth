@@ -10,20 +10,20 @@ from cudd import Cudd, ADD
 
 if __name__ == "__main__":
     # setting things up
-    boxes = 1
-    locs = 2
+    boxes = 2
+    locs = 3
     ratio = 1
 
-    # init = ['ready l2', 'b0 l2', 'b1 l4']
+    init = ['ready l2', 'b0 l2', 'b1 l3']
+    # init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
-    init = ['ready l2', 'b0 l2']
-    goal = [['b0 l1']]
+    goal = []
 
-    human_locs = range(1, locs + 1)
+    # human_locs = range(1, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
-    # human_locs = []
+    human_locs = [3]
 
-    formula = 'F(p01)'
+    formula = 'F(p01 & F(p02 & F(p01)))'
 
     dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
                                           ratio=ratio, init=init,
@@ -73,4 +73,12 @@ if __name__ == "__main__":
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
 
-    dfa_game.test_pre_image()
+    # dfa_game.test_pre_image()
+
+    tic = time.time()
+    strategy = dfa_game.solve(verbose=False)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    # if strategy is not None:
+    #     dfa_game.roll_out_strategy(strategy=strategy, verbose=True)

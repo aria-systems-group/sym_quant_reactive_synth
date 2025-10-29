@@ -5,6 +5,7 @@
  SymbolicPartitionedDFAGame uses a symbolic partitioned DFA to represent the automaton corresponding to the LTL/LTLf formula.
  It constructs the transition relation in a partitioned manner (vector of boolean variables), leveraging the symbolic representation for efficiency.
 """
+import math
 
 from functools import reduce
 from typing import List, Union
@@ -15,9 +16,10 @@ from cudd import Cudd, ADD
 
 from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
+from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 
 
-class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
+class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     """
     This class extends the FrankaDynamicRatioTurnBased class to create a game environment where the objective is specified by a LTL/LTLf formula.
     """
@@ -44,6 +46,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
         self.formula: str = formula
         self.qVars: List[ADD] = []
         self.prime_qVars: List[ADD] = []
+        self.qVar_map: List[ADD] = {} 
+        self.qVar_map_sym: List[ADD] = {} 
         self.ltlf_flag: bool = ltlf_flag
         self.dfa_handle: Union[SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot] = None
         self.dfa_latches: List[ADD] = []
@@ -74,7 +78,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
         self.create_all_sym_maps()
 
         # create DFA latches next
-        self.create_dfa_latches_and_maps()    
+        self.create_dfa_latches_and_maps()
 
     def create_all_prime_boolean_state_vars(self):
         """
@@ -115,7 +119,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
         self.dfa_handle.create_dfa_transition_relation(verbose=False, plot=False)
         self.qVars = dfa_handle.qVars
         self.dfa_latches: List[ADD] = dfa_handle.qVars
-        self.dfa_latches_sym_map = dfa_handle.qVar_map_sym
+        self.qVar_map = dfa_handle.qVar_map
+        self.qVar_map_sym = dfa_handle.qVar_map_sym
     
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False) -> None:
@@ -173,7 +178,11 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
             
             try:
                 print(f"[(({self.tVar_map.inv[tConf_exist_str]}, {self.kVar_map.inv[kConf_exist_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states}), {self.dfa_handle.qVar_map.inv[qConf_exist_str]}), {val}]")
-                states_action_pairs.append([((self.tVar_map.inv[tConf_exist_str], self.kVar_map.inv[kConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
+                states_action_pairs.append([
+                    (((self.tVar_map.inv[tConf_exist_str],
+                       self.kVar_map.inv[kConf_exist_str],
+                       self.pVar_map.inv[rConf_cube_str], box_states),
+                       self.dfa_handle.qVar_map.inv[qConf_exist_str]), val), None])
             except KeyError:
                 continue
             
@@ -195,6 +204,88 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
                 print(f"    -- Actions: ({action})")
         
         return states_action_pairs
+
+
+    def solve(self, verbose: bool = False):
+        """
+        A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
+          for the Sys player (robot) to reach the goal state.
+        """
+        
+        # initialize a weight ADD that assigns cost to each robot state
+        self.weight = self.manager.addZero()
+        for rConf in self.pVar_map.keys():
+            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
+                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
+        
+        # initialize goal state with 0 state value and add it to the winning region
+        goal = self.dfa_handle.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+
+        # print the initial winning states
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not return cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            # setting state flag to False as ever Game state with an accepting DFA state is a winning state. 
+            # So if state flag was true, it would have printed the entire game 
+            self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), state_flag=False, dfa_flag=True, robot_action=False)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
+            
+            # first evolve over the DFA
+            dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+
+            # then evolve over the game
+            preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+            # add the action costs associated with the robot actions   
+            preimage = preimage + self.weight
+            # print("Current Preimage:")
+            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+            # go over all the env actions and preserve the maximum one
+            MaxUpre = []
+            for env_tr_dd in self.env_action_cube_list:
+                # MaxUpre.append(preimage.restrict(env_tr_dd))
+                MaxUpre.append(preimage.cofactor(env_tr_dd))
+            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+
+            # go over all the sys actions and preserve the minimum one
+            Minpre = []
+            for robot_tr_dd in self.robot_action_cube_list:
+                # Minpre.append(Upre.restrict(robot_tr_dd))
+                Minpre.append(Upre.cofactor(robot_tr_dd))
+            
+            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+                    init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
         
     
 
@@ -204,13 +295,16 @@ class SymbolicPartitionedDFAGame(FrankaWorldDyanmicRatioTurnBased):
 
 
     def test_pre_image(self):
-        # convert transition relation to latches bdd
-        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] #& \
-        #(self.xVar_map_sym['b1 l4'] | self.xVar_map_sym['b1 l3'])
-
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.dfa_handle.goal_latch
         # goal state is b0 and l0 and ready l0
         print('Goal state:', goal_cube)
-        # From = goal_cube
-        preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
-        print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
+
+        # first evolve over the DFA
+        dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
+        print('DFA Preimage: ', dfa_preimage)
+        self.convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
+        
+        # then evolve over the game
+        dfa_game_preimage = self.preimage_test(From=dfa_preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
+        print('DFA Game Preimage: ', dfa_game_preimage)
+        self.convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)
