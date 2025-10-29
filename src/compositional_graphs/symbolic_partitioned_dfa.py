@@ -1,3 +1,4 @@
+import re
 import math
 import graphviz as gv
 
@@ -26,48 +27,54 @@ class SymbolicPartitionedDFA():
       The intherited class overrides the create_dfa_transition_relation() method to construct the transition relation
       in partitioned form.
     """
-    
 
-    def __init__(self, formula: str, manager: Cudd, ltlf_flag: bool = False):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
         self.formula: str = formula
+        self.predicate_add_sym_map_lbl = latches_map
         self.manager: Cudd = manager
-        self.ltlf_flag: bool = ltlf_flag
-
         self.dfa, self.num_of_states = self.formula_to_automaton()
 
-        # create latches for DFA states
-        self.qVars: List[ADD] = self.create_latches()
-
-        # create prime turn latch
-        self.prime_qVars = self.create_prime_latches()
-
+        # initialize handles for dfa latches, prime latches and maps
+        self.qVars: List[ADD] = []
+        self.prime_qVars: List[ADD] = []
         # initialize str and sym map
         self.qVar_map = bidict({})
-        self.create_qVar_map()
-        self.qVar_map_sym = bidict({k: self.cube_to_add(v, self.qVars) for k, v in self.qVar_map.items()})
+        self.qVar_map_sym = bidict({})
+        self.init_latch: ADD = self.manager.addZero()
+        self.goal_latch: ADD = self.manager.addZero()        
 
         # create transition relation symbolic representation
-        self.dfa_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}
+        self.dfa_transition_relation = {}
 
         # set the initial and goal states in explicit form
         self.set_init_goal_states()
     
 
     def formula_to_automaton(self):
-        NotImplementedError()
+        raise NotImplementedError()
 
     def set_init_goal_states(self):
         raise NotImplementedError()
 
-    def create_latches(self) -> List[ADD]:
+    def set_init_latch(self):
+        raise NotImplementedError()
+    
+    def set_goal_latch(self):
+        raise NotImplementedError()
+
+    
+    def create_latches_and_map(self) -> List[ADD]:
         varsize = self.manager.size()
         qVars_size: int = math.ceil(math.log2(self.num_of_states))
         qVars_size = qVars_size + 1 if pow(2, qVars_size) == self.num_of_states else qVars_size
-        qVars: List[ADD] = [self.manager.addVar(k + varsize, 'q' + str(k)) for k in range(qVars_size)]
-        return qVars
-
+        self.qVars: List[ADD] = [self.manager.addVar(k + varsize, 'q' + str(k)) for k in range(qVars_size)]
+        self.create_qVar_map()
+        self.qVar_map_sym = bidict({k: self.cube_to_add(v, self.qVars) for k, v in self.qVar_map.items()})
 
     def create_prime_latches(self) -> List[ADD]:
+        """
+         We create prime latches for the DFA states. Note that we do not create mapping for prime latches as they are not needed.
+        """
         varsize = self.manager.size()
         prime_qVars: List[ADD] = [self.manager.addVar(k + varsize, 'pq' + str(k)) for k in range(len(self.qVars))]
         return prime_qVars
@@ -119,8 +126,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd):
-        super().__init__(formula=formula, manager=manager, ltlf_flag=False)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map)
 
 
     def formula_to_automaton(self): 
@@ -151,8 +158,8 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd):
-        super().__init__(formula=formula, manager=manager, ltlf_flag=False)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map)
 
 
     def formula_to_automaton(self): 
@@ -168,28 +175,51 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
         self.goal: List[int] = self.dfa.accp_states
     
 
+    def set_init_latch(self):
+        for q in self.init:
+            self.init_latch |= self.qVar_map_sym[q]
+    
+
+    def set_goal_latch(self):
+        for q in self.goal:
+            self.goal_latch |= self.qVar_map_sym[q]
+
     def get_ltlf_edge_boolean_formula(self, labels: List, guard: str) -> ADD:
         """
-        A function that parse the guard and constructs its correpsonding symbolic edge for symbolic LTLf DFA construction
+        A function that parse the guard and constructs its correpsonding symbolic edge for symbolic LTLf DFA construction.
+
+        The Atomic Proposition in the formula are of the form: pij where i is the box id and j is the location id.
         """
         expr = self.manager.addOne()
-
         for idx, value in enumerate(guard):
             if value == "1":
-                expr = expr & self.predicate_add_sym_map_lbl.get(str(labels[idx]) if isinstance(labels, tuple) else str(labels))
+                if isinstance(labels, tuple):
+                    cryptic_lbl = labels[idx]
+                else:
+                    cryptic_lbl = labels
+                
+                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
+                expr &= self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+            
             elif value == "0":
-                expr = expr & ~self.predicate_add_sym_map_lbl.get(str(labels[idx]) if isinstance(labels, tuple) else str(labels))
+                if isinstance(labels, tuple):
+                    cryptic_lbl = labels[idx]
+                else:
+                    cryptic_lbl = labels
+                
+                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
+                expr &= ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
             else:
-                assert value == "X", "Error while constructing symbolic LTLF DAF edge. FIX THIS!!!"
+                assert value == "X", "Error while constructing symbolic LTLF DFA edge. FIX THIS!!!"
         
         return expr
     
 
-    def create_symbolic_ltlf_transition_system(self, verbose: bool = False, plot: bool = False):
+    def create_dfa_transition_relation(self, verbose: bool = False, plot: bool = False):
         """
-        This function parses the Mona DFA output and construct the symbolic TR associated with DFA.
+         This function parses the Mona DFA output and construct the symbolic TR associated with DFA.
         """
-
+        self.dfa_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}
         mona_output: str = self.dfa.mona_dfa
 
         for line in mona_output.splitlines():
@@ -202,23 +232,21 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 
                 # convert it into boolean formula
                 if self.dfa.task_labels:
-                    _edge_sym = self.get_ltlf_edge_boolean_formula(self.dfa.task_labels, guard)
+                    edge_sym: ADD = self.get_ltlf_edge_boolean_formula(self.dfa.task_labels, guard)
                 else:
-                    _edge_sym = self.get_ltlf_edge_boolean_formula(self.dfa.task_labels, "X")
+                    edge_sym: ADD = self.get_ltlf_edge_boolean_formula(self.dfa.task_labels, "X")
                 
                 dest_state = self.dfa.get_value(line, r".*state[\s]*(\d+)[\s]*.*", int)
 
                 # ignore the superficial state 0
                 if orig_state:
-                    _curr_sym = self.dfa_predicate_add_sym_map_curr.get(orig_state) 
-                    _nxt_sym = self.dfa_predicate_add_sym_map_nxt.get(dest_state)
-                    self.ltlf_add_edge_to_tr(curr_sym=_curr_sym,
-                                             nxt_sym=_nxt_sym,
-                                             edge_sym=_edge_sym )
+                    dfa_state_cube: ADD = self.qVar_map_sym[orig_state] 
+                    dfa_state_prime_str: str = self.qVar_map[dest_state]
+
+                    # now we add the transition dfa's transition relation
+                    for sidx, s in enumerate(dfa_state_prime_str):
+                        if s == '1':
+                            self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
         
         if verbose:
-            self.print_plot_dfa_tr(plot=plot)     
-    
-
-    def create_dfa_transition_relation(self):
-        return super().create_dfa_transition_relation()
+            self.print_plot_dfa_tr(plot=plot)
