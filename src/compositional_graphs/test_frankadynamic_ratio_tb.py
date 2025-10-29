@@ -18,6 +18,7 @@ from collections import defaultdict
 
 
 from bidict import bidict
+# from .symbolic_partitioned_dfa import SymbolicPartitionedDFA
 from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 
@@ -35,65 +36,40 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.init = init
         self.goal = goal
         self.manager: Cudd = Cudd()
-
-        # create turn variable
-        self.tVar: List[ADD] = [self.manager.addVar(0, 't0')]
-        self.kVars: List[ADD] = self.create_ratio_vars()
-        self.pVars, self.bVars = self.create_latches()
-        self.xVars: List[ADD] = self.kVars + self.pVars + [var for box_adds in self.bVars for var in box_adds]
-        
-        # create prime turn latch
-        offset = self.manager.size()
-        self.prime_tVar: List[ADD] = [self.manager.addVar(offset, "pt0")]
-        self.prime_kVars: List[ADD] = self.create_prime_ratio_vars()
-        self.prime_pVars, self.prime_bVars = self.create_prime_latches()
-        self.oVars: List[ADD] = self.create_output_vars()
-
-        self.latches: List[ADD] = self.tVar + self.xVars
-        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_bVars
-        self.latches_bdd: List[BDD] = [var.bddPattern() for var in self.latches]
-        self.prime_latches_bdd: List[BDD] = [var.bddPattern() for var in self.prime_latches]
-
-        self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
-        self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
-
-        self.xVar_map = dict()
-        self.rAction_map = bidict({})
-        self.xVar_map_sym  = dict()
-        self.bVar_map_sym =  dict()
-        
-        # maps needs for lookup of the states corresponding to cubes
+        # Predicate to Str maps - needed for lookup of the states corresponding to cubesstring
         self.pVar_map = bidict({})
         self.kVar_map = bidict({})
+        self.xVar_map = dict()
         self.bVars_map = {b: bidict({}) for b in range(self.boxes)}
+        self.rAction_map = bidict({})
+        self.tVar_map = bidict({'robot': '1', 'human': '0'})  # fixed turn variable map
+
+        # Predicate to Cube maps - needed for symbolic operations; also avoid multiple calls to cube_to_add()
+        self.xVar_map_sym  = dict()
+        self.bVar_map_sym =  dict()
+
+        # create latches - tVars + kVars + pVars + bVars
+        self.create_all_boolean_state_vars_and_maps()
+        self.set_latches()
+        
+        # create prime latches - prime tVars + prime kVars + prime pVars + prime bVars
+        self.create_all_prime_boolean_state_vars()
+        self.set_prime_latches()
         
         # different from frankaworld, we need a turn variable map
-        self.tVar_map = bidict({'robot': '1', 'human': '0'})
         self.tVar_map_sym = bidict({'robot': self.cube_to_add(self.tVar_map['robot'], self.tVar),
                                     'human': self.cube_to_add(self.tVar_map['human'], self.tVar)})
-        self.create_xVar_map()
-        self.create_ratio_var_map()
+        
+        self.oVars: List[ADD] = self.create_output_vars()
         self.create_rAction_map()
-
-        # more bookeeping stuff
         self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
-        self.kVar_map_sym = bidict({r: self.cube_to_add(v, self.kVars) for r, v in self.kVar_map.items()})
-        self.create_symbolic_maps()
 
+        # now that the maps are initialized we create init and goal states
         self.init_latch: ADD = self.set_init_latch() 
         self.goal_latch: ADD = self.set_goal_latch()
 
         # monolithic transition relation for the robot actions
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
-
-        # need these cubes for printing states from cubes
-        self.pVars_cube: ADD = reduce(lambda a, b: a & b, self.pVars)
-        self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
-        self.all_bVars_cube: ADD = reduce(lambda a, b: a & b, self.bVars_cubes)
-        self.oVars_cube: ADD = reduce(lambda x, y: x & y, self.oVars)
-
-        # precompute cubes of oVars - needed for synthesis
-        self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
 
         # create env move related vars and maps
         self.human_action: List[str] = ['hmove']
@@ -103,44 +79,48 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.eAction_map_sym = bidict({k: self.cube_to_add(v, self.iVars) for k, v in self.eAction_map.items()})
         self.iVars_cube: ADD = reduce(lambda x, y: x & y, self.iVars)
 
+        self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
+        self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
         self.create_sym_weight_dict()
 
-        # precompute cubes for iVars and oVars - needed for synthesis
+        # precompute cubes of valid Robot and Env actions - needed for synthesis
+        self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
         self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
 
-        # create relevant env and robot actions; boxes
-        self.monolithic_hnoop = reduce(lambda x, y: x | y, [act for act_str, act in self.eAction_map_sym.items() if act_str.startswith('hmove noop')])
-        self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
-        self.relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.rAction_map_sym.values())
-        self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
-        self.relevant_box_preds_sym = defaultdict(lambda: self.manager.addZero())
-        self.create_relevant_env_actions_per_box()
-        self.create_relevant_box_predicates()
-        self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
-        
-        # state invariance constraint - end-effector empty cube - used in transit and grasp actions
-        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
-        self.create_monoltithic_box_conf_cube()
-        self.create_hmove_not_b()
-        self.create_valid_state_constraints()
-        
-        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
-        self.create_loc_empty_constraint()
-        self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
+        self.miscellanoues_helper_stuff()
 
-        # enable reordering - as VectorCompose and Restrict/Cofactor operate over mutually set of variables, 
-        # we create groups for the variables to avoid reordering across groups. We use CUDD's Tree Nodes for this.
-        # NOTE: Enabling reordering seems to slow down the synthesis algorithm. So, we disable it by default. 
-        # This also a hint that our variable ordering is not too bad after all.
         if enable_reordering:
-            # self.manager.reduceHeap()
-            self.manager.enableReorderingReporting()
-            self.manager.makeTreeNode(0, len(self.latches))
-            self.manager.makeTreeNode(len(self.latches), len(self.prime_latches))
-            self.manager.makeTreeNode(2*len(self.latches), len(self.oVars))
-            self.manager.makeTreeNode(2*len(self.latches) + len(self.oVars), len(self.iVars))
-            self.manager.reduceHeap(REORDER_GROUP_SIFT_CONV)
-            print('order:', ' '.join(self.manager.bddOrder()))
+            self.enable_variable_reordering()            
+    
+
+    def create_all_boolean_state_vars_and_maps(self):
+        """
+         The main method that creates all boolean variables for the FrankaDynamic Turn-Based Game.
+          1. turn variables - tVars
+          2. ratio variables - kVars
+          3. predicate variables - pVars
+          4. box predicate variables - bVars
+        """
+        offset = self.manager.size()
+        self.tVar: List[ADD] = [self.manager.addVar(offset, 't0')]
+        self.kVars: List[ADD] = self.create_ratio_vars()
+        self.pVars, self.bVars = self.create_latches()
+        self.create_all_maps()
+        self.create_all_sym_maps()
+    
+
+    def create_all_prime_boolean_state_vars(self):
+        """
+         The main method that creates all primed version of the boolean variables for the FrankaDynamic Turn-Based Game.
+          1. prime turn variables - tVars
+          2. prime ratio variables - kVars
+          3. prime predicate variables - pVars
+          4. prime box predicate variables - bVars
+        """
+        offset = self.manager.size()
+        self.prime_tVar: List[ADD] = [self.manager.addVar(offset, "pt0")]
+        self.prime_kVars: List[ADD] = self.create_prime_ratio_vars()
+        self.prime_pVars, self.prime_bVars = self.create_prime_latches()
     
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
@@ -276,6 +256,69 @@ class FrankaWorldDyanmicRatioTurnBased():
         for r in range(self.ratio + 1):
             bit_str = f"{r + offset:0{len(self.kVars)}b}"
             self.kVar_map[f'k{r}'] = bit_str
+    
+
+    def create_all_maps(self):
+        """
+         A tiny method to create all maps for the variables. We only create maps for non-primed boolean variables.
+        """
+        self.create_xVar_map()
+        self.create_ratio_var_map()
+    
+
+    def create_all_sym_maps(self):
+        """
+         A tiny method to create all symbolic maps for the variables. We only create symbolic maps for non-primed boolean variables.
+        """
+        # more bookeeping stuff
+        self.kVar_map_sym = bidict({r: self.cube_to_add(v, self.kVars) for r, v in self.kVar_map.items()})
+        self.create_symbolic_maps()
+    
+
+    def enable_variable_reordering(self):
+        """
+          This method enable variable reordering - as VectorCompose and Restrict/Cofactor operate over mutually exclusive set
+          of variables, we create groups for the variables to avoid reordering across groups. We use CUDD's Tree Nodes for this.
+           
+           NOTE: Enabling reordering seems to slow down the synthesis algorithm. So, we disable it by default. 
+          This also a hint that our variable ordering is not too bad after all.
+        """
+        # self.manager.reduceHeap()
+        self.manager.enableReorderingReporting()
+        self.manager.makeTreeNode(0, len(self.latches))
+        self.manager.makeTreeNode(len(self.latches), len(self.prime_latches))
+        self.manager.makeTreeNode(2*len(self.latches), len(self.oVars))
+        self.manager.makeTreeNode(2*len(self.latches) + len(self.oVars), len(self.iVars))
+        self.manager.reduceHeap(REORDER_GROUP_SIFT_CONV)
+        print('order:', ' '.join(self.manager.bddOrder()))
+    
+
+    def miscellanoues_helper_stuff(self):
+        """
+         Some miscellanoues helper stuff that are used in multiple places.
+        """
+        # need these cubes for printing states from cubes
+        self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
+        # create relevant env and robot actions; boxes
+        self.monolithic_hnoop = reduce(lambda x, y: x | y, [act for act_str, act in self.eAction_map_sym.items() if act_str.startswith('hmove noop')])
+        self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
+        self.relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.rAction_map_sym.values())
+        self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
+        self.relevant_box_preds_sym = defaultdict(lambda: self.manager.addZero())
+        self.create_relevant_env_actions_per_box()
+        self.create_relevant_box_predicates()
+        self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
+        
+        # state invariance constraint - end-effector empty cube - used in transit and grasp actions
+        self.ee_empty_cube: ADD = self.create_ee_empty_cube()
+        self.create_monoltithic_box_conf_cube()
+        self.create_hmove_not_b()
+        self.create_valid_state_constraints()
+        
+        self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
+        self.create_loc_empty_constraint()
+        self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
+
 
 
     def create_output_vars(self) -> List[ADD]:
@@ -363,6 +406,15 @@ class FrankaWorldDyanmicRatioTurnBased():
         for idx, val in enumerate(cube):
             add &= vars_list[idx] if val == '1' else ~vars_list[idx]
         return add
+
+
+    def set_latches(self):
+        self.xVars: List[ADD] = self.kVars + self.pVars + [var for box_adds in self.bVars for var in box_adds]
+        self.latches: List[ADD] = self.tVar + self.xVars
+    
+
+    def set_prime_latches(self):
+        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_bVars
 
 
     def set_init_latch(self) -> ADD:
@@ -1398,7 +1450,7 @@ if __name__ == "__main__":
     
     # setting things up
     boxes = 2
-    locs = 5
+    locs = 10
     ratio = 1
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     # goal = [['b0 l1']]
@@ -1407,9 +1459,10 @@ if __name__ == "__main__":
     # goal = ['holding l1', 'b0 l0']
     # goal = [['b0 l1', 'b1 l3'], ['b0 l1', 'b1 l4']]
     # human_locs = range(1, locs + 1)
-    human_locs =  [3, 4] #range(1, locs + 1)
+    # human_locs =  [3, 4] #range(1, locs + 1)
+    human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = []
-    fw_tb = FrankaWorldDyanmicRatioTurnBased(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, human_locs=human_locs)
+    fw_tb = FrankaWorldDyanmicRatioTurnBased(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, human_locs=human_locs, enable_reordering=True)
 
     print('****************xVars Map:****************')
     for k, v in fw_tb.xVar_map.items():
