@@ -12,7 +12,7 @@ from typing import List, Union
 
 from bidict import bidict
 
-from cudd import Cudd, ADD
+from cudd import Cudd, ADD, BDD
 
 from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
@@ -206,6 +206,70 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         return states_action_pairs
 
 
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a give strategy
+        """
+        curr_state_sym = self.init_latch & self.dfa_handle.init_latch
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            if verbose:
+                print("Current State:")
+                curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, state_flag=True, robot_action=False)
+                assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+                "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+
+            # get the action to be taken at the current state
+            if curr_state_exp[0][0][0][0][0] == 'robot':
+                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+            elif curr_state_exp[0][0][0][0][0] == 'human':
+                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            else:
+                print("Unknown turn variable value. Cannot proceed with rollout!!")
+                return
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0][0] == 'robot' \
+                    else self.eAction_map.inv[act_cube_string]
+            except KeyError:
+                print("No robot action found!!")
+                return
+
+
+            curr_game_state = list(curr_state_exp[0][0][0][0])
+            curr_dfa_state: int = curr_state_exp[0][0][0][1]
+           
+            # get the next state in the game
+            if curr_state_exp[0][0][0][0][0] == 'robot':
+                curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
+            elif curr_state_exp[0][0][0][0][0] == 'human':
+                curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
+            
+            # check if you evolved over the DFA 
+            # create DFA edge and check if it satisfies any of the dges or not
+            for dfa_state, dfa_state_sym in self.qVar_map_sym.items():
+                dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
+                dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+                edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym)).isZero()
+
+                if edge_exists:
+                    curr_dfa_state: ADD = dfa_state_sym.swapVariables(self.prime_qVars, self.qVars)
+                    break
+            
+            curr_state_sym: ADD = curr_game_state_sym & curr_dfa_state
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            if verbose:
+                print(f"Robot Action: {act_name}")
+
+
     def solve(self, verbose: bool = False):
         """
         A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
@@ -257,6 +321,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
             Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+            # Upre = reduce(lambda x, y: x.min(y), MaxUpre)
 
             # go over all the sys actions and preserve the minimum one
             Minpre = []
