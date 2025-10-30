@@ -5,6 +5,7 @@
  SymbolicPartitionedDFAGame uses a symbolic partitioned DFA to represent the automaton corresponding to the LTL/LTLf formula.
  It constructs the transition relation in a partitioned manner (vector of boolean variables), leveraging the symbolic representation for efficiency.
 """
+import sys
 import math
 
 from functools import reduce
@@ -58,7 +59,44 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
-        
+
+        # lets try moving the variable around:
+        self.manager.autodynEnable()
+        # original sequence is [G, D, G', D']
+        # the sequence I am aiming for is this [D', G', D, G]
+        # self.permute_variables()
+    
+
+    def permute_variables(self):
+        """
+         Permute the variables to have the desired order: [D', G', D, G]. The current order is [G, D, G', D'].
+        """
+        # first create the new order
+        new_var_order: List[str] = []
+        new_var_order.extend([pq.bddPattern().__str__() for pq in self.prime_qVars])
+        new_var_order.extend([pl.bddPattern().__str__() for pl in self.prime_latches])
+        new_var_order.extend([l.bddPattern().__str__() for l in self.latches])
+        new_var_order.extend([q.bddPattern().__str__() for q in self.qVars])
+        new_var_order.extend([oV.bddPattern().__str__() for oV in self.oVars])
+        new_var_order.extend([iV.bddPattern().__str__() for iV in self.iVars])
+
+        # now get the current order
+        current_var_order: List[str] = []
+        current_var_order.extend([l.bddPattern().__str__() for l in self.latches])
+        current_var_order.extend([q.bddPattern().__str__() for q in self.qVars])
+        current_var_order.extend([pl.bddPattern().__str__() for pl in self.prime_latches])
+        current_var_order.extend([pq.bddPattern().__str__() for pq in self.prime_qVars])
+        current_var_order.extend([oV.bddPattern().__str__() for oV in self.oVars])
+        current_var_order.extend([iV.bddPattern().__str__() for iV in self.iVars])
+
+        # now create the permutation map - each variable has a new unique name (by construction) hence a unique index
+        permute_map = [new_var_order.index(i) for i in current_var_order]
+
+        # the ivars and ovars remain in the same position
+        self.manager.shuffleHeap(permute_map)
+        print(self.dfa_handle.goal_latch)
+        print(f"Permuted Order:", self.manager.printBddOrder())
+        # sys.exit(0)
     
 
     # need to override the create lacthes method to include dfa latches
