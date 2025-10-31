@@ -83,13 +83,24 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         # now lets add constraints that is rConf is ready then no box is at ee-location
         for b in range(self.boxes):
             for at_loc in range(1, self.locs + 2):
-                self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'ready l{at_loc}'] | self.xVar_map_sym[f'in-transit b{b}']).ite(self.ee_empty_cube, self.manager.addOne())
+                valid_rConf_for_grasp_cube: ADD = self.xVar_map_sym[f'ready l{at_loc}'] | self.xVar_map_sym[f'in-transit b{b}'] | self.xVar_map_sym[f'to-obj b{b}'] 
+                self.monolithic_relevant_box_preds &= valid_rConf_for_grasp_cube.ite(self.ee_empty_cube, self.manager.addOne())
         
         # now lets add constraints that is rConf is holding then some box is at ee-location
         some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for to_loc in range(1, self.locs + 1):
             self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'in-transfer l{to_loc}'] | self.xVar_map_sym[f'holding l{to_loc}']).ite(some_box_at_ee, self.manager.addOne())
 
+    
+    def preprocess_monolithic_valid_state_robot_actions(self):
+        # for in-transit and in-transfer preds, just addOne()
+        for b in range(self.boxes):
+            self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+        
+        for to_loc in range(1, self.locs + 1):
+            self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
+    
+    
     def create_transit_actions(self):
         """
          The update rule for transit action is changed here. When the robot transits from ready to in-transit,
@@ -111,6 +122,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
                     bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{to_loc}', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
                 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
+
+                    # update the valid robot moves
+                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     pred_clause_prime_string = self.xVar_map[f"in-transit b{b}"]
                     
@@ -139,6 +153,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
                     robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
+
+                    # update the valid robot moves
+                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{to_loc}']
@@ -371,11 +388,16 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
 
                 # need to find which box is at l_idx
                 split_str = curr_state[box_idx].split(', ')
+                found_box: bool = False
                 for bidx, b in enumerate(split_str):
                     if b.endswith(l_idx):
                         box = b.split(' ')[0]
                         split_str[bidx] = f'{box} l0'
+                        found_box = True
                         break
+                if not found_box:
+                    print("[INVALID ROBOT ACTION]: No box found at the location where robot is trying to grasp. Cannot proceed!!")
+                    sys.exit(-1)
                 curr_state[box_idx] = ', '.join(split_str)
             else:
                 print("Unknown robot configuration during grasp action. Cannot proceed!!")
@@ -458,6 +480,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
                 # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
             Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+            # Upre = reduce(lambda x, y: x.min(y), MaxUpre)
 
             # go over all the sys actions and preserve the minimum one
             Minpre = []
@@ -500,7 +523,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
 
     def test_pre_image(self):
         # convert transition relation to latches bdd
-        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] #& \
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l4'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l3']  #& \
         #(self.xVar_map_sym['b1 l4'] | self.xVar_map_sym['b1 l3'])
 
         # goal state is b0 and l0 and ready l0

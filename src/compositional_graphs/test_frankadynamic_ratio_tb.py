@@ -309,17 +309,18 @@ class FrankaWorldDyanmicRatioTurnBased():
         self.create_relevant_env_actions_per_box()
         self.create_relevant_box_predicates()
         self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
+        self.monolithic_valid_state_robot_actions = self.manager.addZero()
         
         # state invariance constraint - end-effector empty cube - used in transit and grasp actions
         self.ee_empty_cube: ADD = self.create_ee_empty_cube()
         self.create_monoltithic_box_conf_cube()
         self.create_hmove_not_b()
         self.create_valid_state_constraints()
+        self.preprocess_monolithic_valid_state_robot_actions()
         
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
         self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
-
 
 
     def create_output_vars(self) -> List[ADD]:
@@ -502,7 +503,8 @@ class FrankaWorldDyanmicRatioTurnBased():
         # now lets add constraints that is rConf is ready then no box is at ee-location
         for b in range(self.boxes):
             for at_loc in range(1, self.locs + 2):
-                self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'ready l{at_loc}'] | self.xVar_map_sym[f'in-transit l{at_loc} b{b}']).ite(self.ee_empty_cube, self.manager.addOne())
+                valid_rConf_for_grasp_cube: ADD = self.xVar_map_sym[f'ready l{at_loc}'] | self.xVar_map_sym[f'in-transit l{at_loc} b{b}'] | self.xVar_map_sym[f'to-obj b{b}'] 
+                self.monolithic_relevant_box_preds &= valid_rConf_for_grasp_cube.ite(self.ee_empty_cube, self.manager.addOne())
             
         # now lets add constraints that is rConf is holding then some box is at ee-location
         some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
@@ -514,6 +516,32 @@ class FrankaWorldDyanmicRatioTurnBased():
         
         for at_loc in range(1, self.locs + 1):
             self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'holding l{at_loc}']).ite(some_box_at_ee, self.manager.addOne())
+    
+
+    def preprocess_monolithic_valid_state_robot_actions(self):
+        """
+         monolithic_valid_state_robot_actions variable is uses to keep track of all valid robot actions under valid robot states.
+         For preds that are in-transfer and in-transit, we just addOne() as these preds do not have any restriction on robot actions.
+
+         This is needed because in the post_process_transition_relation method, we need to restrict the transition relation to only valid robot states and actions.
+         For human moves, we do not need to do this as human action validity is excatly (precisly) determined by the respective human action constrcution methods.
+        """
+        # for in-transit and in-transfer preds, just addOne()
+        for from_loc in range(1, self.locs + 2):
+            for b in range(self.boxes):
+                self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit l{from_loc} b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+        
+        for from_loc in range(1, self.locs + 1):
+            for to_loc in range(1, self.locs + 1):
+                self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
+    
+
+    def post_process_transition_relation(self):
+        """
+         A method to post-process the transition relation after all action rules and frame axioms have been added.
+        """
+        for tr_key, tr_dd in self.transition_relation.items():
+            self.transition_relation[tr_key] = tr_dd & self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions
 
 
     def add_turn_var_update_rule(self):
@@ -571,6 +599,9 @@ class FrankaWorldDyanmicRatioTurnBased():
 
         self.add_turn_var_update_rule()
         self.add_hmove_var_update_rule_from_robot_states()
+        
+        # keep only the valid robot states and actions in the transition relation
+        self.post_process_transition_relation()
 
         
 
@@ -597,10 +628,13 @@ class FrankaWorldDyanmicRatioTurnBased():
                 curr_box_pred = f"b{b} l{loc}"
                 bConf_cube = self.xVar_map_sym[curr_box_pred]
                 # need to enforce that only one box is at loc l
-                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube)
+                bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
                 robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & (rConf_cube | rConf_cube_ready)
 
+                # update the valid robot moves
+                self.monolithic_valid_state_robot_actions |= ((rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
                 box_clause_prime_string = self.xVar_map[f'b{b} l0']
@@ -638,6 +672,9 @@ class FrankaWorldDyanmicRatioTurnBased():
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l0', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
                 robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & bConf_cube & robot_act_cube & self.locs_empty_constraints[f'l{loc}']
+
+                # update the valid robot moves
+                self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                 # this is fixed
                 next_box_pred = f"b{b} l{loc}"
@@ -679,6 +716,9 @@ class FrankaWorldDyanmicRatioTurnBased():
 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
 
+                    # update the valid robot moves
+                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+
                     pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
                     
                     for sidx, s in enumerate(pred_clause_prime_string):
@@ -712,6 +752,9 @@ class FrankaWorldDyanmicRatioTurnBased():
                     robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
+
+                    # update the valid robot moves
+                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
@@ -1275,11 +1318,16 @@ class FrankaWorldDyanmicRatioTurnBased():
 
                 # need to find which box is at l_idx
                 split_str = curr_state[box_idx].split(', ')
+                found_box: bool = False
                 for bidx, b in enumerate(split_str):
                     if b.endswith(l_idx):
                         box = b.split(' ')[0]
                         split_str[bidx] = f'{box} l0'
+                        found_box = True
                         break
+                if not found_box:
+                    print("No box found at the location where robot is trying to grasp. Cannot proceed!!")
+                    sys.exit(-1)
                 curr_state[box_idx] = ', '.join(split_str)
             else:
                 print("Unknown robot configuration during grasp action. Cannot proceed!!")
@@ -1336,7 +1384,10 @@ class FrankaWorldDyanmicRatioTurnBased():
                 "For rollout, it should be a single intial state."
             
             # first get the optimum state value
-            opt_sval = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+            try:
+                opt_sval: int = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+            except IndexError:
+                opt_sval: int = 0
 
             # get the action to be taken at the current state
             if curr_state_exp[0][0][0][0] == 'robot':

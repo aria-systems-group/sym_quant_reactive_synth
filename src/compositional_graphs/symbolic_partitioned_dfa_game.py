@@ -328,8 +328,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             for env_tr_dd in self.env_action_cube_list:
                 # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
-            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-            # Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            # Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+            Upre = reduce(lambda x, y: x.min(y), MaxUpre)
 
             # go over all the sys actions and preserve the minimum one
             Minpre = []
