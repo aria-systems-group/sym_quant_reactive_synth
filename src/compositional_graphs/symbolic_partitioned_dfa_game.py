@@ -30,7 +30,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                  ratio: int, init: tuple,
                  goal: tuple, formula: str,
                  restricted_human_locs: List[int],
-                 ltlf_flag: bool = True):
+                 ltlf_flag: bool = True,
+                 enable_reordering: bool = False):
         """
          Initialize the SymbolicPartitionedDFAGame with the given parameters and create DFA latches and maps.
 
@@ -54,49 +55,16 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs)
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, enable_reordering=False)
 
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
 
-        # lets try moving the variable around:
-        self.manager.autodynEnable()
-        # original sequence is [G, D, G', D']
-        # the sequence I am aiming for is this [D', G', D, G]
-        # self.permute_variables()
-    
-
-    def permute_variables(self):
-        """
-         Permute the variables to have the desired order: [D', G', D, G]. The current order is [G, D, G', D'].
-        """
-        # first create the new order
-        new_var_order: List[str] = []
-        new_var_order.extend([pq.bddPattern().__str__() for pq in self.prime_qVars])
-        new_var_order.extend([pl.bddPattern().__str__() for pl in self.prime_latches])
-        new_var_order.extend([l.bddPattern().__str__() for l in self.latches])
-        new_var_order.extend([q.bddPattern().__str__() for q in self.qVars])
-        new_var_order.extend([oV.bddPattern().__str__() for oV in self.oVars])
-        new_var_order.extend([iV.bddPattern().__str__() for iV in self.iVars])
-
-        # now get the current order
-        current_var_order: List[str] = []
-        current_var_order.extend([l.bddPattern().__str__() for l in self.latches])
-        current_var_order.extend([q.bddPattern().__str__() for q in self.qVars])
-        current_var_order.extend([pl.bddPattern().__str__() for pl in self.prime_latches])
-        current_var_order.extend([pq.bddPattern().__str__() for pq in self.prime_qVars])
-        current_var_order.extend([oV.bddPattern().__str__() for oV in self.oVars])
-        current_var_order.extend([iV.bddPattern().__str__() for iV in self.iVars])
-
-        # now create the permutation map - each variable has a new unique name (by construction) hence a unique index
-        permute_map = [new_var_order.index(i) for i in current_var_order]
-
-        # the ivars and ovars remain in the same position
-        self.manager.shuffleHeap(permute_map)
-        print(self.dfa_handle.goal_latch)
-        print(f"Permuted Order:", self.manager.printBddOrder())
-        # sys.exit(0)
+        # by default variable reordering is disabled for DFA games - to check for computation time without this optimization
+        # however, switching variable ordering make the code faster for sure.
+        if enable_reordering:
+            self.manager.autodynEnable()
     
 
     # need to override the create lacthes method to include dfa latches
@@ -260,21 +228,23 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 "For rollout, it should be a single intial state."
             
             # first get the optimum state value
-            opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+            try:
+                opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+            except IndexError:
+                opt_sval = 0
+            
+            turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
 
             # get the action to be taken at the current state
-            if curr_state_exp[0][0][0][0][0] == 'robot':
+            if turn == 'robot':
                 act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-            elif curr_state_exp[0][0][0][0][0] == 'human':
-                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
             else:
-                print("Unknown turn variable value. Cannot proceed with rollout!!")
-                return
+                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:
-                act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0][0] == 'robot' \
-                    else self.eAction_map.inv[act_cube_string]
+                act_name = self.rAction_map.inv[act_cube_string] if turn == 'robot' else self.eAction_map.inv[act_cube_string]
             except KeyError:
                 print("No robot action found!!")
                 return
@@ -284,9 +254,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             curr_dfa_state: int = curr_state_exp[0][0][0][1]
            
             # get the next state in the game
-            if curr_state_exp[0][0][0][0][0] == 'robot':
+            if turn == 'robot':
                 curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
-            elif curr_state_exp[0][0][0][0][0] == 'human':
+            else:
                 curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
             
             # check if you evolved over the DFA 
@@ -305,7 +275,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             # printing the action here as the human action is overriden above. This because invalid human moves
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
-                print(f"Robot Action: {act_name}")
+                print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
 
 
     def solve(self, verbose: bool = False):
@@ -378,7 +348,11 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
-                    init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    if self.init_latch & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     return preimage if init_val < math.inf else None

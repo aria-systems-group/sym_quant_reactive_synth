@@ -15,8 +15,8 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
      This class inherits from FrankaWorldDyanmicRatioTurnBased aand makes the following change:
      In TR, when the human moves a box, the robot transit to an "else" state rather than going to original state.
     """
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int]):
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs)
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], enable_reordering: bool = False):
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, enable_reordering)
     
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
@@ -476,7 +476,11 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if self.init_latch & curr_winning_states != self.manager.plusInfinity():
-                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    if self.init_latch & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     return preimage if init_val < math.inf else None
@@ -504,17 +508,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
         # From = goal_cube
         preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        # MaxUpre = []
-        # for env_tr_dd in self.env_action_cube_list:
-        #     MaxUpre.append(preimage.restrict(env_tr_dd))
-        # Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-
-        # # go over all the sys actions and preserve the manimum one
-        # Minpre = []
-        # for robot_tr_dd in self.robot_action_cube_list:
-        #     Minpre.append(Upre.restrict(robot_tr_dd))
-        
-        # next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
         self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
 
 
@@ -569,7 +562,6 @@ if __name__ == "__main__":
 
     # fw_tb.test_pre_image()
     # sys.exit(0)
-
 
     tic = time.time()
     strategy = fw_tb.solve(verbose=False)
