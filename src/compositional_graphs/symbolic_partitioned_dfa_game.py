@@ -16,7 +16,7 @@ from bidict import bidict
 from cudd import Cudd, ADD, BDD
 
 from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot
-from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
+from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
 from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 
 
@@ -249,7 +249,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 print("No robot action found!!")
                 return
 
-
             curr_game_state = list(curr_state_exp[0][0][0][0])
             curr_dfa_state: int = curr_state_exp[0][0][0][1]
            
@@ -261,7 +260,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             
             # check if you evolved over the DFA 
             # create DFA edge and check if it satisfies any of the dges or not
-            for dfa_state, dfa_state_sym in self.qVar_map_sym.items():
+            for dfa_state_sym in self.qVar_map_sym.values():
                 dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
                 dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
                 edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym)).isZero()
@@ -278,7 +277,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
 
 
-    def solve(self, verbose: bool = False):
+    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
           for the Sys player (robot) to reach the goal state.
@@ -328,8 +327,11 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             for env_tr_dd in self.env_action_cube_list:
                 # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
-            # Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-            Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            
+            if cooperative_game:
+                Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            else:
+                Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
             # go over all the sys actions and preserve the minimum one
             Minpre = []

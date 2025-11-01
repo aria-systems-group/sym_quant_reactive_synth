@@ -11,7 +11,7 @@ import sys
 import time
 import math
 
-from typing import List, Dict, Tuple, Set
+from typing import List, Dict, Tuple, Set, Union
 from functools import reduce
 from itertools import product
 from collections import defaultdict
@@ -23,13 +23,13 @@ from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 
 
-class FrankaWorldDyanmicRatioTurnBased():
+class FrankaWorldDynamicRatioTurnBased():
 
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, human_locs: List[int], enable_reordering: bool = False):
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], enable_reordering: bool = False):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
-        self.human_locs: List[int] = human_locs
+        self.human_locs: List[int] = restricted_human_locs
         self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
         self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
@@ -533,6 +533,8 @@ class FrankaWorldDyanmicRatioTurnBased():
         
         for from_loc in range(1, self.locs + 1):
             for to_loc in range(1, self.locs + 1):
+                if from_loc == to_loc:
+                    continue
                 self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
     
 
@@ -1419,7 +1421,7 @@ class FrankaWorldDyanmicRatioTurnBased():
             
 
 
-    def solve(self, verbose: bool = False):
+    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -1454,7 +1456,11 @@ class FrankaWorldDyanmicRatioTurnBased():
             MaxUpre = []
             for env_tr_dd in self.env_action_cube_list:
                 MaxUpre.append(preimage.restrict(env_tr_dd))
-            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+            
+            if cooperative_game:
+                Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            else:
+                Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
             # go over all the sys actions and preserve the manimum one
             Minpre = []
@@ -1514,7 +1520,7 @@ if __name__ == "__main__":
     # human_locs =  [3, 4] #range(1, locs + 1)
     human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = []
-    fw_tb = FrankaWorldDyanmicRatioTurnBased(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, human_locs=human_locs, enable_reordering=True)
+    fw_tb = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs, ratio=ratio, init=init, goal=goal, restricted_human_locs=human_locs, enable_reordering=True)
 
     print('****************xVars Map:****************')
     for k, v in fw_tb.xVar_map.items():

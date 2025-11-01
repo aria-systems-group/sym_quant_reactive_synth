@@ -3,14 +3,14 @@ import math
 import time
 
 from functools import reduce
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
-from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyanmicRatioTurnBased
+from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
 
 from cudd import Cudd, ADD, BDD
 
 
-class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
+class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
     """
      This class inherits from FrankaWorldDyanmicRatioTurnBased aand makes the following change:
      In TR, when the human moves a box, the robot transit to an "else" state rather than going to original state.
@@ -436,7 +436,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
     
 
-    def solve(self, verbose: bool = False):
+    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -479,8 +479,11 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDyanmicRatioTurnBased):
             for env_tr_dd in self.env_action_cube_list:
                 # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
-            Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-            # Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            
+            if cooperative_game:
+                Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            else:
+                Upre = reduce(lambda x, y: x.max(y), MaxUpre)
 
             # go over all the sys actions and preserve the minimum one
             Minpre = []
