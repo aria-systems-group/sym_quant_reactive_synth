@@ -122,7 +122,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_handle.create_latches_and_map()
 
         # now we create the TR
-        self.dfa_handle.create_dfa_transition_relation(verbose=False, plot=False)
+        self.dfa_handle.create_dfa_transition_relation()
         self.qVars = dfa_handle.qVars
         self.dfa_latches: List[ADD] = dfa_handle.qVars
         self.qVar_map = dfa_handle.qVar_map

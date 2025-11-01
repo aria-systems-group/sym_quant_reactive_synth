@@ -14,7 +14,7 @@ if __name__ == "__main__":
     # setting things up
     boxes = 2
     locs = 10
-    ratio = 1
+    ratio = 4
 
     cooperative_game = True
 
@@ -27,22 +27,22 @@ if __name__ == "__main__":
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
 
-    # formula = 'F(p01 & F(p02 & F(p01)))'
-    formula = 'F(p01 & p12)'
+    formula = 'F(p01 & F(p02 & F(p01)))'
+    # formula = 'F(p01 & p12)'
 
-    # dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
-    #                                       ratio=ratio, init=init,
-    #                                       goal=goal, formula=formula, 
-    #                                       restricted_human_locs=human_locs,
-    #                                       ltlf_flag=True)
+    dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
+                                          ratio=ratio, init=init,
+                                          goal=goal, formula=formula, 
+                                          restricted_human_locs=human_locs,
+                                          ltlf_flag=False)
     
     # dfa_game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
     #                                                 ratio=ratio, init=init,
     #                                                 goal=goal, restricted_human_locs=human_locs)
     
-    dfa_game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-                                                ratio=ratio, init=init,
-                                                goal=goal, restricted_human_locs=human_locs)
+    # dfa_game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+    #                                             ratio=ratio, init=init,
+    #                                             goal=goal, restricted_human_locs=human_locs)
 
     # print Game Info?
     print("*****************Printing Game Info*****************")

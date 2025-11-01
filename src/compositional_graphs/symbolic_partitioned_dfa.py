@@ -1,5 +1,7 @@
 import re
+import sys
 import math
+import warnings
 import graphviz as gv
 
 from typing import List, Tuple
@@ -28,9 +30,10 @@ class SymbolicPartitionedDFA():
       in partitioned form.
     """
 
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, dfa_name: str = 'dfa'):
         self.formula: str = formula
         self.predicate_add_sym_map_lbl = latches_map
+        self.dfa_name: str = dfa_name
         self.manager: Cudd = manager
         self.dfa, self.num_of_states = self.formula_to_automaton()
 
@@ -99,21 +102,6 @@ class SymbolicPartitionedDFA():
 
     def create_dfa_transition_relation(self):
         raise NotImplementedError()
-    
-    
-    def print_plot_dfa_tr(self, plot: bool = False) -> None:
-        """
-         A helper function that prints the Transition Relation for the DFA.
-
-         @param: plot: Set this flag to true if you also want to print the corresponding BDD as a PDF.
-        """
-        print(f"Charateristic Function for DFA  is \n")
-        print(self.dfa_bdd_tr, " \n")
-        if plot:
-            file_path = PROJECT_ROOT + f'/plots/{self.dfa_name}_ADD_ltlf_trans_func.dot'
-            file_name = PROJECT_ROOT + f'/plots/{self.dfa_name}_ADD_ltlf_trans_func.pdf'
-            self.manager.dumpDot([self.dfa_bdd_tr], file_path=file_path)
-            gv.render(engine='dot', format='pdf', filepath=file_path, outfile=file_name)
 
 
 class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
@@ -127,6 +115,7 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
     
     def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
         super().__init__(formula=formula, manager=manager, latches_map=latches_map)
+        self.valid_dfa_edge_formula_size: int = len(self.dfa.get_symbols())
 
 
     def formula_to_automaton(self): 
@@ -138,14 +127,95 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
 
         return dfa, num_of_states
 
-
     def set_init_goal_states(self):
         self.init: str = self.dfa.get_initial_states()[0][0]
         self.goal: str = self.dfa.get_accepting_states()[0]
     
 
+    def set_init_latch(self):
+        self.init_latch |= self.qVar_map_sym[self.init]
+    
+
+    def set_goal_latch(self):
+        self.goal_latch |= self.qVar_map_sym[self.goal]
+    
+
+    def find_symbols(self, formula: str):
+        """
+        Find symbols associated with an edge
+        """
+        regex = re.compile(r"[a-z]+[a-z0-9]*")
+        matches = regex.findall(formula)
+        symbols = list()
+        for match in matches:
+            symbols += [match]
+        symbols = list(set(symbols))
+        symbols.sort()
+        return symbols
+    
+
+    def in_order_nnf_tree_traversal(self, expression, formula) -> ADD:
+        """
+        Traverse the edge formula given by Promela a binary tree. This function implements a in-order tree traversal algorithm.
+        """
+        if hasattr(formula, 'symbol'):
+            # get the corresponding boolean expression
+            if '!' in formula.name:
+                box_loc: str = re.search(r'\d+', formula.name).group()
+                return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+            else:
+                box_loc: str = re.search(r'\d+', formula.name).group()
+                return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+        
+        expression = self.in_order_nnf_tree_traversal(expression, formula.left)
+        if formula.name == 'AND':
+            expression = expression & self.in_order_nnf_tree_traversal(expression, formula.right)
+        elif formula.name == 'OR':
+            expression |= self.in_order_nnf_tree_traversal(expression, formula.right)
+
+        return expression
+    
+
+    def get_edge_boolean_formula(self, curr_state, nxt_state) -> ADD:
+        """
+        Given an edge, extract the string and construct the boolean formula associated with this string 
+        """        
+        _guard = self.dfa._graph[curr_state][nxt_state][0]['guard']
+        _guard_formula = self.dfa._graph[curr_state][nxt_state][0]['guard_formula']
+
+        symbls =  self.find_symbols(_guard_formula)
+
+        # if symbls is empty then create True edge
+        if not symbls or 'true' in symbls:
+            return self.manager.addOne()
+        else:
+            if len(symbls) > self.valid_dfa_edge_formula_size:
+                return self.manager.addZero()
+
+            elif len(symbls) <= self.valid_dfa_edge_formula_size:
+                edgy_formula: ADD = self.in_order_nnf_tree_traversal(expression=self.manager.addZero() , formula=_guard)
+                return edgy_formula
+    
+
     def create_dfa_transition_relation(self):
-        return super().create_dfa_transition_relation()
+        self.dfa_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}
+        for curr, nxt in self.dfa._graph.edges():
+            # get the boolean formula for the corresponding edge 
+            dfa_state_cube = self.qVar_map_sym[curr] 
+            dfa_state_prime_str: str = self.qVar_map[nxt]
+            edge_sym = self.get_edge_boolean_formula(curr_state=curr,
+                                                      nxt_state=nxt)
+            
+            if not isinstance(edge_sym, ADD):
+                edge = self.dfa._graph[curr][nxt][0]['guard_formula']
+                warnings.warn(f"Error while parsing the LTL Formula. Could not parse edge {edge}")
+                sys.exit(-1)
+            
+            # now we add the transition dfa's transition relation
+            for sidx, s in enumerate(dfa_state_prime_str):
+                if s == '1':
+                    self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
+        
 
 
 class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
@@ -213,7 +283,7 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
         return expr
     
 
-    def create_dfa_transition_relation(self, verbose: bool = False, plot: bool = False):
+    def create_dfa_transition_relation(self):
         """
          This function parses the Mona DFA output and construct the symbolic TR associated with DFA.
         """
@@ -245,6 +315,3 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                     for sidx, s in enumerate(dfa_state_prime_str):
                         if s == '1':
                             self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
-        
-        if verbose:
-            self.print_plot_dfa_tr(plot=plot)
