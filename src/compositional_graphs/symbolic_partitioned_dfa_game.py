@@ -275,6 +275,20 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
                 print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
+    
+
+    def compute_preimage(self, curr_winning_states: ADD) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
+        
+        # first evolve over the DFA
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+
+        # then evolve over the game
+        preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        return preimage
+
 
 
     def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
@@ -282,12 +296,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
           for the Sys player (robot) to reach the goal state.
         """
-        # initialize a weight ADD that assigns cost to each robot state
-        self.weight = self.manager.addZero()
-        for rConf in self.pVar_map.keys():
-            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
-        
         # initialize goal state with 0 state value and add it to the winning region
         goal = self.dfa_handle.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
@@ -309,13 +317,15 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             print(f"**************************Layer: {layer}**************************")
 
             # prime the vars
-            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
+            # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
             
-            # first evolve over the DFA
-            dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+            # # first evolve over the DFA
+            # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
 
-            # then evolve over the game
-            preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            # # then evolve over the game
+            # preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+            preimage: ADD = self.compute_preimage(curr_winning_states)
 
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
