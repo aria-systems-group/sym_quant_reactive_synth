@@ -1101,6 +1101,21 @@ class FrankaWorldDynamicRatioTurnBased():
         
         return cubes
 
+
+    def get_all_states_interval(self, upper: int, dd: ADD, lower: int = 0) -> BDD:
+        """
+         Helper function to get all the states below between Lower and Upper (both inclusive). 
+         Note Strict inludes the threshold value as well.
+        """
+        # returnns BDD of all the states with state value greater than lower
+        bdd_sgtl = dd.bddStrictThreshold(lower)
+        # returnns BDD of all the states with state value greater than upper
+        bdd_gtu = dd.bddThreshold(upper)
+        # this include cubes corresponding to the upper values as well
+        bdd_ltu = ~bdd_gtu
+
+        return bdd_ltu & ~bdd_sgtl
+
     
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """

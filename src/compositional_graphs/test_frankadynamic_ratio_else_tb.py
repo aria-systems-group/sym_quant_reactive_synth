@@ -100,6 +100,19 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         for to_loc in range(1, self.locs + 1):
             self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
     
+
+    def create_sym_weight_dict(self):
+        """
+         Ovverride base class method. Here the weights are associated with states rather than actions. We assign all states
+           where the robot is not at `else` location (ready else; holding else) a weight of 1, and states where the robot
+           is at `else` location a weight of 0. For human states, the weight is always 0.
+        """
+        # initialize a weight ADD that assigns cost to each robot state
+        self.weight = self.manager.addZero()
+        for rConf in self.pVar_map.keys():
+            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
+                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
+    
     
     def create_transit_actions(self):
         """
@@ -442,11 +455,11 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
           to reach the goal state.
         """
         
-        # initialize a weight ADD that assigns cost to each robot state
-        self.weight = self.manager.addZero()
-        for rConf in self.pVar_map.keys():
-            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
+        # # initialize a weight ADD that assigns cost to each robot state
+        # self.weight = self.manager.addZero()
+        # for rConf in self.pVar_map.keys():
+        #     if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
+        #         self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
         
         # initialize goal state with 0 state value and add it to the winning region
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())

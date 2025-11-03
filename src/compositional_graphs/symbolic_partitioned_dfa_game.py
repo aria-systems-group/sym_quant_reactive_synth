@@ -67,7 +67,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             self.manager.autodynEnable()
     
 
-    # need to override the create lacthes method to include dfa latches
+    # override the create lacthes method to include dfa latches
     def create_all_boolean_state_vars_and_maps(self):
         """
          The main method that creates all boolean variables for the FrankaDynamic Turn-Based Game.
@@ -282,7 +282,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
           for the Sys player (robot) to reach the goal state.
         """
-        
         # initialize a weight ADD that assigns cost to each robot state
         self.weight = self.manager.addZero()
         for rConf in self.pVar_map.keys():
