@@ -1300,7 +1300,7 @@ class FrankaWorldDynamicRatioTurnBased():
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
 
 
-    def get_next_state_robot(self, curr_state: List[str], action: str) -> ADD:
+    def get_next_state_robot(self, curr_state: List[str], action: str, **kwargs) -> ADD:
         """
          A helper function to get the next state under robot action given the current state and robot action.
         """

@@ -9,7 +9,7 @@ import sys
 import math
 
 from functools import reduce
-from typing import List, Union
+from typing import List, Union, Tuple
 
 from bidict import bidict
 
@@ -60,6 +60,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
+        # call it 2nd time here to ovveride the base method - is this the best way?
+        self.goal_latch: ADD = self.set_goal_latch()
 
         # by default variable reordering is disabled for DFA games - to check for computation time without this optimization
         # however, switching variable ordering make the code faster for sure.
@@ -128,6 +130,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.qVar_map = dfa_handle.qVar_map
         self.qVar_map_sym = dfa_handle.qVar_map_sym
     
+
+    def set_goal_latch(self):
+        return self.dfa_handle.goal_latch
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False) -> None:
         """
@@ -212,6 +217,18 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         return states_action_pairs
 
 
+    def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
+        # get the next state in the game in explicit form
+        curr_game_state = list(curr_state_exp[0][0][0][0])
+        act_name = ''
+        if turn == 'robot':
+            curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
+        else:
+            curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
+        
+        return curr_game_state_sym, act_name
+
+
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
         """
          A function to rollout a give strategy
@@ -248,18 +265,17 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             except KeyError:
                 print("No robot action found!!")
                 return
-
-            curr_game_state = list(curr_state_exp[0][0][0][0])
-            curr_dfa_state: int = curr_state_exp[0][0][0][1]
            
             # get the next state in the game
-            if turn == 'robot':
-                curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
-            else:
-                curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
+            # if turn == 'robot':
+            #     curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
+            # else:
+            #     curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
+            curr_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
             
             # check if you evolved over the DFA 
             # create DFA edge and check if it satisfies any of the dges or not
+            curr_dfa_state: int = curr_state_exp[0][0][0][1]
             for dfa_state_sym in self.qVar_map_sym.values():
                 dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
                 dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
@@ -297,7 +313,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
           for the Sys player (robot) to reach the goal state.
         """
         # initialize goal state with 0 state value and add it to the winning region
-        goal = self.dfa_handle.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        # goal = self.dfa_handle.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
 
@@ -315,16 +332,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-
-            # prime the vars
-            # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
-            
-            # # first evolve over the DFA
-            # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
-
-            # # then evolve over the game
-            # preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-
             preimage: ADD = self.compute_preimage(curr_winning_states)
 
             # add the action costs associated with the robot actions   

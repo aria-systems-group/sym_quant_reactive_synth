@@ -4,47 +4,49 @@
 import time
 import math
 
+from cudd import Cudd, ADD
+
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
 from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
 
-from cudd import Cudd, ADD
+# regret script imports
+from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import SymbolicPartitionedRegretDFAGame
 
-if __name__ == "__main__":
+
+def Regret_DFA_Game_Main():
     # setting things up
-    boxes = 2
-    locs = 10
-    ratio = 4
+    boxes = 1
+    locs = 3
+    ratio = 0
+    budget = 4
 
     cooperative_game = True
+    enable_reordering = False
+    ltlf_flag = True
 
-    init = ['ready l2', 'b0 l2', 'b1 l3']
-    # init = ['ready l2', 'b0 l2']
-    goal = [['b0 l1']]
-    # goal = []
+    # init = ['ready l2', 'b0 l2', 'b1 l3']
+    init = ['ready l3', 'b0 l2']
+    # goal = [['b0 l1']]
+    goal = []
 
     human_locs = range(1, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
 
-    formula = 'F(p01 & F(p02 & F(p01)))'
+    # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
+    formula = 'F(p01)'
 
-    dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
-                                          ratio=ratio, init=init,
-                                          goal=goal, formula=formula, 
-                                          restricted_human_locs=human_locs,
-                                          ltlf_flag=False)
+    dfa_game = SymbolicPartitionedRegretDFAGame(boxes=boxes, locs=locs,
+                                                ratio=ratio, init=init,
+                                                goal=goal, formula=formula, 
+                                                restricted_human_locs=human_locs,
+                                                ltlf_flag=ltlf_flag, budget=budget,
+                                                enable_reordering=enable_reordering)
     
-    # dfa_game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-    #                                                 ratio=ratio, init=init,
-    #                                                 goal=goal, restricted_human_locs=human_locs)
-    
-    # dfa_game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-    #                                             ratio=ratio, init=init,
-    #                                             goal=goal, restricted_human_locs=human_locs)
 
-    # print Game Info?
+    # print Game Info
     print("*****************Printing Game Info*****************")
     print('****************xVars Map:****************')
     for k, v in dfa_game.xVar_map.items():
@@ -68,17 +70,17 @@ if __name__ == "__main__":
     env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
     print("Total num of explicit states in Game: ", env_states + sys_states)
 
-    # print DFA Info?
-    # print("*****************Printing Game Info*****************")
-    # for k, v in dfa_game.dfa_handle.qVar_map.items():
-    #     print(f"{k} : {v}")
+    # print DFA Info
+    print("*****************Printing Game Info*****************")
+    for k, v in dfa_game.dfa_handle.qVar_map.items():
+        print(f"{k} : {v}")
 
 
-    # print DFA Game Info?
+    # print DFA Game Info
     # print("*****************Printing DFA Game Info*****************")
-    # print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
-    # print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
-    # print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
+    print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
+    print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
+    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
 
     # create the game's transition relation
     tic = time.time()
@@ -95,3 +97,104 @@ if __name__ == "__main__":
 
     if strategy is not None:
         dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+def DFA_Game_Main():
+    # setting things up
+    boxes = 2
+    locs = 10
+    ratio = 1
+
+    cooperative_game = True
+    enable_reordering = False
+    ltlf_flag = True
+
+    init = ['ready l2', 'b0 l2', 'b1 l3']
+    # init = ['ready l2', 'b0 l2']
+    # goal = [['b0 l1']]
+    goal = []
+
+    human_locs = range(1, locs + 1)
+    # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
+    # human_locs = [3]
+
+    # formula = 'F(p01 & F(p02 & F(p01)))'
+    formula = 'F(p01 & p12)'
+    # formula = 'F(p01)'
+
+    dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
+                                          ratio=ratio, init=init,
+                                          goal=goal, formula=formula, 
+                                          restricted_human_locs=human_locs,
+                                          ltlf_flag=ltlf_flag,
+                                          enable_reordering=enable_reordering)
+    
+    # dfa_game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+    #                                                 ratio=ratio, init=init,
+    #                                                 goal=goal, restricted_human_locs=human_locs)
+    
+    # dfa_game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+    #                                             ratio=ratio, init=init,
+    #                                             goal=goal, restricted_human_locs=human_locs)
+
+    # print Game Info
+    print("*****************Printing Game Info*****************")
+    print('****************xVars Map:****************')
+    for k, v in dfa_game.xVar_map.items():
+        print(f"{k} : {v}")
+    
+    print('****************rAction Map:****************')
+    for k, v in dfa_game.rAction_map.items():
+        print(f"{k} : {v}")
+
+    print('****************eAction Map:****************')
+    for k, v in dfa_game.eAction_map.items():
+        print(f"{k} : {v}")
+
+    print("*****************Ratio Map:*****************")
+    for k, v in dfa_game.kVar_map.items():
+        print(f"{k} : {v}")
+
+
+    # print the number of explicit states
+    sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
+    env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
+    print("Total num of explicit states in Game: ", env_states + sys_states)
+
+    # print DFA Info
+    print("*****************Printing Game Info*****************")
+    for k, v in dfa_game.dfa_handle.qVar_map.items():
+        print(f"{k} : {v}")
+
+
+    # print DFA Game Info
+    print("*****************Printing DFA Game Info*****************")
+    print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
+    print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
+    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
+
+    # create the game's transition relation
+    tic = time.time()
+    dfa_game.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # dfa_game.test_pre_image()
+
+    tic = time.time()
+    strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    if strategy is not None:
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
+
+if __name__ == "__main__":
+    # dfa game synthesis main function call
+    # DFA_Game_Main()
+
+    # Regret dfa game synthesis main function call
+    Regret_DFA_Game_Main()

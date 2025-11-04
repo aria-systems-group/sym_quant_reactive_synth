@@ -366,7 +366,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] & \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
     
-    def get_next_state_robot(self, curr_state: List[str], action: str) -> ADD:
+    def get_next_state_robot(self, curr_state: List[str], action: str, **kwargs) -> ADD:
         """
          A helper function to get the next state under robot action given the current state and robot action. 
           As we changed the robot conf. update rules in transit and transfer actions,
@@ -454,13 +454,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
         """
-        
-        # # initialize a weight ADD that assigns cost to each robot state
-        # self.weight = self.manager.addZero()
-        # for rConf in self.pVar_map.keys():
-        #     if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-        #         self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
-        
         # initialize goal state with 0 state value and add it to the winning region
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
