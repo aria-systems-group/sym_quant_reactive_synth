@@ -220,7 +220,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
         # get the next state in the game in explicit form
         curr_game_state = list(curr_state_exp[0][0][0][0])
-        act_name = ''
+        # act_name = ''
         if turn == 'robot':
             curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
         else:

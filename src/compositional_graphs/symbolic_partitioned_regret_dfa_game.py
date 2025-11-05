@@ -146,7 +146,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         max_val: int = 1
         
         for val in range(min_val, max_val + 1, 1):
+            # if val != 0:
+                # self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & ~self.init_latch
+            # else:
             self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD()
+        
+        # manually add the init state to cost 0
+        # self.states_per_cost[1] |= self.init_latch
     
 
     def create_utlity_transition_relation(self):

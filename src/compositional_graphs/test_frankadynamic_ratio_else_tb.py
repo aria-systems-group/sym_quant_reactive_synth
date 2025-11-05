@@ -111,6 +111,8 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         self.weight = self.manager.addZero()
         for rConf in self.pVar_map.keys():
             if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
+                # if rConf in self.init:
+                #     continue
                 self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
     
     

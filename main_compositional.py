@@ -16,17 +16,18 @@ from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import Symbol
 
 def Regret_DFA_Game_Main():
     # setting things up
-    boxes = 1
-    locs = 3
-    ratio = 0
-    budget = 4
+    boxes = 4
+    locs = 5
+    ratio = 1
+    budget = 10
 
     cooperative_game = True
-    enable_reordering = False
+    enable_reordering = True
     ltlf_flag = True
 
+    init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     # init = ['ready l2', 'b0 l2', 'b1 l3']
-    init = ['ready l3', 'b0 l2']
+    # init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
     goal = []
 
@@ -35,8 +36,8 @@ def Regret_DFA_Game_Main():
     # human_locs = [3]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
-    # formula = 'F(p01 & p12)'
-    formula = 'F(p01)'
+    formula = 'F(p01 & p12)'
+    # formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedRegretDFAGame(boxes=boxes, locs=locs,
                                                 ratio=ratio, init=init,
@@ -64,6 +65,10 @@ def Regret_DFA_Game_Main():
     for k, v in dfa_game.kVar_map.items():
         print(f"{k} : {v}")
 
+    print("*****************Utility Value Map:*****************")
+    for k, v in dfa_game.uVar_map.items():
+        print(f"{k} : {v}")
+
 
     # print the number of explicit states
     sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
@@ -77,10 +82,13 @@ def Regret_DFA_Game_Main():
 
 
     # print DFA Game Info
-    # print("*****************Printing DFA Game Info*****************")
+    print("*****************Printing DFA Game Info*****************")
     print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
     print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
     print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
+
+    print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
+    print(f"Total num of explicit states in Graph of Utility DFA Game: {budget * dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
 
     # create the game's transition relation
     tic = time.time()
