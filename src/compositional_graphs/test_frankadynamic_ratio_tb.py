@@ -264,8 +264,6 @@ class FrankaWorldDynamicRatioTurnBased():
          Create a map for the ratio variables.
         """
         offset = 1
-        # self.kVar_map[f'k0'] = f"{offset:0{len(self.kVars)}b}"
-        # offset += 1
         for r in range(self.ratio + 1):
             bit_str = f"{r + offset:0{len(self.kVars)}b}"
             self.kVar_map[f'k{r}'] = bit_str
@@ -284,7 +282,6 @@ class FrankaWorldDynamicRatioTurnBased():
          A tiny method to create all symbolic maps for the variables. We only create symbolic maps for non-primed boolean variables.
         """
         # more bookeeping stuff
-        # kVars = self.kVars if not prime else self.prime_kVars
         if prime:
             self.prime_kVar_map_sym = bidict({r: self.cube_to_add(v, self.prime_kVars) for r, v in self.kVar_map.items()})
         else:
@@ -668,7 +665,8 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
         
         # print s a_s s' transition function that we created for sanity checking
-        self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
+        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
+        self.count_actions_per_state()
         
 
     def create_grasp_actions(self) -> None:
@@ -1140,10 +1138,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     if grasp_loc == non_grasp_loc:
                         continue
                     parent_constraint |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['grasp'] & \
-                        self.xVar_map_sym[f'b{b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())
-                         
+                        self.xVar_map_sym[f'b{b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())  
         
-        # parent_to_obj_grasp_constraint = self.manager.addZero()
         for b in range(self.boxes):
             rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
             for other_b in range(self.boxes):
@@ -1166,6 +1162,29 @@ class FrankaWorldDynamicRatioTurnBased():
         
         self.monolithic_valid_state_robot_actions_prime_state &= parent_constraint
         print("Added Release constraint to robot frame axioms.")
+    
+
+    def count_actions_per_state(self):
+        """
+         A function that counts the numbe of actions per state
+        """
+        prime_vars_exist_cube = reduce(lambda a, b: a & b, self.prime_latches)
+        # robot_action_cube = reduce(lambda a, b: a | b, self.robot_action_cube_list)
+        robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
+        # convert to BDD and then exist abstract
+        state_action_prime_state: BDD = self.monolithic_valid_state_robot_actions_prime_state.bddPattern()
+        state_action_prime_state = state_action_prime_state.existAbstract(prime_vars_exist_cube.bddPattern())
+
+        # convert to 0 - 1ADD 
+        add_state_action_prime_state  = state_action_prime_state.toADD()
+
+        # exist abstract the ADD - this sums all leaves (1s) from a state
+        # we get ADD where each state maps to leaf node with vlaue = # of valid robot actions
+        test = add_state_action_prime_state.existAbstract(robot_action_cube)
+
+        # print it
+        self.convert_cube_to_state_ADD(test, state_flag=True)
+
 
 
 
