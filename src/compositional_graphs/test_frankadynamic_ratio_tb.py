@@ -316,6 +316,7 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         # need these cubes for printing states from cubes
         self.bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.bVars]
+        self.prime_bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_bVars]
         # create relevant env and robot actions; boxes
         self.monolithic_hnoop = reduce(lambda x, y: x | y, [act for act_str, act in self.eAction_map_sym.items() if act_str.startswith('hmove noop')])
         self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
@@ -441,7 +442,8 @@ class FrankaWorldDynamicRatioTurnBased():
     
 
     def set_prime_latches(self):
-        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_bVars
+        self.prime_xVars: List[ADD] = self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds]
+        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_xVars #self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds] #+ self.prime_bVars
 
 
     def set_init_latch(self) -> ADD:
@@ -613,8 +615,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
          After every turn, the turn variable is flipped and the game evolves to the other player.
         """
-        # tesitng things
-        # self.monolithic_valid_state_robot_actions_prime_state |= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero())
         # first we create grasp actions
         self.create_grasp_actions()
 
@@ -647,6 +647,9 @@ class FrankaWorldDynamicRatioTurnBased():
         
         # keep only the valid robot states and actions in the transition relation
         self.post_process_transition_relation()
+        
+        # print s a_s s' transition function that we created for sanity checking
+        self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
         
 
     def create_grasp_actions(self) -> None:
@@ -1187,7 +1190,7 @@ class FrankaWorldDynamicRatioTurnBased():
          If you want to print the robot action as well, set robot_action to True. 
          If you want to print the human action as well, set human_action to True.
         """
-        relevant_vars = [] + self.tVar + self.kVars
+        relevant_vars = [] #+ self.tVar + self.kVars
         if state_flag:
             relevant_vars.extend(self.latches)
         if robot_action:
@@ -1254,6 +1257,224 @@ class FrankaWorldDynamicRatioTurnBased():
                 print(f"    -- Actions: ({action})")
         
         return states_action_pairs
+
+
+    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
+        """
+         Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
+         If you want to print the robot action as well, set robot_action to True. 
+         If you want to print the human action as well, set human_action to True.
+
+         Here the input dd is assumed to be a fully defined cube (latches as well prime latches).
+        """
+        relevant_vars = [] #+ self.tVar + self.kVars + self.prime_tVar + self.prime_kVars
+        if state_flag:
+            relevant_vars.extend(self.latches)
+            relevant_vars.extend(self.prime_latches)
+        if robot_action:
+            relevant_vars.extend(self.oVars)
+        # if human_action:
+        #     relevant_vars.extend(self.iVars)
+
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+        # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
+        # start_ivar_idx, end_ivar_idx = self.manager.addVariables().index(self.iVars[0]), self.manager.addVariables().index(self.iVars[-1])
+
+        # create turn abstraction cube
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.oVars + self.iVars + self.prime_latches)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.oVars + self.iVars + self.prime_latches)
+        
+        # create existential abstraction cubes
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + self.prime_latches)
+
+
+        # create prime turn abstraction cube - can I just swap them? Yes, I can.
+        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.oVars + self.iVars + self.latches)
+        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.oVars + self.iVars + self.latches)
+
+        test = tConf_exist_cube.swapVariables(self.latches, self.prime_latches)
+        assert test == prime_tConf_exist_cube, "Error in swapping tConf_exist_cube variables to get prime_tConf_exist_cube"
+        test = kConf_exist_cube.swapVariables(self.latches, self.prime_latches)
+        assert test == prime_kConf_exist_cube, "Error in swapping kConf_exist_cube variables to get prime_kConf_exist_cube"
+        
+        # create existential abstraction cubes
+        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + self.latches)
+
+        # because ADD is not iterable and cannot be added to a list directly
+        bConf_exist_cube = dict({})
+        prime_bConf_exist_cube = dict({})
+        for bidx in range(self.boxes):
+            if self.boxes == 1:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.oVars + self.iVars + self.prime_latches)
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.oVars + self.iVars + self.latches)
+            else:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.oVars + self.iVars + self.prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.oVars + self.iVars + self.latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
+        
+        # print the states
+        states_action_pairs = []
+        prime_states_action_pairs = []
+        
+        for cube, val in cubes:
+            state = None
+            prime_state = None
+            rAction = None
+            tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            kConf_cube_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            prime_tConf_cube_str = cube.existAbstract(prime_tConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            prime_rConf_cube_str = cube.existAbstract(prime_rConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            prime_kConf_cube_str = cube.existAbstract(prime_kConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            bCube_str = []
+            for e in bConf_exist_cube.values():
+                bCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            try:
+                box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
+            except KeyError:
+                continue
+            
+            try:
+                state = ({self.tVar_map.inv[tConf_cube_str]}, {self.kVar_map.inv[kConf_cube_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states})
+                # print(f"({self.tVar_map.inv[tConf_cube_str]}, {self.kVar_map.inv[kConf_cube_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states})")
+                states_action_pairs.append([(self.tVar_map.inv[tConf_cube_str], self.kVar_map.inv[kConf_cube_str], self.pVar_map.inv[rConf_cube_str], box_states), None])
+            except KeyError:
+                continue
+            
+            # print the robot and human actions as well
+            if robot_action:
+                oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
+                try:
+                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                except KeyError:
+                    continue
+            # if human_action:
+            #     iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
+            #     try:
+            #         eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
+            #     except KeyError:
+            #         continue
+            if robot_action:    
+                # action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
+                rAction = rAction_str
+                # print(f"    -- Action: ({rAction_str})")
+            
+            prime_bCube_str = []
+            for e in prime_bConf_exist_cube.values():
+                prime_bCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+
+            try:
+                prime_box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(prime_bCube_str))
+            except KeyError:
+                continue
+            
+            try:
+                # print(f"({self.tVar_map.inv[prime_tConf_cube_str]}, {self.kVar_map.inv[prime_kConf_cube_str]}, {self.pVar_map.inv[prime_rConf_cube_str]}, {prime_box_states})")
+                prime_states_action_pairs.append([(self.tVar_map.inv[prime_tConf_cube_str], self.kVar_map.inv[prime_kConf_cube_str], self.pVar_map.inv[prime_rConf_cube_str], prime_box_states), None])
+                prime_state = ({self.tVar_map.inv[prime_tConf_cube_str]}, {self.kVar_map.inv[prime_kConf_cube_str]}, {self.pVar_map.inv[prime_rConf_cube_str]}, {prime_box_states})
+            except KeyError:
+                continue
+
+            # if you made it till here then print stuff
+            print(state, f'--({rAction})-->', prime_state, sep="      ")
+            # s_turn, s_k, s_p, s_b = state
+            # sp_turn, sp_k, sp_p, sp_b = prime_state
+            # f"({s_turn:<5}, {s_k:<2}, {s_p:<12}, {s_b:<18}) "
+                    # f"--({rAction_str:<12})--> "
+                    # f"({sp_turn:<5}, {sp_k:<2}, {sp_p:<12}, {sp_b:<18})"
+
+            
+            # print(f"State Transition: "
+                    
+            #         f"({s_turn}, {s_k}, {s_p}, {s_b})")
+            # print(f"--({rAction_str})--> ")
+            # print(f"({sp_turn}, {sp_k}, {sp_p}, {sp_b})")
+
+        
+        return states_action_pairs, prime_states_action_pairs
+    # def _get_part_from_cube(self, cube: ADD, vars_to_abstract: ADD, lookup_map: bidict) -> Optional[str]:
+    #     """Helper to existentially abstract variables from a cube, get the string, and look it up."""
+    #     try:
+    #         part_str = cube.existAbstract(vars_to_abstract).bddPattern().cubeString().replace('-', '')
+    #         return lookup_map.inv[part_str]
+    #     except (KeyError, ValueError):
+    #         return None
+
+    
+    # def _get_state_tuple_from_cube(self, cube: ADD, prime: bool = False) -> Optional[Tuple]:
+    #     """Helper to extract a full state tuple (turn, k, robot_conf, box_conf) from a cube."""
+        
+    #     latches = self.prime_latches if prime else self.latches
+    #     xVars = self.prime_xVars if prime else self.xVars
+    #     tVar = self.prime_tVar if prime else self.tVar
+    #     kVars = self.prime_kVars if prime else self.kVars
+    #     pVars = self.prime_pVars if prime else self.pVars
+    #     bVars = self.prime_bVars if prime else self.bVars
+        
+    #     # Abstraction cubes
+    #     vars_but_turn = reduce(lambda a, b: a & b, xVars + self.oVars + self.iVars)
+    #     vars_but_k = reduce(lambda a, b: a & b, tVar + pVars + [v for l in bVars for v in l] + self.oVars + self.iVars)
+    #     vars_but_robot_conf = reduce(lambda a, b: a & b, tVar + kVars + [v for l in bVars for v in l] + self.oVars + self.iVars)
+
+    #     # Extract state parts
+    #     turn_str = self._get_part_from_cube(cube, vars_but_turn, self.tVar_map)
+    #     k_str = self._get_part_from_cube(cube, vars_but_k, self.kVar_map)
+    #     robot_conf_str = self._get_part_from_cube(cube, vars_but_robot_conf, self.pVar_map)
+
+    #     box_strs = []
+    #     for i in range(self.boxes):
+    #         other_bvars = [v for j, l in enumerate(bVars) if i != j for v in l]
+    #         vars_but_box_i = reduce(lambda a, b: a & b, tVar + kVars + pVars + other_bvars + self.oVars + self.iVars)
+    #         box_str = self._get_part_from_cube(cube, vars_but_box_i, self.bVars_map[i])
+    #         if box_str is None: return None
+    #         box_strs.append(box_str)
+        
+    #     box_states = ", ".join(box_strs)
+
+    #     if not all([turn_str, k_str, robot_conf_str]):
+    #         return None
+
+    #     return (turn_str, k_str, robot_conf_str, box_states)
+
+
+    # def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False):
+    #     """
+    #     Convert a cube with current and next states to a readable string representation.
+    #     """
+    #     relevant_vars = []
+    #     if state_flag:
+    #         relevant_vars.extend(self.latches + self.prime_latches)
+    #     if robot_action:
+    #         relevant_vars.extend(self.oVars)
+    #     if human_action:
+    #         relevant_vars.extend(self.iVars)
+
+    #     cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+    #     # Abstraction cube for actions
+    #     all_vars_but_robot_action = reduce(lambda a, b: a & b, self.latches + self.prime_latches + self.iVars)
+        
+    #     for cube, val in cubes:
+    #         # Get current and next state tuples
+    #         state_tuple = self._get_state_tuple_from_cube(cube, prime=False)
+    #         prime_state_tuple = self._get_state_tuple_from_cube(cube, prime=True)
+            
+    #         # Get robot action
+    #         rAction_str = self._get_part_from_cube(cube, all_vars_but_robot_action, self.rAction_map_sym) if robot_action else "---"
+
+    #         if state_tuple and prime_state_tuple:
+    #             # Format the output for alignment
+    #             s_turn, s_k, s_p, s_b = state_tuple
+    #             sp_turn, sp_k, sp_p, sp_b = prime_state_tuple
+
+    #             print(f"State Transition: "
+    #                   f"({s_turn:<5}, {s_k:<2}, {s_p:<18}, {s_b:<12}) "
+    #                   f"--({rAction_str:<12})--> "
+    #                   f"({sp_turn:<5}, {sp_k:<2}, {sp_p:<18}, {sp_b:<12})")
+
+
 
     def check_valid_human_move(self, curr_state: List[str], action: str) -> bool:
         """
