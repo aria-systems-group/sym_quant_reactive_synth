@@ -11,7 +11,7 @@ import sys
 import time
 import math
 
-from typing import List, Dict, Tuple, Set, Union
+from typing import List, Dict, Tuple, Set, Union, Optional
 from functools import reduce
 from itertools import product
 from collections import defaultdict
@@ -335,7 +335,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.create_hmove_not_b()
         self.create_valid_state_constraints()
         self.preprocess_monolithic_valid_state_robot_actions()
-        self.preprocess_monolithic_valid_state_robot_actions_prime_state()
+        # self.preprocess_monolithic_valid_state_robot_actions_prime_state()
         
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
@@ -556,13 +556,16 @@ class FrankaWorldDynamicRatioTurnBased():
         # for in-transit and in-transfer preds, just addOne()
         for from_loc in range(1, self.locs + 2):
             for b in range(self.boxes):
-                self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit l{from_loc} b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+                # self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit l{from_loc} b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.ee_empty_cube, self.manager.addZero())
         
+        # now lets add constraints that is rConf is holding then some box is at ee-location
+        some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for from_loc in range(1, self.locs + 1):
             for to_loc in range(1, self.locs + 1):
                 if from_loc == to_loc:
                     continue
-                self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(some_box_at_ee, self.manager.addZero())
     
     def preprocess_monolithic_valid_state_robot_actions_prime_state(self):
         """
@@ -583,6 +586,35 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         for tr_key, tr_dd in self.transition_relation.items():
             self.transition_relation[tr_key] = tr_dd & self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions
+    
+
+    def postprocess_monolithic_valid_state_robot_actions_prime_state(self):
+        """
+         A method to post-process the transition relation after all action rules and frame axioms have been added.
+        """
+        self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero()) #& \
+            #   self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions & \
+            #   self.monolithic_relevant_box_preds.swapVariables(self.latches, self.prime_latches) & self.monolithic_valid_state_robot_actions.swapVariables(self.latches, self.prime_latches)
+        
+        # all in-transit
+        all_transit_cube = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'in-transit l{loc} b{b}'] for loc in range(1, self.locs + 2) for b in range(self.boxes)])
+
+        # all in-transfer
+        all_transfer_cube = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'] for from_loc in range(1, self.locs + 1) for to_loc in range(1, self.locs + 1) if from_loc != to_loc])
+
+        # self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(~(all_transit_cube | all_transfer_cube), self.manager.addZero())
+        # self.monolithic_valid_state_robot_actions_prime_state &= (self.tVar_map_sym['robot']).swapVariables(self.latches, self.prime_latches).ite((~(all_transit_cube | all_transfer_cube)).swapVariables(self.latches, self.prime_latches), self.manager.addZero())
+
+        constraint_cube = self.manager.addZero() 
+        for kVal in self.kVar_map.keys():
+            constraint_cube |= self.kVar_map_sym[kVal].ite(self.prime_kVar_map_sym[kVal], self.manager.addZero())
+        
+        self.monolithic_valid_state_robot_actions_prime_state &= constraint_cube
+
+        # assert that under transit the game evolves to human state where in-transit must be true
+        # for b in range(self.boxes):
+        #     robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
+        #     self.monolithic_valid_state_robot_actions_prime_state &= 
 
 
     def add_turn_var_update_rule(self):
@@ -629,10 +661,10 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # add robot frame axioms
         self.add_robot_frame_axioms()
+        self.add_robot_s_sprime_frame_axioms()
 
         # keep only the relvant states and actions
-        self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero()) & \
-              self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions
+        self.postprocess_monolithic_valid_state_robot_actions_prime_state()
 
         # finally, we add frame axioms for all boxes that enforce state invariance constraint
         self.create_human_move_transit()
@@ -1077,6 +1109,73 @@ class FrankaWorldDynamicRatioTurnBased():
                         for sidx, s in enumerate(self.kVar_map['k0']):
                             if s == '1':
                                 self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+    
+
+    def add_robot_s_sprime_frame_axioms(self):
+        """
+         Adding frame axioms that ensure that boxes not being moved by the robot remain in the same location.
+
+         This method is for curr vars --- (robot action) ---> next vars. 
+
+         It is different from add_robot_frame_axioms() method that adds frame axioms using the negation operator which causes isuess for ADD.
+        """
+        # transit_loc_range = range(1, self.locs + 1) # when you are transit a box can be at 1 to l
+        # transfer_loc_range = range(0, self.locs + 1) # when you are transfer a box can be at 0 to l
+        # ranges = [transit_loc_range, transfer_loc_range]
+        transit_cube = self.manager.addZero()
+        transfer_cube = self.manager.addZero()
+        for rAct, rAct_cube in self.rAction_map_sym.items():
+            if rAct.startswith('transit'):
+                transit_cube |= rAct_cube
+            elif rAct.startswith('transfer'):
+                transfer_cube |= rAct_cube
+        
+        # for i in [0, 1]:
+        #     transit_constraint = self.manager.addOne()
+        #     for b in range(self.boxes):
+        #         transit_constraint_b = self.manager.addZero()
+                
+        #         # for b in range(self.boxes):
+        #         for l in ranges[i]:                    
+        #             # for l in range(1, self.locs + 1):
+        #             curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l{l}']
+        #             transit_constraint_b |= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l{l}'], self.manager.addZero())
+        #         transit_constraint &= transit_constraint_b 
+
+        #     if i == 0:
+        #         test1 = transit_constraint & transit_cube
+        #         # self.monolithic_valid_state_robot_actions_prime_state &= transit_constraint & transit_cube
+        #     elif i == 1:
+        #         test2 = transfer_cube & transit_constraint
+        #         # self.monolithic_valid_state_robot_actions_prime_state &= transit_constraint & transfer_cube
+        # # test3 = test1 | test2
+        # self.monolithic_valid_state_robot_actions_prime_state &= test1 | test2
+
+        # same code as above but implemented differently for succinctness
+        parent_constraint = self.manager.addZero()
+        for i in range(0, 2):
+            transit_constraint = self.manager.addOne()
+            for b in range(self.boxes):
+                transit_constraint_b = self.manager.addZero()
+                for l in range(1, self.locs + 1):                    
+                    curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l{l}']
+                    transit_constraint_b |= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l{l}'], self.manager.addZero())
+                    if i == 1 and l == self.locs:
+                        curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l0']
+                        transit_constraint_b |= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l0'], self.manager.addZero())
+
+                transit_constraint &= transit_constraint_b
+            
+            parent_constraint |= transit_constraint & transit_cube if i == 0 else transit_constraint & transfer_cube 
+        # transfer_constraint = self.manager.addOne()
+        # for b in range(self.boxes):
+        #     # transit_constraint_b = self.manager.addZero()
+        #     curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l0']
+        #     transfer_constraint &= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l0'], self.manager.addZero())
+        
+        # parent_constraint |= transfer_constraint & transfer_cube
+        # the above constraint cube is missing box at l0. we add that now.
+        print("Added Transit constraint to robot frame axioms.")
         
 
 
