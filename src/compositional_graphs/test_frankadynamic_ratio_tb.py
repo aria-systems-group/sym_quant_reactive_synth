@@ -440,7 +440,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def set_prime_latches(self):
         self.prime_xVars: List[ADD] = self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds]
-        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_xVars #self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds] #+ self.prime_bVars
+        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_xVars
 
 
     def set_init_latch(self) -> ADD:
@@ -665,8 +665,8 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
         
         # print s a_s s' transition function that we created for sanity checking
-        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
-        self.count_actions_per_state()
+        self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
+        # self.count_actions_per_state()
         
 
     def create_grasp_actions(self) -> None:

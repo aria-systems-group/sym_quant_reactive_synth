@@ -146,6 +146,10 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                    
+                    # create s a_s s' transitions
+                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
+                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
     
     def create_transfer_actions(self):
         """
@@ -183,6 +187,10 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                    
+                    # create s a_s s' transitions
+                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f'in-transfer l{to_loc}'] & self.prime_xVar_map_sym[curr_box_pred]
+                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
     
 
     def create_human_move_transit(self) -> None:
