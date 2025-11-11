@@ -30,12 +30,16 @@ class SymbolicPartitionedDFA():
       in partitioned form.
     """
 
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, dfa_name: str = 'dfa'):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], dfa_name: str = 'dfa'):
         self.formula: str = formula
         self.predicate_add_sym_map_lbl = latches_map
+        self.prime_predicate_add_sym_map_lbl = prime_latches_map
+        self.game_latches = game_latches
+        self.prime_game_latches: List[ADD] = prime_game_latches
         self.dfa_name: str = dfa_name
         self.manager: Cudd = manager
         self.dfa, self.num_of_states = self.formula_to_automaton()
+        self.monolithic_valid_q_ps_pq: ADD = self.manager.addZero()
 
         # initialize handles for dfa latches, prime latches and maps
         self.qVars: List[ADD] = []
@@ -43,6 +47,7 @@ class SymbolicPartitionedDFA():
         # initialize str and sym map
         self.qVar_map = bidict({})
         self.qVar_map_sym = bidict({})
+        self.prime_qVar_map_sym = bidict({})
         self.init_latch: ADD = self.manager.addZero()
         self.goal_latch: ADD = self.manager.addZero()        
 
@@ -80,6 +85,7 @@ class SymbolicPartitionedDFA():
         """
         varsize = self.manager.size()
         self.prime_qVars: List[ADD] = [self.manager.addVar(k + varsize, 'pq' + str(k)) for k in range(len(self.qVars))]
+        self.prime_qVar_map_sym = bidict({k: self.cube_to_add(v, self.prime_qVars) for k, v in self.qVar_map.items()})
     
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         """
@@ -113,8 +119,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, prime_latches_map=prime_latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
         self.valid_dfa_edge_formula_size: int = len(self.dfa.get_symbols())
 
 
@@ -211,6 +217,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
                 warnings.warn(f"Error while parsing the LTL Formula. Could not parse edge {edge}")
                 sys.exit(-1)
             
+            self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
+            
             # now we add the transition dfa's transition relation
             for sidx, s in enumerate(dfa_state_prime_str):
                 if s == '1':
@@ -227,8 +235,8 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, prime_latches_map=prime_latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
 
 
     def formula_to_automaton(self): 
@@ -310,6 +318,8 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 if orig_state:
                     dfa_state_cube: ADD = self.qVar_map_sym[orig_state] 
                     dfa_state_prime_str: str = self.qVar_map[dest_state]
+
+                    self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[dest_state]
 
                     # now we add the transition dfa's transition relation
                     for sidx, s in enumerate(dfa_state_prime_str):

@@ -56,12 +56,18 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
         super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, enable_reordering=False)
+        self.monolithic_valid_dfa_state_symbol_trn: ADD = self.manager.addZero()
 
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
         # call it 2nd time here to ovveride the base method - is this the best way?
         self.goal_latch: ADD = self.set_goal_latch()
+
+        # now we create the TR for the dfa
+        self.dfa_handle.game_latches = self.latches
+        self.dfa_handle.prime_game_latches = self.prime_latches
+        self.dfa_handle.create_dfa_transition_relation()
 
         # by default variable reordering is disabled for DFA games - to check for computation time without this optimization
         # however, switching variable ordering make the code faster for sure.
@@ -88,7 +94,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # create DFA latches next
         self.create_dfa_latches_and_maps()
 
-    def create_all_prime_boolean_state_vars(self):
+    def create_all_prime_boolean_state_vars_and_maps(self):
         """
          The main method that creates all primed version of the boolean variables for the FrankaDynamic Turn-Based Game.
           1. prime turn variables - tVars
@@ -100,6 +106,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.prime_tVar: List[ADD] = [self.manager.addVar(offset, "pt0")]
         self.prime_kVars: List[ADD] = self.create_prime_ratio_vars()
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
+        self.create_all_sym_maps(prime=True)
         
         # create prime DFA latches next
         self.dfa_handle.create_prime_latches()
@@ -114,17 +121,21 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         if self.ltlf_flag:
             dfa_handle = SymbolicPartitionedDFAFromMona(formula=self.formula,
                                                         manager=self.manager,
-                                                        latches_map=self.xVar_map_sym)
+                                                        latches_map=self.xVar_map_sym,
+                                                        prime_latches_map=self.prime_xVar_map_sym,
+                                                        game_latches=None,
+                                                        prime_game_latches=None)
         else:
             dfa_handle = SymbolicPartitionedDFAFromSpot(formula=self.formula,
                                                         manager=self.manager,
-                                                        latches_map=self.xVar_map_sym)
+                                                        latches_map=self.xVar_map_sym,
+                                                        prime_latches_map=self.prime_xVar_map_sym,
+                                                        game_latches=None,
+                                                        prime_game_latches=None)
         
         self.dfa_handle = dfa_handle
         self.dfa_handle.create_latches_and_map()
 
-        # now we create the TR
-        self.dfa_handle.create_dfa_transition_relation()
         self.qVars = dfa_handle.qVars
         self.dfa_latches: List[ADD] = dfa_handle.qVars
         self.qVar_map = dfa_handle.qVar_map

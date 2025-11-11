@@ -1,6 +1,7 @@
 """
  In this script we write the main for constructing the abstraction for FrankaDyanmic (Game) in Compositional Manner.  
 """
+import sys
 import time
 import math
 
@@ -109,16 +110,16 @@ def Regret_DFA_Game_Main():
 
 def DFA_Game_Main():
     # setting things up
-    boxes = 2
-    locs = 10
+    boxes = 1
+    locs = 2
     ratio = 1
 
     cooperative_game = True
     enable_reordering = False
     ltlf_flag = True
 
-    init = ['ready l2', 'b0 l2', 'b1 l3']
-    # init = ['ready l2', 'b0 l2']
+    # init = ['ready l2', 'b0 l2', 'b1 l3']
+    init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
     goal = []
 
@@ -127,8 +128,8 @@ def DFA_Game_Main():
     # human_locs = [3]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
-    formula = 'F(p01 & p12)'
-    # formula = 'F(p01)'
+    # formula = 'F(p01 & p12)'
+    formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
                                           ratio=ratio, init=init,
@@ -137,14 +138,6 @@ def DFA_Game_Main():
                                           ltlf_flag=ltlf_flag,
                                           enable_reordering=enable_reordering)
     
-    # dfa_game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-    #                                                 ratio=ratio, init=init,
-    #                                                 goal=goal, restricted_human_locs=human_locs)
-    
-    # dfa_game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-    #                                             ratio=ratio, init=init,
-    #                                             goal=goal, restricted_human_locs=human_locs)
-
     # print Game Info
     print("*****************Printing Game Info*****************")
     print('****************xVars Map:****************')
@@ -186,6 +179,7 @@ def DFA_Game_Main():
     dfa_game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
+    sys.exit(-1)
 
     # dfa_game.test_pre_image()
 
@@ -201,15 +195,15 @@ def DFA_Game_Main():
 
 def Game_Main():
     # setting things up
-    boxes = 1
-    locs = 2
-    ratio = 1
+    boxes = 2
+    locs = 3
+    ratio = 2
 
     cooperative_game = True
     enable_reordering = False
 
-    # init = ['ready l2', 'b0 l2', 'b1 l3']
-    init = ['ready l2', 'b0 l2']
+    init = ['ready l2', 'b0 l2', 'b1 l3']
+    # init = ['ready l2', 'b0 l2']
     goal = [['b0 l1']]
 
     human_locs = range(1, locs + 1)
@@ -217,14 +211,14 @@ def Game_Main():
     # human_locs = [3]
 
     
-    # game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-    #                                                 ratio=ratio, init=init,
-    #                                                 goal=goal, restricted_human_locs=human_locs)
+    game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+                                                    ratio=ratio, init=init,
+                                                    goal=goal, restricted_human_locs=human_locs)
     
-    game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-                                            ratio=ratio, init=init,
-                                            goal=goal, enable_reordering=enable_reordering,
-                                            restricted_human_locs=human_locs)
+    # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+    #                                         ratio=ratio, init=init,
+    #                                         goal=goal, enable_reordering=enable_reordering,
+    #                                         restricted_human_locs=human_locs)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -262,6 +256,7 @@ def Game_Main():
     game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
+    sys.exit(-1)
 
     # dfa_game.test_pre_image()
 
@@ -277,10 +272,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    Game_Main()
+    # Game_Main()
     
     # dfa game synthesis main function call
-    # DFA_Game_Main()
+    DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
     # Regret_DFA_Game_Main()
