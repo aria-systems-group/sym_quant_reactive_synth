@@ -596,25 +596,11 @@ class FrankaWorldDynamicRatioTurnBased():
             #   self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions & \
             #   self.monolithic_relevant_box_preds.swapVariables(self.latches, self.prime_latches) & self.monolithic_valid_state_robot_actions.swapVariables(self.latches, self.prime_latches)
         
-        # all in-transit
-        all_transit_cube = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'in-transit l{loc} b{b}'] for loc in range(1, self.locs + 2) for b in range(self.boxes)])
-
-        # all in-transfer
-        all_transfer_cube = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'] for from_loc in range(1, self.locs + 1) for to_loc in range(1, self.locs + 1) if from_loc != to_loc])
-
-        # self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(~(all_transit_cube | all_transfer_cube), self.manager.addZero())
-        # self.monolithic_valid_state_robot_actions_prime_state &= (self.tVar_map_sym['robot']).swapVariables(self.latches, self.prime_latches).ite((~(all_transit_cube | all_transfer_cube)).swapVariables(self.latches, self.prime_latches), self.manager.addZero())
-
         constraint_cube = self.manager.addZero() 
         for kVal in self.kVar_map.keys():
             constraint_cube |= self.kVar_map_sym[kVal].ite(self.prime_kVar_map_sym[kVal], self.manager.addZero())
         
         self.monolithic_valid_state_robot_actions_prime_state &= constraint_cube
-
-        # assert that under transit the game evolves to human state where in-transit must be true
-        # for b in range(self.boxes):
-        #     robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
-        #     self.monolithic_valid_state_robot_actions_prime_state &= 
 
 
     def add_turn_var_update_rule(self):
@@ -661,7 +647,8 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # add robot frame axioms
         self.add_robot_frame_axioms()
-        self.add_robot_s_sprime_frame_axioms()
+        if self.boxes > 1:
+            self.add_robot_s_sprime_frame_axioms()
 
         # keep only the relvant states and actions
         self.postprocess_monolithic_valid_state_robot_actions_prime_state()
@@ -813,7 +800,7 @@ class FrankaWorldDynamicRatioTurnBased():
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                     
                     # create s a_s s' transitions
-                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit l{from_loc} b{b}"]
+                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit l{from_loc} b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
                     self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
 
 
@@ -1127,7 +1114,6 @@ class FrankaWorldDynamicRatioTurnBased():
             elif rAct.startswith('transfer'):
                 transfer_cube |= rAct_cube
 
-        # same code as above but implemented differently for succinctness
         parent_constraint = self.manager.addZero()
         for i in range(0, 2):
             transit_constraint = self.manager.addOne()
@@ -1142,8 +1128,73 @@ class FrankaWorldDynamicRatioTurnBased():
 
                 transit_constraint &= transit_constraint_b
             
-        print("Added Transit constraint to robot frame axioms.")
+            parent_constraint |= transit_constraint & transit_cube if i == 0 else transit_constraint & transfer_cube 
         
+        # the above constraint cube is missing box at l0. we add that now.
+        print("Added Transit constraint to robot frame axioms.")
+
+        # next we add the grasp constraint
+        parent_ready_grasp_constraint = self.manager.addOne()
+        parent_ready_grasp_constraint = self.manager.addZero()
+        # box the robot is about grasp, we update it location to l0 in the next state
+        for to_b in range(self.boxes):
+            ready_grasp_constraint_b = self.manager.addZero()
+            for grasp_loc in range(1, self.locs + 1):
+                rConf_cube_ready = self.xVar_map_sym[f'ready l{grasp_loc}']
+                
+                for other_b in range(self.boxes):
+                    if to_b == other_b:
+                        continue
+                    for non_grasp_loc in range(1, self.locs + 1):
+                        if grasp_loc == non_grasp_loc:
+                            continue
+                        ready_grasp_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube_ready &  self.rAction_map_sym['grasp'] & \
+                            self.xVar_map_sym[f'b{to_b} l{grasp_loc}'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{to_b} l0'], self.manager.addZero()) 
+
+            parent_ready_grasp_constraint |= ready_grasp_constraint_b
+        
+        parent_to_obj_grasp_constraint = self.manager.addZero()
+        for to_b in range(self.boxes):
+            to_obj_grasp_constraint_b = self.manager.addZero()
+            rConf_cube = self.xVar_map_sym[f'to-obj b{to_b}']
+            for other_b in range(self.boxes):
+                if to_b == other_b:
+                    continue
+                for grasp_loc in range(1, self.locs + 1):
+                    for non_grasp_loc in range(1, self.locs + 1):
+                        if grasp_loc == non_grasp_loc:
+                            continue
+                        to_obj_grasp_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['grasp'] & \
+                                self.xVar_map_sym[f'b{to_b} l{grasp_loc}'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{to_b} l0'], self.manager.addZero()) 
+
+            parent_to_obj_grasp_constraint |= to_obj_grasp_constraint_b
+        
+
+        # take the union of both the constraints
+        grasp_constraint_cube = parent_ready_grasp_constraint | parent_to_obj_grasp_constraint
+        # self.monolithic_valid_state_robot_actions_prime_state &= grasp_constraint_cube
+        print("Added Grasp constraint to robot frame axioms.")
+
+        # finally we add the release constraint
+        parent_holding_release_constraint = self.manager.addZero()
+        for holding_b in range(self.boxes):
+            holding_release_constraint_b = self.manager.addZero()
+            for other_b in range(self.boxes):
+                if to_b == other_b:
+                    continue
+                for grasp_loc in range(1, self.locs + 1):
+                    rConf_cube = self.xVar_map_sym[f'holding l{grasp_loc}']
+                    for non_grasp_loc in range(1, self.locs + 1):
+                        if grasp_loc == non_grasp_loc:
+                            continue
+                        holding_release_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['release'] & \
+                                self.xVar_map_sym[f'b{holding_b} l0'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{holding_b} l{grasp_loc}'], self.manager.addZero())
+            
+            parent_holding_release_constraint |= holding_release_constraint_b
+        
+        self.monolithic_valid_state_robot_actions_prime_state &= (parent_holding_release_constraint | grasp_constraint_cube | parent_constraint)
+        print("Added Release constraint to robot frame axioms.")
+
 
 
     def add_robot_frame_axioms(self):
@@ -1157,11 +1208,10 @@ class FrankaWorldDynamicRatioTurnBased():
         grasp_action_cube = self.rAction_map_sym['grasp']
         release_action_cube = self.rAction_map_sym['release']
         for b in range(self.boxes):
-            # not_grasp_cube = ~(self.xVar_map_sym[f'to-obj b{b}'] & grasp_action_cube)
             for l in range(1, self.locs + 1):
-                not_grasp_cube = ~((self.xVar_map_sym[f'to-obj b{b}'] | self.xVar_map_sym[f'ready l{l}']) & grasp_action_cube)
-                box_pred = f"b{b} l{l}"
                 constraint_cube = self.manager.addOne()
+                box_pred = f"b{b} l{l}"
+                not_grasp_cube = ~((self.xVar_map_sym[f'to-obj b{b}'] | self.xVar_map_sym[f'ready l{l}']) & grasp_action_cube)
                 not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
                 constraint_cube &= not_grasp_cube & not_release_cube \
                     & self.relevant_robot_actions & self.monolithic_relevant_box_preds 
@@ -1171,12 +1221,6 @@ class FrankaWorldDynamicRatioTurnBased():
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= self.tVar_map_sym['robot'] & self.kVal_cube \
                             & constraint_cube & self.xVar_map_sym[box_pred]
                 
-                # create s a_s s' transitions
-                prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[box_pred]
-                self.monolithic_valid_state_robot_actions_prime_state |= self.tVar_map_sym['robot'] & self.kVal_cube \
-                            & constraint_cube & self.xVar_map_sym[box_pred].ite(prime_state_cube, self.manager.addZero())
-                
-
     def add_human_frame_axiom(self):
         """
         This helper method add frame axioms for the human move actions. 
