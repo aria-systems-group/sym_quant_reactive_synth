@@ -1130,69 +1130,41 @@ class FrankaWorldDynamicRatioTurnBased():
             
             parent_constraint |= transit_constraint & transit_cube if i == 0 else transit_constraint & transfer_cube 
         
-        # the above constraint cube is missing box at l0. we add that now.
         print("Added Transit constraint to robot frame axioms.")
-
-        # next we add the grasp constraint
-        parent_ready_grasp_constraint = self.manager.addOne()
-        parent_ready_grasp_constraint = self.manager.addZero()
-        # box the robot is about grasp, we update it location to l0 in the next state
-        for to_b in range(self.boxes):
-            ready_grasp_constraint_b = self.manager.addZero()
+        
+        for b in range(self.boxes):
             for grasp_loc in range(1, self.locs + 1):
-                rConf_cube_ready = self.xVar_map_sym[f'ready l{grasp_loc}']
+                rConf_cube = self.xVar_map_sym[f'ready l{grasp_loc}']
                 
-                for other_b in range(self.boxes):
-                    if to_b == other_b:
+                for non_grasp_loc in range(1, self.locs + 1):
+                    if grasp_loc == non_grasp_loc:
                         continue
-                    for non_grasp_loc in range(1, self.locs + 1):
-                        if grasp_loc == non_grasp_loc:
-                            continue
-                        ready_grasp_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube_ready &  self.rAction_map_sym['grasp'] & \
-                            self.xVar_map_sym[f'b{to_b} l{grasp_loc}'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{to_b} l0'], self.manager.addZero()) 
-
-            parent_ready_grasp_constraint |= ready_grasp_constraint_b
+                    parent_constraint |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['grasp'] & \
+                        self.xVar_map_sym[f'b{b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())
+                         
         
-        parent_to_obj_grasp_constraint = self.manager.addZero()
-        for to_b in range(self.boxes):
-            to_obj_grasp_constraint_b = self.manager.addZero()
-            rConf_cube = self.xVar_map_sym[f'to-obj b{to_b}']
+        # parent_to_obj_grasp_constraint = self.manager.addZero()
+        for b in range(self.boxes):
+            rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
             for other_b in range(self.boxes):
-                if to_b == other_b:
+                if b == other_b:
                     continue
-                for grasp_loc in range(1, self.locs + 1):
-                    for non_grasp_loc in range(1, self.locs + 1):
-                        if grasp_loc == non_grasp_loc:
-                            continue
-                        to_obj_grasp_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['grasp'] & \
-                                self.xVar_map_sym[f'b{to_b} l{grasp_loc}'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{to_b} l0'], self.manager.addZero()) 
-
-            parent_to_obj_grasp_constraint |= to_obj_grasp_constraint_b
-        
-
-        # take the union of both the constraints
-        grasp_constraint_cube = parent_ready_grasp_constraint | parent_to_obj_grasp_constraint
-        # self.monolithic_valid_state_robot_actions_prime_state &= grasp_constraint_cube
+                for loc in range(1, self.locs + 1):                
+                    parent_constraint |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['grasp'] & \
+                        self.xVar_map_sym[f'b{other_b} l{loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{loc}'], self.manager.addZero()) 
         print("Added Grasp constraint to robot frame axioms.")
 
         # finally we add the release constraint
-        parent_holding_release_constraint = self.manager.addZero()
-        for holding_b in range(self.boxes):
-            holding_release_constraint_b = self.manager.addZero()
-            for other_b in range(self.boxes):
-                if to_b == other_b:
+        for grasp_loc in range(1, self.locs + 1):
+            rConf_cube = self.xVar_map_sym[f'holding l{grasp_loc}']
+            for non_grasp_loc in range(1, self.locs + 1):
+                if grasp_loc == non_grasp_loc:
                     continue
-                for grasp_loc in range(1, self.locs + 1):
-                    rConf_cube = self.xVar_map_sym[f'holding l{grasp_loc}']
-                    for non_grasp_loc in range(1, self.locs + 1):
-                        if grasp_loc == non_grasp_loc:
-                            continue
-                        holding_release_constraint_b |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['release'] & \
-                                self.xVar_map_sym[f'b{holding_b} l0'] & self.xVar_map_sym[f'b{other_b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{other_b} l{non_grasp_loc}'] & self.prime_xVar_map_sym[f'b{holding_b} l{grasp_loc}'], self.manager.addZero())
-            
-            parent_holding_release_constraint |= holding_release_constraint_b
+                for b in range(self.boxes):
+                    parent_constraint |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.rAction_map_sym['release'] & \
+                            self.xVar_map_sym[f'b{b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())
         
-        self.monolithic_valid_state_robot_actions_prime_state &= (parent_holding_release_constraint | grasp_constraint_cube | parent_constraint)
+        self.monolithic_valid_state_robot_actions_prime_state &= parent_constraint
         print("Added Release constraint to robot frame axioms.")
 
 
@@ -1369,7 +1341,7 @@ class FrankaWorldDynamicRatioTurnBased():
         return states_action_pairs
 
 
-    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
+    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the robot action as well, set robot_action to True. 
@@ -1383,14 +1355,11 @@ class FrankaWorldDynamicRatioTurnBased():
             relevant_vars.extend(self.prime_latches)
         if robot_action:
             relevant_vars.extend(self.oVars)
-        # if human_action:
-        #     relevant_vars.extend(self.iVars)
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
         # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
         start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
-        # start_ivar_idx, end_ivar_idx = self.manager.addVariables().index(self.iVars[0]), self.manager.addVariables().index(self.iVars[-1])
 
         # create turn abstraction cube
         tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.oVars + self.iVars + self.prime_latches)
@@ -1427,10 +1396,9 @@ class FrankaWorldDynamicRatioTurnBased():
         states_action_pairs = []
         prime_states_action_pairs = []
         
-        for cube, val in cubes:
+        for cube, _ in cubes:
             state = None
             prime_state = None
-            rAction = None
             tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
             rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
             kConf_cube_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
@@ -1448,7 +1416,6 @@ class FrankaWorldDynamicRatioTurnBased():
             
             try:
                 state = ({self.tVar_map.inv[tConf_cube_str]}, {self.kVar_map.inv[kConf_cube_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states})
-                # print(f"({self.tVar_map.inv[tConf_cube_str]}, {self.kVar_map.inv[kConf_cube_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states})")
                 states_action_pairs.append([(self.tVar_map.inv[tConf_cube_str], self.kVar_map.inv[kConf_cube_str], self.pVar_map.inv[rConf_cube_str], box_states), None])
             except KeyError:
                 continue
@@ -1460,16 +1427,6 @@ class FrankaWorldDynamicRatioTurnBased():
                     rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
                 except KeyError:
                     continue
-            # if human_action:
-            #     iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
-            #     try:
-            #         eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
-            #     except KeyError:
-            #         continue
-            if robot_action:    
-                # action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
-                rAction = rAction_str
-                # print(f"    -- Action: ({rAction_str})")
             
             prime_bCube_str = []
             for e in prime_bConf_exist_cube.values():
@@ -1481,14 +1438,13 @@ class FrankaWorldDynamicRatioTurnBased():
                 continue
             
             try:
-                # print(f"({self.tVar_map.inv[prime_tConf_cube_str]}, {self.kVar_map.inv[prime_kConf_cube_str]}, {self.pVar_map.inv[prime_rConf_cube_str]}, {prime_box_states})")
                 prime_states_action_pairs.append([(self.tVar_map.inv[prime_tConf_cube_str], self.kVar_map.inv[prime_kConf_cube_str], self.pVar_map.inv[prime_rConf_cube_str], prime_box_states), None])
                 prime_state = ({self.tVar_map.inv[prime_tConf_cube_str]}, {self.kVar_map.inv[prime_kConf_cube_str]}, {self.pVar_map.inv[prime_rConf_cube_str]}, {prime_box_states})
             except KeyError:
                 continue
 
             # if you made it till here then print stuff
-            print(state, f'--({rAction})-->', prime_state, sep="      ")
+            print(state, f'--({rAction_str})-->', prime_state, sep="      ")
         
         return states_action_pairs, prime_states_action_pairs
 
