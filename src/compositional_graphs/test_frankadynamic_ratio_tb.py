@@ -1119,9 +1119,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
          It is different from add_robot_frame_axioms() method that adds frame axioms using the negation operator which causes isuess for ADD.
         """
-        # transit_loc_range = range(1, self.locs + 1) # when you are transit a box can be at 1 to l
-        # transfer_loc_range = range(0, self.locs + 1) # when you are transfer a box can be at 0 to l
-        # ranges = [transit_loc_range, transfer_loc_range]
         transit_cube = self.manager.addZero()
         transfer_cube = self.manager.addZero()
         for rAct, rAct_cube in self.rAction_map_sym.items():
@@ -1129,27 +1126,6 @@ class FrankaWorldDynamicRatioTurnBased():
                 transit_cube |= rAct_cube
             elif rAct.startswith('transfer'):
                 transfer_cube |= rAct_cube
-        
-        # for i in [0, 1]:
-        #     transit_constraint = self.manager.addOne()
-        #     for b in range(self.boxes):
-        #         transit_constraint_b = self.manager.addZero()
-                
-        #         # for b in range(self.boxes):
-        #         for l in ranges[i]:                    
-        #             # for l in range(1, self.locs + 1):
-        #             curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l{l}']
-        #             transit_constraint_b |= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l{l}'], self.manager.addZero())
-        #         transit_constraint &= transit_constraint_b 
-
-        #     if i == 0:
-        #         test1 = transit_constraint & transit_cube
-        #         # self.monolithic_valid_state_robot_actions_prime_state &= transit_constraint & transit_cube
-        #     elif i == 1:
-        #         test2 = transfer_cube & transit_constraint
-        #         # self.monolithic_valid_state_robot_actions_prime_state &= transit_constraint & transfer_cube
-        # # test3 = test1 | test2
-        # self.monolithic_valid_state_robot_actions_prime_state &= test1 | test2
 
         # same code as above but implemented differently for succinctness
         parent_constraint = self.manager.addZero()
@@ -1166,15 +1142,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
                 transit_constraint &= transit_constraint_b
             
-            parent_constraint |= transit_constraint & transit_cube if i == 0 else transit_constraint & transfer_cube 
-        # transfer_constraint = self.manager.addOne()
-        # for b in range(self.boxes):
-        #     # transit_constraint_b = self.manager.addZero()
-        #     curr_state_cube: ADD = self.tVar_map_sym['robot'] & self.kVal_cube & self.xVar_map_sym[f'b{b} l0']
-        #     transfer_constraint &= curr_state_cube.ite(self.prime_xVar_map_sym[f'b{b} l0'], self.manager.addZero())
-        
-        # parent_constraint |= transfer_constraint & transfer_cube
-        # the above constraint cube is missing box at l0. we add that now.
         print("Added Transit constraint to robot frame axioms.")
         
 
