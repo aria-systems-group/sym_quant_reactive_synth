@@ -16,9 +16,9 @@ from functools import reduce
 from itertools import product
 from collections import defaultdict
 
-
 from bidict import bidict
-# from .symbolic_partitioned_dfa import SymbolicPartitionedDFA
+from tabulate import tabulate
+
 from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 
@@ -664,7 +664,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
         
         # print s a_s s' transition function that we created for sanity checking
-        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
+        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True, verbose=True)
         # self.count_actions_per_state()
         
 
@@ -1359,7 +1359,7 @@ class FrankaWorldDynamicRatioTurnBased():
         return states_action_pairs
 
 
-    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
+    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, verbose: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the robot action as well, set robot_action to True. 
@@ -1406,6 +1406,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # print the states
         states_action_pairs = []
         prime_states_action_pairs = []
+        state_action_prime_pairs = []
         
         for cube, _ in cubes:
             state = None
@@ -1455,8 +1456,11 @@ class FrankaWorldDynamicRatioTurnBased():
                 continue
 
             # if you made it till here then print stuff
-            print(state, f'--({rAction_str})-->', prime_state, sep="      ")
+            # print(state, f'--({rAction_str})-->', prime_state, sep="      ")
+            state_action_prime_pairs.append((state, rAction_str, prime_state))
         
+        if verbose:
+            print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state']))
         return states_action_pairs, prime_states_action_pairs
 
 

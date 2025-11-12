@@ -30,10 +30,9 @@ class SymbolicPartitionedDFA():
       in partitioned form.
     """
 
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], dfa_name: str = 'dfa'):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], dfa_name: str = 'dfa'):
         self.formula: str = formula
         self.predicate_add_sym_map_lbl = latches_map
-        self.prime_predicate_add_sym_map_lbl = prime_latches_map
         self.game_latches = game_latches
         self.prime_game_latches: List[ADD] = prime_game_latches
         self.dfa_name: str = dfa_name
@@ -121,8 +120,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, prime_latches_map=prime_latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
         self.valid_dfa_edge_formula_size: int = len(self.dfa.get_symbols())
 
 
@@ -237,8 +236,8 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, prime_latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, prime_latches_map=prime_latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
 
 
     def formula_to_automaton(self): 

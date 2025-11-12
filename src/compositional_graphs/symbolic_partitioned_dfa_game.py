@@ -11,8 +11,8 @@ import math
 from functools import reduce
 from typing import List, Union, Tuple
 
-from tabulate import tabulate
 from bidict import bidict
+from tabulate import tabulate
 
 from cudd import Cudd, ADD, BDD
 
@@ -121,14 +121,12 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             dfa_handle = SymbolicPartitionedDFAFromMona(formula=self.formula,
                                                         manager=self.manager,
                                                         latches_map=self.xVar_map_sym,
-                                                        prime_latches_map=self.prime_xVar_map_sym,
                                                         game_latches=None,
                                                         prime_game_latches=None)
         else:
             dfa_handle = SymbolicPartitionedDFAFromSpot(formula=self.formula,
                                                         manager=self.manager,
                                                         latches_map=self.xVar_map_sym,
-                                                        prime_latches_map=self.prime_xVar_map_sym,
                                                         game_latches=None,
                                                         prime_game_latches=None)
         
@@ -164,7 +162,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         print("Done creating product transition relation")
 
         # print state for sanity checking
-        self.convert_full_cube_to_state_ADD(test, robot_action=True)
+        self.convert_full_cube_to_state_ADD(test, robot_action=True, verbose=True)
 
 
 
