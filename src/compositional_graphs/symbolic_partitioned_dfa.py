@@ -39,6 +39,8 @@ class SymbolicPartitionedDFA():
         self.dfa_name: str = dfa_name
         self.manager: Cudd = manager
         self.dfa, self.num_of_states = self.formula_to_automaton()
+        # create valid transitions of DFA 
+        # curr dfa state (q) --- prime game state (ps) ---> to next dfa state (pq)
         self.monolithic_valid_q_ps_pq: ADD = self.manager.addZero()
 
         # initialize handles for dfa latches, prime latches and maps

@@ -494,7 +494,6 @@ class FrankaWorldDynamicRatioTurnBased():
         for box_str, box_add in self.bVar_map_sym.items():
             box_id = int(box_str.split(' ')[0][-1])
             assert isinstance(box_id, int) and box_id in range(self.boxes), "Error in extracting box id. Fix this!!!"
-            # if f'b{b}' in act_str:
             self.relevant_box_preds_sym[box_id] |= box_add
     
 
@@ -665,7 +664,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
         
         # print s a_s s' transition function that we created for sanity checking
-        self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
+        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_robot_actions_prime_state, robot_action=True)
         # self.count_actions_per_state()
         
 
@@ -1183,7 +1182,7 @@ class FrankaWorldDynamicRatioTurnBased():
         test = add_state_action_prime_state.existAbstract(robot_action_cube)
 
         # print it
-        self.convert_cube_to_state_ADD(test, state_flag=True)
+        # self.convert_cube_to_state_ADD(test, state_flag=True)
 
 
 
@@ -1368,7 +1367,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
          Here the input dd is assumed to be a fully defined cube (latches as well prime latches).
         """
-        relevant_vars = [] #+ self.tVar + self.kVars + self.prime_tVar + self.prime_kVars
+        relevant_vars = []
         if state_flag:
             relevant_vars.extend(self.latches)
             relevant_vars.extend(self.prime_latches)
@@ -1377,7 +1376,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
-        # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
         start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
 
         # create turn abstraction cube
@@ -1387,15 +1385,9 @@ class FrankaWorldDynamicRatioTurnBased():
         # create existential abstraction cubes
         rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + self.prime_latches)
 
-
-        # create prime turn abstraction cube - can I just swap them? Yes, I can.
+        # create prime turn abstraction cube
         prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.oVars + self.iVars + self.latches)
         prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.oVars + self.iVars + self.latches)
-
-        test = tConf_exist_cube.swapVariables(self.latches, self.prime_latches)
-        assert test == prime_tConf_exist_cube, "Error in swapping tConf_exist_cube variables to get prime_tConf_exist_cube"
-        test = kConf_exist_cube.swapVariables(self.latches, self.prime_latches)
-        assert test == prime_kConf_exist_cube, "Error in swapping kConf_exist_cube variables to get prime_kConf_exist_cube"
         
         # create existential abstraction cubes
         prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + self.latches)
