@@ -17,18 +17,18 @@ from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import Symbol
 
 def Regret_DFA_Game_Main():
     # setting things up
-    boxes = 4
-    locs = 5
+    boxes = 1
+    locs = 2
     ratio = 1
-    budget = 10
+    budget = 4
 
     cooperative_game = True
     enable_reordering = True
     ltlf_flag = True
 
-    init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     # init = ['ready l2', 'b0 l2', 'b1 l3']
-    # init = ['ready l2', 'b0 l2']
+    init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
     goal = []
 
@@ -37,8 +37,8 @@ def Regret_DFA_Game_Main():
     # human_locs = [3]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
-    formula = 'F(p01 & p12)'
-    # formula = 'F(p01)'
+    # formula = 'F(p01 & p12)'
+    formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedRegretDFAGame(boxes=boxes, locs=locs,
                                                 ratio=ratio, init=init,
@@ -97,7 +97,6 @@ def Regret_DFA_Game_Main():
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
     dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
-    sys.exit(-1)
 
     # dfa_game.test_pre_image()
 
@@ -106,8 +105,16 @@ def Regret_DFA_Game_Main():
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
-    if strategy is not None:
-        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+    # compute best-alternate response
+    dfa_game.compute_best_alternate_response()
+    # print stuff for debugging
+    for ract in dfa_game.rAction_map.keys():
+        print(f"************* Best Alternatives for {ract} *************")
+        dfa_game.convert_full_cube_to_state_ADD(dd=dfa_game.ba_per_ract[ract], robot_action=True, verbose=True)
+    sys.exit(-1)
+
+    # if strategy is not None:
+    #     dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
 
 
 def DFA_Game_Main():
@@ -279,7 +286,7 @@ if __name__ == "__main__":
     # Game_Main()
     
     # dfa game synthesis main function call
-    DFA_Game_Main()
+    # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    # Regret_DFA_Game_Main()
+    Regret_DFA_Game_Main()

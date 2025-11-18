@@ -45,6 +45,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # store s a_s s' transition relation for graph of utility
         self.monolithic_valid_full_gou_trns: ADD = self.manager.addZero()
 
+        # book keeping
+        self.gou_game_latches = self.latches + self.qVars + self.uVars
+        self.gou_game_prime_latches = self.prime_latches + self.prime_qVars + self.prime_uVars
+
 
     # override the create lacthes method to include Graph of utility latches
     def create_all_boolean_state_vars_and_maps(self):
@@ -174,16 +178,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 transition_cube = uConf_cube & self.states_per_cost[state_cost]
                 
                 prime_u_val = u + state_cost if (u + state_cost) <= self.budget else self.budget + 1 
-                # if u + state_cost <= self.budget:
                 uConf_prime_cube_str = self.uVar_map[f'u{prime_u_val}']
                 for sidx, s in enumerate(uConf_prime_cube_str):
                     if s == '1':
                         self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |= transition_cube
-                # else:
-                    # uConf_prime_cube_str = self.uVar_map[f'u{self.budget + 1}']
-                    # for sidx, s in enumerate(uConf_prime_cube_str):
-                    #     if s == '1':
-                    #         self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |= transition_cube
                 
                 # create s a_s s' monolithic ADD which we will use later for alternate best-response computation
                 self.monolithic_valid_full_gou_trns |= transition_cube & self.monolithic_valid_full_dfa_game_trns & \
@@ -289,8 +287,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
          Here the input dd is assumed to be a fully defined cube (latches as well prime latches).
         """
-        gou_game_latches = self.latches + self.qVars + self.uVars
-        gou_game_prime_latches = self.prime_latches + self.prime_qVars + self.prime_uVars
         relevant_vars = [] + self.uVars + self.prime_uVars
         if state_flag:
             relevant_vars.extend(self.latches) # includes tVars, kVars, pVars and bVars
@@ -306,32 +302,32 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
 
         # create abstraction cubes
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.oVars + self.iVars + gou_game_prime_latches)
-        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.oVars + self.iVars + gou_game_prime_latches)
-        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.oVars + self.iVars + gou_game_prime_latches)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.oVars + self.iVars + gou_game_prime_latches)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.oVars + self.iVars + self.gou_game_prime_latches)
         # create existential abstraction cubes - rConf
-        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + gou_game_prime_latches) 
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + self.gou_game_prime_latches) 
 
         # create prime abstraction cubes
-        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + gou_game_latches)
-        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + gou_game_latches)
-        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.oVars + self.iVars + gou_game_latches)
-        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.oVars + self.iVars + gou_game_latches)
+        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
+        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
+        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
+        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.oVars + self.iVars + self.gou_game_latches)
 
         # create PRIME existential abstraction cube - rConf 
-        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + gou_game_latches)
+        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + self.gou_game_latches)
 
         # because ADD is not iterable and cannot be added to a list directly
         bConf_exist_cube = dict({})
         prime_bConf_exist_cube = dict({})
         for bidx in range(self.boxes):
             if self.boxes == 1:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + gou_game_prime_latches)
-                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + gou_game_latches)
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
             else:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + gou_game_prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
-                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + gou_game_latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
         
         # print the states
         states_action_pairs = [] 
@@ -402,10 +398,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             
             # if you made it till here then print stuff or store them
             # print(state, f'--({rAction_str})-->', prime_state, sep="      ")
-            state_action_prime_pairs.append((state, rAction_str, prime_state))
+            state_action_prime_pairs.append((state, rAction_str, prime_state, val))
         
         if verbose:
-            print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state']))
+            print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state', 'value']))
             
         return states_action_pairs
 
@@ -495,6 +491,94 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # print Sys transitions for sanity checking
         # self.convert_full_cube_to_state_ADD(dd=self.monolithic_valid_full_gou_trns, robot_action=True, verbose=True)
+    
+
+    def count_actions_per_state_gou(self) -> ADD:
+        """
+         A function that counts the numbe of actions per state in grapg of utility.
+        """
+        prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
+        robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
+        # convert to BDD and then exist abstract
+        state_action_prime_state: BDD = self.monolithic_valid_full_gou_trns.bddPattern()
+        state_action_prime_state = state_action_prime_state.existAbstract(prime_vars_exist_cube.bddPattern())
+
+        # convert to 0 - 1 ADD and exist abstract rAct cubes to get ADD(s)->|s'| 
+        state_ract_count: ADD = state_action_prime_state.toADD().existAbstract(robot_action_cube)
+        return state_ract_count
+
+
+        
+
+    
+    def compute_best_alternate_response(self):
+        """
+         A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
+            Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
+            Mathermatically, given cVal (cooperative value) for every state s in G, we have
+
+            ba(s, s') = +inf if s is Env player states
+            ba(s, s') = min (s, s'') {cVal(s'')} if s is Sys plaeyr states
+
+            min(s, s'') = +inf if no s'' exists, i.e., there does not exist an alternate edge.
+        
+        Note: we note that our Transition function is deterministic, i.e., given (si, ai) where i \in {Env, Sys}, 
+        Tr(si, ai) -> sj' where j =\= i and s' is the next state such that |sj| = 1.
+
+        Hence, the tuple (s, s') can be replaced with (s, as) which will be useful when constructing the TR for GoBR later.
+        
+        Method: Output ADD(s, as)-br where br is the best-response.
+        """
+        gou_state_act_count: ADD = self.count_actions_per_state_gou()
+        
+        # post-process gou_state_act_count so that all accepting state in GoU map to cardinality 1.
+        dfa_goal = self.dfa_handle.goal_latch.ite(self.manager.addOne(), self.manager.plusInfinity())
+        gou_state_act_count = gou_state_act_count.min(dfa_goal)
+        
+        # get states with cardinality 1
+        states_ract_w_cardinality_1 = (gou_state_act_count.bddInterval(1, 1).toADD()).ite(self.manager.plusInfinity(), self.manager.addOne())
+        # get rid of ivalid game state tuples
+        states_ract_w_cardinality_1 &= (gou_state_act_count.bddPattern().toADD()).ite(self.manager.addOne(), self.manager.plusInfinity())
+
+        # convert cVal to prime
+        prime_cVal = self.comp_winning_states.swapVariables(self.gou_game_latches, self.gou_game_prime_latches)
+
+        # AND with ADD(s, as, s')-1 that represents valid full TR to get ADD(s, as, s')-cVal(s') (leaf values is cVal(s'))
+        full_state_prime_state_tr: ADD = prime_cVal & self.monolithic_valid_full_gou_trns
+        
+        bdd_monolithic_valid_full_gou_trns: BDD = self.monolithic_valid_full_gou_trns.bddPattern()
+
+        # precompute the set of state-robot action pairs (s, as)-> +inf. Used in find the min vaulue later
+        prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
+        state_action_pair: BDD = bdd_monolithic_valid_full_gou_trns.existAbstract(prime_vars_exist_cube.bddPattern())
+
+        # get max cVal; max cVal will be equal to budget value
+        # max_cVal: int = self.budget
+
+        # convert this to ADD where the valid (s, as) map to inf
+        add_state_action_pair: ADD = (state_action_pair.toADD()).ite(self.manager.addConst(self.budget), self.manager.plusInfinity())
+
+        # now compute the best alternate response
+        self.ba_per_ract = defaultdict(lambda: self.manager.plusInfinity())
+        for ract, ract_sym in self.rAction_map_sym.items():
+            print(f"Computing BR for Robot Act: {ract}")
+            # states where ract is a valid action
+            state_w_ract = full_state_prime_state_tr & ract_sym
+            
+            # alternate_ract_cube: ADD = self.relevant_robot_actions & ~ract_sym
+            # set of as' for a give as (ract)
+            alternate_ract_cube: ADD = (self.relevant_robot_actions & ~ract_sym).ite(self.manager.addOne(), self.manager.plusInfinity())
+            # get set of all alternate transition (s, as', s') where as' =\= as 
+            alternate_state_trns: ADD = alternate_ract_cube & state_w_ract
+            alternate_state_action_pair = alternate_ract_cube & add_state_action_pair 
+
+            # find the min amongst all (s, as') and store it
+            inter_add_state_action_pair = alternate_state_action_pair.min(alternate_state_trns)
+            
+            # state with cardinality of 1 need to mapped to infinity
+            self.ba_per_ract[ract] = inter_add_state_action_pair & states_ract_w_cardinality_1
+
+
     
     def test_pre_image(self):
         # extende the DFA game latches

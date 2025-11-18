@@ -1186,7 +1186,6 @@ class FrankaWorldDynamicRatioTurnBased():
          A function that counts the numbe of actions per state
         """
         prime_vars_exist_cube = reduce(lambda a, b: a & b, self.prime_latches)
-        # robot_action_cube = reduce(lambda a, b: a | b, self.robot_action_cube_list)
         robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
         # convert to BDD and then exist abstract
         state_action_prime_state: BDD = self.monolithic_valid_state_robot_actions_prime_state.bddPattern()
