@@ -96,6 +96,8 @@ def Regret_DFA_Game_Main():
     dfa_game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
+    dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
+    sys.exit(-1)
 
     # dfa_game.test_pre_image()
 
@@ -179,6 +181,7 @@ def DFA_Game_Main():
     dfa_game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
+    dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_dfa_game_trns)
     sys.exit(-1)
 
     # dfa_game.test_pre_image()
@@ -256,6 +259,7 @@ def Game_Main():
     game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
+    game.assert_one_s_prime_s_relation(dd_full_trans_rel=game.monolithic_valid_state_robot_actions_prime_state)
     sys.exit(-1)
 
     # dfa_game.test_pre_image()
