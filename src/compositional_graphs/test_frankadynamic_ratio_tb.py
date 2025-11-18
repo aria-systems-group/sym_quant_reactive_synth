@@ -1162,6 +1162,24 @@ class FrankaWorldDynamicRatioTurnBased():
         self.monolithic_valid_state_robot_actions_prime_state &= parent_constraint
         print("Added Release constraint to robot frame axioms.")
     
+    def assert_one_s_prime_s_relation(self, dd_full_trans_rel: ADD):
+        """
+        Given the monolithic ADD(s-as-s') where,
+         s : is the current state
+         as : is a valid robot action from s
+         s': is the next state
+        this helper function asserts that |s-s'| = 1, i.e., there exactly one robot action for every s-s' transition function.
+        """
+        robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
+        state_action_prime_state: BDD = dd_full_trans_rel.bddPattern()                                                         
+        state_action_prime_state: BDD = state_action_prime_state.existAbstract(robot_action_cube.bddPattern())
+
+        # convert to 0 - 1 ADD 
+        add_state_action_prime_state  = state_action_prime_state.toADD()
+        max_cardinality: ADD = add_state_action_prime_state.findMax()
+        assert max_cardinality == self.manager.addOne(), "Error: Issue Constructing monolithic ADD(s-as-s'). There is non-determinism in robot action transitin in the game."
+        print("Verified: ADD(s-as-s') is correct")
+    
 
     def count_actions_per_state(self):
         """
@@ -1174,7 +1192,7 @@ class FrankaWorldDynamicRatioTurnBased():
         state_action_prime_state: BDD = self.monolithic_valid_state_robot_actions_prime_state.bddPattern()
         state_action_prime_state = state_action_prime_state.existAbstract(prime_vars_exist_cube.bddPattern())
 
-        # convert to 0 - 1ADD 
+        # convert to 0 - 1 ADD 
         add_state_action_prime_state  = state_action_prime_state.toADD()
 
         # exist abstract the ADD - this sums all leaves (1s) from a state

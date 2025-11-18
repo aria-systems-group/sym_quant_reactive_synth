@@ -68,6 +68,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_handle.game_latches = self.latches
         self.dfa_handle.prime_game_latches = self.prime_latches
 
+        # stor s a_s s' transition relation for dfa game
+        self.monolithic_valid_full_dfa_game_trns: ADD = None
+
         # by default variable reordering is disabled for DFA games - to check for computation time without this optimization
         # however, switching variable ordering make the code faster for sure.
         if enable_reordering:
@@ -157,12 +160,11 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
 
         # take the product of the DFA tr and the game tr
-        test = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
-        # dfa_game
-        print("Done creating product transition relation")
+        self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
+        # print("Done creating product transition relation")
 
-        # print state for sanity checking
-        self.convert_full_cube_to_state_ADD(test, robot_action=True, verbose=True)
+        # print Sys transitions for sanity checking
+        # self.convert_full_cube_to_state_ADD(test, robot_action=True, verbose=True)
 
 
 
