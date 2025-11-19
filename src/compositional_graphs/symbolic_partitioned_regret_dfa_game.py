@@ -10,7 +10,7 @@
 import math
 
 from functools import reduce
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Set
 from collections import defaultdict
 
 from bidict import bidict
@@ -42,12 +42,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
         self.uVars_transition_relation = None
-        # store s a_s s' transition relation for graph of utility
+        # store ADD(s-as-s')-1 transition relation for graph of utility
         self.monolithic_valid_full_gou_trns: ADD = self.manager.addZero()
 
         # book keeping
-        self.gou_game_latches = self.latches + self.qVars + self.uVars
-        self.gou_game_prime_latches = self.prime_latches + self.prime_qVars + self.prime_uVars
+        self.gou_game_latches = self.latches + self.uVars + self.qVars
+        self.gou_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_qVars
 
 
     # override the create lacthes method to include Graph of utility latches
@@ -103,7 +103,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         We need to assert that the init state should be full defined, i.e., we need to every box's conf. else the init state is a set of states. 
          This causes issue when checking for init state value after VI algorithm terminates.
         """
-        assert len(self.init) == self.boxes + 1, "[Error]: The init state shoudl be fully defined for Regret Synthesis code else the Synthesis code will not work correctly."
+        assert len(self.init) == self.boxes + 1, "[Error]: The init state should be fully defined for Regret Synthesis code else the Synthesis code will not work correctly."
         init_cube = self.tVar_map_sym['robot'] & self.kVar_map_sym['k0'] & self.uVar_map_sym['u0']
         for s in self.init:
             init_cube &= self.xVar_map_sym[s]
@@ -545,8 +545,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         # convert cVal to prime
         prime_cVal = self.comp_winning_states.swapVariables(self.gou_game_latches, self.gou_game_prime_latches)
-        # print("CVal of the states") - debugging cVal(s) values
-        # self.convert_cube_to_state_ADD(self.comp_winning_states, verbose=True)
 
         # AND with ADD(s, as, s')-1 that represents valid full TR to get ADD(s, as, s')-cVal(s') (leaf values is cVal(s'))
         full_state_prime_state_tr_cval: ADD = prime_cVal & self.monolithic_valid_full_gou_trns
@@ -559,6 +557,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # now compute the best alternate response
         self.ba_per_ract = defaultdict(lambda: self.manager.plusInfinity())
+        self.vector_of_br = defaultdict(lambda: self.manager.addZero())
         for ract, ract_sym in self.rAction_map_sym.items():
             print(f"Computing BR for Robot Act: {ract}")
             
@@ -576,8 +575,31 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
             add_care_states_alt_ract_prime_states = add_care_states_alt_ract & full_state_prime_state_tr_cval
 
-            # find the min amongst all (s, as') and store it
-            self.ba_per_ract[ract] = self.manager.plusInfinity().min(add_care_states_alt_ract_prime_states)
+            # find the min amongst all (s, as', s') and store it
+            ba_per_act = self.manager.plusInfinity().min(add_care_states_alt_ract_prime_states)
+            self.ba_per_ract[ract] = ba_per_act
+
+            # chop the ADDs into vector of BDD(s-as'-s'), one for each leaf node
+            lVals = {leaf_value for _, leaf_value in ba_per_act.generate_cubes()}
+
+            for leaf_val in lVals:
+                # leav_vals == inf may have invalid states into, so post-process and remove it later
+                bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val)).existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
+                self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
+        
+        # print stuff for debugging
+        print("Done computing BR")
+
+        # post process the +inf BDD to remove irrelevant states
+        if math.inf in self.vector_of_br.keys():
+            self.vector_of_br[math.inf] &=  state_action_pair.existAbstract(robot_action_cube)
+        
+        self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
+
+        # sanity checking 
+        # unions of all states with br
+        states_br: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
+        assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
 
     
     def test_pre_image(self):
