@@ -1,12 +1,13 @@
 """
- In this script, we will build the DFA Game, copute regret-minimizing strategies in a symbolic and partitioned manner.
+ In this script, we will build the DFA Game, compute regret-minimizing strategies in a symbolic and partitioned manner.
  1. Build Game abstarction in a compositional manner.
  2. Call SPOT or MONA to build DFA from LTL/LTlf formula.
  3. Construct the DFA Game
- 3. Construct Graph of Utility and compute Min-Min Value Iteration
-    3.1 Compute BEst-response for every system strategy
- 4. Construct Graph of Best-response and compute Min-Max Value Iteration
+ 3. Construct Graph of Utility (GoU) and compute Min-Min Value Iteration
+    3.1 Compute Best-alternate response for every system strategy (or edge in GoU)
+ 4. Construct Graph of Best-response (GoBr) and Compute Regret-minimizing strategies using Min-Max Value Iteration
 """
+import time
 import math
 
 from functools import reduce
@@ -23,7 +24,7 @@ from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicParti
 
 class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
     """
-     This class extends the SymbolicPartitionedDFAGame class to compute regret-minimizing strategies.
+     This class extends the SymbolicPartitionedDFAGame class to construct Graph of Utility (GoU) and Compute Min-Min stratgies and values.
     """
     def __init__(self,
                  boxes: int, locs: int,
@@ -197,7 +198,18 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
     
 
-    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False, verbose: bool = False) -> None:
+    def get_states_with_one_outgoing_transition_gou(self) -> BDD:
+        """
+         This method computes the set of GoU states that have exactly one outgoing robot action.
+        """
+        gou_state_act_count: ADD = self.count_actions_per_state_gou()
+        bdd_gou_state_single_act: BDD = gou_state_act_count.bddInterval(1, 1)
+
+        # as accepting states in DFA are sink states in GoU, we need to post-process the gou_state_act_count so that accepting states map to cardinality 1.
+        bdd_gou_state_single_act |= (self.dfa_handle.goal_latch & gou_state_act_count).bddPattern()
+        return bdd_gou_state_single_act
+
+    def gou_convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False, verbose: bool = False) -> None:
         """
          Convert a cube to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -213,6 +225,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.oVars) # robot action vars (oVars)
         if human_action:
             relevant_vars.extend(self.iVars) # env action vars (iVars)
+        
+        headers = []
+        if verbose and robot_action:
+            headers = ['state', 'action' 'value']
+        elif verbose and not robot_action:
+            headers = ['state', 'value']
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
@@ -283,17 +301,20 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     continue
             if robot_action or human_action:    
                 action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
-                print(f"    -- Actions: ({action})")
+                # print(f"    -- Actions: ({action})")
             
-            states_bookkeeping.append((state, val))
+            if robot_action:
+                states_bookkeeping.append((state, rAction_str, val))
+            else:
+                states_bookkeeping.append((state, val))
         
         if verbose:
-            print(tabulate(states_bookkeeping, headers=['state', 'value']))
+            print(tabulate(states_bookkeeping, headers=headers))
 
         return states_action_pairs
 
 
-    def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, verbose: bool = False) -> None:
+    def gou_convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, verbose: bool = False) -> None:
         """
         Convert a cube to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -504,8 +525,16 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # now create utility transition relation
         self.create_utlity_transition_relation()
 
+        tic = time.time()
+        strategy = self.solve(verbose=False, cooperative_game=True)
+        toc = time.time()
+        print(f"Time to synthesize strategy: {toc - tic} seconds")
+
         # print Sys transitions for sanity checking
-        # self.convert_full_cube_to_state_ADD(dd=self.monolithic_valid_full_gou_trns, robot_action=True, verbose=True)
+        # self.gou_convert_full_cube_to_state_ADD(dd=self.monolithic_valid_full_gou_trns, robot_action=True, verbose=True)
+
+        # compute best-alternate response
+        self.compute_best_alternate_response()
     
 
     def count_actions_per_state_gou(self) -> ADD:
@@ -590,9 +619,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # print stuff for debugging
         print("Done computing BR")
 
-        # post process the +inf BDD to remove irrelevant states
+        # ovveride the +inf BDD. The above code works for states with one egdes. 
+        # The inf vector include these states as well as valid state conf. Further, we manually all accepting states in DFA to +inf as they are sink states in GoU.
+        # This is not capture in the above code. Hence, we manually override the +inf BDD here.
         if math.inf in self.vector_of_br.keys():
-            self.vector_of_br[math.inf] &=  state_action_pair.existAbstract(robot_action_cube)
+            inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
+            inf_state_actions: BDD = inf_states & state_action_pair
+            self.gou_convert_cube_to_state_ADD(inf_state_actions.toADD(), robot_action=True, verbose=True)  
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
@@ -613,7 +646,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # first evolve over the DFA
         dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
         print('DFA Preimage: ', dfa_preimage)
-        # self.convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
+        # self.gou_convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
         
         # then evolve over the game
         dfa_game_preimage = self.preimage_test(From=dfa_preimage,
@@ -621,6 +654,4 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                                                prime_latches=self.prime_latches + self.prime_uVars,
                                                ts_action=graph_of_utility_tr)
         print('DFA Game Preimage: ', dfa_game_preimage)
-        self.convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)
-    
-                    
+        self.gou_convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)        
