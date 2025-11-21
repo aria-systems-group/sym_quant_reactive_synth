@@ -37,8 +37,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.budget: int = budget
         self.uVars: List[ADD] = []
         self.prime_uVars: List[ADD] = []
+        self.brVars: List[ADD] = []
+        self.prime_brVars: List[ADD] = []
         self.uVar_map: List[ADD] = bidict({}) 
         self.uVar_map_sym: List[ADD] = bidict({}) 
+        self.brVar_map: List[ADD] = bidict({}) 
+        self.brVar_map_sym: List[ADD] = bidict({}) 
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
         super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
@@ -49,6 +53,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # book keeping
         self.gou_game_latches = self.latches + self.uVars + self.qVars
         self.gou_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_qVars
+
+        self.gobr_game_latches = None
+        self.gobr_game_prime_latches = None
 
 
     # override the create lacthes method to include Graph of utility latches
@@ -97,6 +104,19 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.prime_qVars: List[ADD] = self.dfa_handle.prime_qVars
     
 
+    def create_all_br_vars_maps(self):
+        """
+         Give, the set of best-response values, this method create all latches and maps for best-alternate response variables. 
+          It also creates prime latches.
+        """
+        # create variables for best-alternate response values
+        self.brVars = self.create_br_latches()
+        self.prime_brVars = self.create_prime_br_latches()
+        self.create_br_var_map()
+        self.gobr_game_latches = self.latches + self.uVars + self.brVars + self.qVars
+        self.gobr_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_brVars + self.prime_qVars
+    
+
     def set_init_latch(self) -> ADD:
         """
         Ovveride the base method. In Graph of Utility, the initial state also includes the utility variable set to 0.
@@ -130,6 +150,18 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return uVars
     
 
+    def create_br_latches(self):
+        """
+         Create best-alterante response (br) variables for the Graph of Utility.
+        """
+        varsize = self.manager.size()
+        brVar_size = math.ceil(math.log2(len(self.brVals)))
+        # create an additional boolean var to skip the 0-vector latch
+        brVar_size = brVar_size + 1 if pow(2, brVar_size) == len(self.brVals) else brVar_size 
+        brVars: List[ADD] = [self.manager.addVar(br + varsize, 'br' + str(br)) for br in range(brVar_size)]
+        return brVars
+    
+
     def create_prime_utility_latches(self):
         """
          Create utility variables for the Graph of Utility.
@@ -137,6 +169,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         varsize = self.manager.size()
         prime_uVars: List[ADD] = [self.manager.addVar(u + varsize, 'pu' + str(u)) for u in range(len(self.uVars))]
         return prime_uVars
+
+
+    def create_prime_br_latches(self):
+        """
+         Create utility variables for the Graph of Utility.
+        """
+        varsize = self.manager.size()
+        prime_brVars: List[ADD] = [self.manager.addVar(br + varsize, 'pbr' + str(br)) for br in range(len(self.brVars))]
+        return prime_brVars
 
 
     def create_utiltity_var_map(self):
@@ -149,6 +190,16 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             ubit_str = f"{u + 1:0{len(self.uVars)}b}"
             self.uVar_map[f'u{u}'] = ubit_str
             self.uVar_map_sym[f'u{u}'] = self.cube_to_add(ubit_str, self.uVars)
+    
+
+    def create_br_var_map(self):
+        """
+         Small function to create symbolic maps for the brVar_map. 
+        """
+        for idx, val in enumerate(self.brVals):
+            bit_str = f"{idx + 1:0{len(self.brVars)}b}"
+            self.brVar_map[val] = bit_str
+            self.brVar_map_sym[val] = self.cube_to_add(bit_str, self.brVars)
     
 
     def get_states_per_cost(self):
@@ -196,6 +247,45 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
+    
+
+    def create_best_alternate_response_transition_relation(self):
+        self.brVars_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.brVars}
+        
+        for br in self.brVals:
+            brConf_cube = self.brVar_map_sym[br]
+            
+            for prime_br in self.brVals:
+                if prime_br <= br:
+                    # create the transition cube
+                    transition_cube = brConf_cube & self.vector_of_br[prime_br]
+                    
+                    prime_brConf_cube_str = self.brVar_map[prime_br]
+                    for sidx, s in enumerate(prime_brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+                else:
+                    state_act_pairs = self.manager.addZero()
+                    for i in self.brVals:
+                        if i > br:
+                            state_act_pairs |= self.vector_of_br[i]
+                    
+                    transition_cube = brConf_cube & state_act_pairs
+                
+                    prime_brConf_cube_str = self.brVar_map[br]
+                    for sidx, s in enumerate(prime_brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+                
+                # if prime_br > br:
+                    break
+        
+            # add that from human states, the best-alternate response remains the same
+            human_transition_cube = brConf_cube & self.tVar_map_sym['human']
+            prime_brConf_cube_str = self.brVar_map[br]
+            for sidx, s in enumerate(prime_brConf_cube_str):
+                if s == '1':
+                    self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= human_transition_cube
     
 
     def get_states_with_one_outgoing_transition_gou(self) -> BDD:
@@ -442,6 +532,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return states_action_pairs
 
 
+    
+
+
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars + self.uVars, self.prime_latches + self.prime_qVars + self.prime_uVars)
@@ -535,6 +628,14 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # compute best-alternate response
         self.compute_best_alternate_response()
+
+        # create boolean vars and their prime versions for Best-alternate response values computed
+        self.create_all_br_vars_maps()
+
+        self.create_best_alternate_response_transition_relation()
+
+        # test BR TR for sanity checking
+        self.test_br_pre_image()
     
 
     def count_actions_per_state_gou(self) -> ADD:
@@ -609,7 +710,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             self.ba_per_ract[ract] = ba_per_act
 
             # chop the ADDs into vector of BDD(s-as'-s'), one for each leaf node
-            lVals = {leaf_value for _, leaf_value in ba_per_act.generate_cubes()}
+            lVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in ba_per_act.generate_cubes()}
 
             for leaf_val in lVals:
                 # leav_vals == inf may have invalid states into, so post-process and remove it later
@@ -625,7 +726,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         if math.inf in self.vector_of_br.keys():
             inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
             inf_state_actions: BDD = inf_states & state_action_pair
-            self.gou_convert_cube_to_state_ADD(inf_state_actions.toADD(), robot_action=True, verbose=True)  
+            # self.gou_convert_cube_to_state_ADD(inf_state_actions.toADD(), robot_action=True, verbose=True)
+            self.vector_of_br[math.inf] = inf_state_actions.toADD()
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
@@ -654,4 +756,31 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                                                prime_latches=self.prime_latches + self.prime_uVars,
                                                ts_action=graph_of_utility_tr)
         print('DFA Game Preimage: ', dfa_game_preimage)
-        self.gou_convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)        
+        self.gou_convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)
+
+
+    def test_br_pre_image(self):
+        # extende the DFA game latches
+        # graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
+        # graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+        gou_goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.dfa_handle.init_latch & self.uVar_map_sym['u1']
+        
+        br_cube = self.brVar_map_sym[math.inf]
+        print('Br state:', br_cube)
+
+        full_cube = gou_goal_cube & br_cube
+        print('Goal state:', full_cube)
+        
+        From = full_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches)
+        preimage = From.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+        
+        intr_cube = br_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches)
+        preimage2 = intr_cube.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+
+        # first evolve over the DFA
+        # dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
+        # print('DFA Preimage: ', dfa_preimage)
+        # self.gou_convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
+        
+        # print('DFA Game Preimage: ', dfa_game_preimage)
+        self.gou_convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)        
