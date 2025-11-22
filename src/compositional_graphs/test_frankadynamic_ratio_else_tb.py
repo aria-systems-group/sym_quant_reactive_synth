@@ -95,7 +95,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
     def preprocess_monolithic_valid_state_robot_actions(self):
         # for in-transit and in-transfer preds, just addOne()
         for b in range(self.boxes):
-            # self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit b{b}'].ite(self.manager.addOne(), self.manager.addZero())
             self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit b{b}']).ite(self.manager.addOne(), self.manager.addZero())
         
         for to_loc in range(1, self.locs + 1):

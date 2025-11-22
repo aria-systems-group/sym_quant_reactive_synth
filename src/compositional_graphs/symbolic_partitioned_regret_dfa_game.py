@@ -277,7 +277,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         if s == '1':
                             self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
                 
-                # if prime_br > br:
                     break
         
             # add that from human states, the best-alternate response remains the same
@@ -318,7 +317,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         headers = []
         if verbose and robot_action:
-            headers = ['state', 'action' 'value']
+            headers = ['state', 'action', 'value']
         elif verbose and not robot_action:
             headers = ['state', 'value']
 
@@ -422,9 +421,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.iVars) # env action vars (iVars)
         
         headers = []
-        if verbose and robot_action:
-            headers = ['state', 'action' 'value']
-        elif verbose and not robot_action:
+        if verbose and (robot_action or human_action):
+            headers = ['state', 'action', 'value']
+        elif verbose and not (robot_action and human_action):
             headers = ['state', 'value']
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
@@ -500,8 +499,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
                 # print(f"    -- Actions: ({action})")
             
-            if robot_action:
-                states_bookkeeping.append((state, rAction_str, val))
+            if robot_action or human_action:
+                states_bookkeeping.append((state, action, val))
             else:
                 states_bookkeeping.append((state, val))
         
@@ -904,7 +903,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return state_ract_count
 
     
-    def compute_best_alternate_response(self):
+    def compute_best_alternate_response(self, sanity_checking: bool = False) -> None:
         """
          A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
             Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
@@ -977,15 +976,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         if math.inf in self.vector_of_br.keys():
             inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
             inf_state_actions: BDD = inf_states & state_action_pair
-            # self.gou_convert_cube_to_state_ADD(inf_state_actions.toADD(), robot_action=True, verbose=True)
             self.vector_of_br[math.inf] = inf_state_actions.toADD()
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
         # sanity checking 
         # unions of all states with br
-        states_br: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
-        assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
+        if sanity_checking:
+            states_br: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
+            assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
 
     
     def test_pre_image(self):
