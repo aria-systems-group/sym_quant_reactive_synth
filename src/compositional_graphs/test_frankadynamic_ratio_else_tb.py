@@ -95,10 +95,15 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
     def preprocess_monolithic_valid_state_robot_actions(self):
         # for in-transit and in-transfer preds, just addOne()
         for b in range(self.boxes):
-            self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+            # self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit b{b}'].ite(self.manager.addOne(), self.manager.addZero())
+            self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit b{b}']).ite(self.manager.addOne(), self.manager.addZero())
         
         for to_loc in range(1, self.locs + 1):
-            self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transfer l{to_loc}'].ite(self.manager.addOne(), self.manager.addZero())
+            self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{to_loc}']).ite(self.manager.addOne(), self.manager.addZero())
+        
+        for loc in range(1, self.locs + 2):
+            self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+            self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
     
 
     def create_sym_weight_dict(self):
@@ -139,7 +144,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     pred_clause_prime_string = self.xVar_map[f"in-transit b{b}"]
                     
@@ -174,7 +179,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{to_loc}']

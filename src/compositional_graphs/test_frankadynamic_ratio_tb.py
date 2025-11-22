@@ -553,27 +553,36 @@ class FrankaWorldDynamicRatioTurnBased():
         for from_loc in range(1, self.locs + 2):
             for b in range(self.boxes):
                 # self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit l{from_loc} b{b}'].ite(self.manager.addOne(), self.manager.addZero())
-                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.ee_empty_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.manager.addOne(), self.manager.addZero())
         
         # now lets add constraints that is rConf is holding then some box is at ee-location
-        some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
+        # some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for from_loc in range(1, self.locs + 1):
             for to_loc in range(1, self.locs + 1):
                 if from_loc == to_loc:
                     continue
-                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(some_box_at_ee, self.manager.addZero())
-    
-    def preprocess_monolithic_valid_state_robot_actions_prime_state(self):
-        """
-         A helper function that preprocesses the monolithic_valid_state_robot_actions_prime_state variable. 
-         This vairables catptues tuple (s, a_s, s') where s is a valid robot state, a_s is a valid robot action from state s and
-         s' is the next state after applying action a_s from state s. 
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                # self.monolithic_valid_state_robot_actions |= (self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(some_box_at_ee, self.manager.addZero())
+        
+        for loc in range(1, self.locs + 2):
+            if loc < self.locs + 1:
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+            else:
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+
+
+    # def preprocess_monolithic_valid_state_robot_actions_prime_state(self):
+    #     """
+    #      A helper function that preprocesses the monolithic_valid_state_robot_actions_prime_state variable. 
+    #      This vairables catptues tuple (s, a_s, s') where s is a valid robot state, a_s is a valid robot action from state s and
+    #      s' is the next state after applying action a_s from state s. 
          
-         s' must be a valid human state.
-        """
-        # here we ass the constraint that kVar reamins constant after applying robot action
-        for kVal in self.kVar_map.keys():
-            self.monolithic_valid_state_robot_actions_prime_state |= self.kVar_map_sym[kVal].ite(self.prime_kVar_map_sym[kVal], self.manager.addZero())
+    #      s' must be a valid human state.
+    #     """
+    #     # here we ass the constraint that kVar reamins constant after applying robot action
+    #     for kVal in self.kVar_map.keys():
+    #         self.monolithic_valid_state_robot_actions_prime_state |= self.kVar_map_sym[kVal].ite(self.prime_kVar_map_sym[kVal], self.manager.addZero())
 
 
     def post_process_transition_relation(self):
@@ -696,7 +705,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & (rConf_cube | rConf_cube_ready)
 
                 # update the valid robot moves
-                self.monolithic_valid_state_robot_actions |= ((rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (turn_bit & (rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
                 
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
@@ -741,7 +750,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & bConf_cube & robot_act_cube & self.locs_empty_constraints[f'l{loc}']
 
                 # update the valid robot moves
-                self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                 # this is fixed
                 next_box_pred = f"b{b} l{loc}"
@@ -788,7 +797,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
                     
@@ -829,7 +838,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
