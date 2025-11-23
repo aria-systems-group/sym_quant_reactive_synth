@@ -332,7 +332,6 @@ class FrankaWorldDynamicRatioTurnBased():
         self.create_hmove_not_b()
         self.create_valid_state_constraints()
         self.preprocess_monolithic_valid_state_robot_actions()
-        # self.preprocess_monolithic_valid_state_robot_actions_prime_state()
         
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
@@ -453,7 +452,6 @@ class FrankaWorldDynamicRatioTurnBased():
     def set_goal_latch(self) -> ADD:
         mono_goal_cube = self.manager.addZero()
         for state in self.goal:
-            # goal_cube = self.tVar_map_sym['robot']
             goal_cube = self.manager.addOne()
             for s in state:
                 goal_cube &= self.xVar_map_sym[s]
@@ -490,7 +488,6 @@ class FrankaWorldDynamicRatioTurnBased():
         """
          A tiny method to create relevant box predicates for each box.
         """
-        # for b in range(self.boxes):
         for box_str, box_add in self.bVar_map_sym.items():
             box_id = int(box_str.split(' ')[0][-1])
             assert isinstance(box_id, int) and box_id in range(self.boxes), "Error in extracting box id. Fix this!!!"
@@ -552,28 +549,21 @@ class FrankaWorldDynamicRatioTurnBased():
         # for in-transit and in-transfer preds, just addOne()
         for from_loc in range(1, self.locs + 2):
             for b in range(self.boxes):
-                # self.monolithic_valid_state_robot_actions |= self.xVar_map_sym[f'in-transit l{from_loc} b{b}'].ite(self.manager.addOne(), self.manager.addZero())
-                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.ee_empty_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.manager.addOne(), self.manager.addZero())
         
         # now lets add constraints that is rConf is holding then some box is at ee-location
-        some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for from_loc in range(1, self.locs + 1):
             for to_loc in range(1, self.locs + 1):
                 if from_loc == to_loc:
                     continue
-                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(some_box_at_ee, self.manager.addZero())
-    
-    def preprocess_monolithic_valid_state_robot_actions_prime_state(self):
-        """
-         A helper function that preprocesses the monolithic_valid_state_robot_actions_prime_state variable. 
-         This vairables catptues tuple (s, a_s, s') where s is a valid robot state, a_s is a valid robot action from state s and
-         s' is the next state after applying action a_s from state s. 
-         
-         s' must be a valid human state.
-        """
-        # here we ass the constraint that kVar reamins constant after applying robot action
-        for kVal in self.kVar_map.keys():
-            self.monolithic_valid_state_robot_actions_prime_state |= self.kVar_map_sym[kVal].ite(self.prime_kVar_map_sym[kVal], self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(self.manager.addOne(), self.manager.addZero())
+        
+        for loc in range(1, self.locs + 2):
+            if loc < self.locs + 1:
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+            else:
+                self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
 
 
     def post_process_transition_relation(self):
@@ -696,7 +686,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & (rConf_cube | rConf_cube_ready)
 
                 # update the valid robot moves
-                self.monolithic_valid_state_robot_actions |= ((rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (turn_bit & (rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
                 
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
@@ -741,7 +731,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & bConf_cube & robot_act_cube & self.locs_empty_constraints[f'l{loc}']
 
                 # update the valid robot moves
-                self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                 # this is fixed
                 next_box_pred = f"b{b} l{loc}"
@@ -788,7 +778,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
                     
@@ -829,7 +819,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
 
                     # update the valid robot moves
-                    self.monolithic_valid_state_robot_actions |= (rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
@@ -1186,7 +1176,6 @@ class FrankaWorldDynamicRatioTurnBased():
          A function that counts the numbe of actions per state
         """
         prime_vars_exist_cube = reduce(lambda a, b: a & b, self.prime_latches)
-        # robot_action_cube = reduce(lambda a, b: a | b, self.robot_action_cube_list)
         robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
         # convert to BDD and then exist abstract
         state_action_prime_state: BDD = self.monolithic_valid_state_robot_actions_prime_state.bddPattern()
@@ -1302,19 +1291,25 @@ class FrankaWorldDynamicRatioTurnBased():
         return bdd_ltu & ~bdd_sgtl
 
     
-    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
+    def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False,  human_action: bool = False, verbose: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the robot action as well, set robot_action to True. 
          If you want to print the human action as well, set human_action to True.
         """
-        relevant_vars = [] #+ self.tVar + self.kVars
+        relevant_vars = []
         if state_flag:
             relevant_vars.extend(self.latches)
         if robot_action:
             relevant_vars.extend(self.oVars)
         if human_action:
             relevant_vars.extend(self.iVars)
+        
+        headers = []
+        if verbose and (robot_action or human_action):
+            headers = ['state', 'action', 'value']
+        elif verbose and not (robot_action and human_action):
+            headers = ['state', 'value']
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
@@ -1337,8 +1332,10 @@ class FrankaWorldDynamicRatioTurnBased():
                 bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.oVars + self.iVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
         
         # print the states
-        states_action_pairs = [] 
+        states_action_pairs = []
+        states_bookkeeping = [] 
         for cube, val in cubes:
+            state = None
             tConf_exist_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
             rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
             kConf_exist_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
@@ -1352,27 +1349,40 @@ class FrankaWorldDynamicRatioTurnBased():
                 continue
             
             try:
-                print(f"[({self.tVar_map.inv[tConf_exist_str]}, {self.kVar_map.inv[kConf_exist_str]}, {self.pVar_map.inv[rConf_cube_str]}, {box_states}), {val}]")
+                state = (self.tVar_map.inv[tConf_exist_str], self.kVar_map.inv[kConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states)
                 states_action_pairs.append([((self.tVar_map.inv[tConf_exist_str], self.kVar_map.inv[kConf_exist_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
             except KeyError:
                 continue
             
             # print the robot and human actions as well
-            if robot_action:
+            action_list = []
+            if robot_action and self.tVar_map.inv[tConf_exist_str] == 'robot':
                 oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
                 try:
                     rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                    action_list.append(rAction_str)
                 except KeyError:
                     continue
-            if human_action:
+            if human_action  and self.tVar_map.inv[tConf_exist_str] == 'human':
                 iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
                 try:
                     eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
+                    action_list.append(eAction_str)
                 except KeyError:
                     continue
             if robot_action or human_action:    
-                action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
-                print(f"    -- Actions: ({action})")
+                # action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
+                action = ",".join(action_list)
+            
+            # if you made it till here then print stuff or store them
+            if robot_action or human_action:
+                states_bookkeeping.append((state, action, val))
+            else:
+                states_bookkeeping.append((state, val))
+        
+        if verbose:
+            print(tabulate(states_bookkeeping, headers=headers))
+
         
         return states_action_pairs
 
@@ -1656,7 +1666,6 @@ class FrankaWorldDynamicRatioTurnBased():
             # update the robot configuration
             curr_state[box_idx] = ', '.join(split_str)
             curr_state[rConf_idx] = f'ready {l_idx}'
-
         
         # if action is transfer then, update the robot configuration 
         elif action.startswith('transfer'):
@@ -1799,13 +1808,14 @@ class FrankaWorldDynamicRatioTurnBased():
 
     
     def test_pre_image_restricted_human_moves(self):
-        goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] #& self.xVar_map_sym['b1 l3']
+        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k0'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['in-transfer l2'] & self.xVar_map_sym['b0 l0']
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
         preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=True, verbose=True)
 
 
 
