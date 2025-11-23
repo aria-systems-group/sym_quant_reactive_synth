@@ -297,6 +297,7 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
          This function parses the Mona DFA output and construct the symbolic TR associated with DFA.
         """
         self.dfa_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}
+        self.dfa_transition_relation_accp_sink = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}  # accpting states transitions are skipped in this TR
         mona_output: str = self.dfa.mona_dfa
 
         for line in mona_output.splitlines():
@@ -326,3 +327,5 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                     for sidx, s in enumerate(dfa_state_prime_str):
                         if s == '1':
                             self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
+                            if not ((orig_state in self.goal) and (dest_state in self.goal)):
+                                self.dfa_transition_relation_accp_sink[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
