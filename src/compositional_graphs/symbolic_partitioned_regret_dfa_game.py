@@ -874,16 +874,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     
 
-    def gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
+    def test_gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         
-        goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        goal = self.create_goal_nodes_with_utility_values(verbose=False)
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
-
-        # create action cube ADD where all cubes map to inf
+        # visited_states: ADD = curr_winning_states
         
         # intialize the iteration counter
         layer = 0
@@ -892,45 +891,86 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             print(f"**************************Layer: {layer}**************************")
             preimage: ADD = self.compute_preimage(curr_winning_states)
 
-            # print("Current Preimage:")
-            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-            # go over all the env actions and preserve the maximum one
-            # MaxUpre = []
-            # for env_tr_dd in self.env_action_cube_list:
-            #     # MaxUpre.append(preimage.restrict(env_tr_dd))
-            #     MaxUpre.append(preimage.cofactor(env_tr_dd))
-            
-            # if cooperative_game:
-            #     Upre = reduce(lambda x, y: x.min(y), MaxUpre)
-            # else:
-            #     Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-            # # Upre = Upre.min(goal)
-            # # preimage_eact = curr_winning_states.min(preimage)
-            # # assert preimage_eact.compare(Upre, 2), "Preimage computation mismatch between test and actual computation."
+            next_winning_states = self.symbolic_min_abstract(preimage)
+            if layer == 0:
+                next_winning_states = next_winning_states.min(goal)
 
-            # # go over all the sys actions and preserve the minimum one
-            # Minpre = []
-            # for robot_tr_dd in self.robot_action_cube_list:
-            #     # Minpre.append(Upre.restrict(robot_tr_dd))
-            #     Minpre.append(Upre.cofactor(robot_tr_dd))
+            if curr_winning_states.compare(next_winning_states, 2):
+            # if frontier_nodes.compare(self.manager.minusInfinity(), 2):
+                print("**************************Reached fixpoint**************************")
+                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
             
-            # next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-            # next_winning_states = next_winning_states.min(goal)
+            
+            
+            # frontier_nodes = visited_states.ite(self.manager.plusInfinity(), next_winning_states)
+            frontier_nodes = curr_winning_states - next_winning_states 
+            frontier_nodes_01_add = frontier_nodes.bddInterval(1, math.inf).toADD()
+            
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.gou_convert_cube_to_state_ADD(frontier_nodes_01_add, robot_action=False, verbose=True)
+            
+            # # if curr_winning_states.compare(next_winning_states, 2):
+            # if frontier_nodes.compare(self.manager.minusInfinity(), 2):
+            #     print("**************************Reached fixpoint**************************")
+            #     if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+            #         if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+            #             print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+            #             init_val: int = 0
+            #         else:
+            #             init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+            #         print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+            #         self.comp_winning_states = curr_winning_states
+            #         return preimage if init_val < math.inf else None
+                # return None
+
+            # update the counter
+            layer += 1
+
+            # get states with finite values
+            # new_states_mask = frontier_nodes.compare(self.manager.plusInfinity(), 3)
+            # visited_states = visited_states | new_states_mask
+
+            # swap the winning states
+            curr_winning_states = frontier_nodes_01_add.ite(self.manager.addOne(), self.manager.plusInfinity()).times(next_winning_states)
+    
+
+    def gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
+        # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
+        self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+        
+        goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            preimage: ADD = self.compute_preimage(curr_winning_states)
 
             next_winning_states = self.symbolic_min_abstract(preimage)
             next_winning_states = next_winning_states.min(goal)
-            
-            # test = curr_winning_states.min(preimage)
-            # next_winning_states = test.min(goal)
-
-            # assert test2.compare(next_winning_states, 2), "Preimage computation mismatch between test and actual computation."
 
             # adding debugging step
             if verbose:
                 print("Current Winning States:")
-                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
+                self.gou_convert_cube_to_state_ADD(next_winning_states, robot_action=False, verbose=True)
             
-            if curr_winning_states.compare(next_winning_states, 2):
+            # if curr_winning_states.compare(next_winning_states, 2):
+            if next_winning_states.compare(curr_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
                     if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
@@ -1081,7 +1121,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utlity_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False, cooperative_game=True)
+        # strategy = self.gou_solve(verbose=False, cooperative_game=True)
+        strategy = self.test_gou_solve(verbose=False, cooperative_game=True)
         toc = time.time()
         print(f"Time to synthesize strategy: {toc - tic} seconds")
 

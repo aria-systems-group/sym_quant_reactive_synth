@@ -23,7 +23,7 @@ def Regret_DFA_Game_Main():
     budget = 4
 
     cooperative_game = True
-    enable_reordering = True
+    enable_reordering = False
     ltlf_flag = True
 
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
@@ -96,22 +96,23 @@ def Regret_DFA_Game_Main():
     dfa_game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
-    dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
+    # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
 
     # dfa_game.test_pre_image()
+    # dfa_game.regret_solver(cooperative_game=False, verbose=False)
 
-    tic = time.time()
-    strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
-    toc = time.time()
-    print(f"Time to synthesize strategy: {toc - tic} seconds")
+    # tic = time.time()
+    # strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # toc = time.time()
+    # print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     # compute best-alternate response
-    dfa_game.compute_best_alternate_response()
+    # dfa_game.compute_best_alternate_response()
     # print stuff for debugging
-    for ract in dfa_game.rAction_map.keys():
-        print(f"************* Best Alternatives for {ract} *************")
-        dfa_game.convert_full_cube_to_state_ADD(dd=dfa_game.ba_per_ract[ract], robot_action=True, verbose=True)
-    sys.exit(-1)
+    # for ract in dfa_game.rAction_map.keys():
+    #     print(f"************* Best Alternatives for {ract} *************")
+    #     dfa_game.convert_full_cube_to_state_ADD(dd=dfa_game.ba_per_ract[ract], robot_action=True, verbose=True)
+    # sys.exit(-1)
 
     # if strategy is not None:
     #     dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
@@ -222,8 +223,9 @@ def Game_Main():
 
     
     game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-                                                    ratio=ratio, init=init,
-                                                    goal=goal, restricted_human_locs=human_locs)
+                                                ratio=ratio, init=init,
+                                                goal=goal, enable_reordering=enable_reordering,
+                                                restricted_human_locs=human_locs)
     
     # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
     #                                         ratio=ratio, init=init,

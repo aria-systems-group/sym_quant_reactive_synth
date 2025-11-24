@@ -380,7 +380,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
         """
-         A function to rollout a give strategy
+         A function to rollout a given strategy
         """
         curr_state_sym = self.init_latch & self.dfa_handle.init_latch
         oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
