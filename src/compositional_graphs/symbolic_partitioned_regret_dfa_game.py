@@ -298,7 +298,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         bdd_gou_state_single_act |= (self.dfa_handle.goal_latch & gou_state_act_count).bddPattern()
         return bdd_gou_state_single_act
 
-    def gou_convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False, verbose: bool = False) -> None:
+    def gou_convert_cube_to_state_ADD(self,
+                                      dd: ADD, state_flag: bool = True,
+                                      dfa_flag: bool = True, robot_action: bool = False,
+                                      human_action: bool = False, verbose: bool = False,
+                                      table_header: bool = True, print_val: bool = True) -> None:
         """
          Convert a cube to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -316,11 +320,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.iVars) # env action vars (iVars)
         
         headers = []
-        if verbose and robot_action:
-            headers = ['state', 'action', 'value']
-        elif verbose and not robot_action:
-            headers = ['state', 'value']
-
+        if verbose:# and robot_action:
+            headers.extend(['state'])
+            if robot_action:
+                headers.append('action')
+            if print_val:
+                headers.append('value')
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
         # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
@@ -393,12 +398,21 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 # print(f"    -- Actions: ({action})")
             
             if robot_action:
-                states_bookkeeping.append((state, rAction_str, val))
+                if print_val:
+                    states_bookkeeping.append((state, rAction_str, val))
+                # states_bookkeeping.append((state, rAction_str, val))
+                else:
+                    states_bookkeeping.append((state, rAction_str))
             else:
-                states_bookkeeping.append((state, val))
+                if print_val:
+                    states_bookkeeping.append((state, val))
+                else:
+                    states_bookkeeping.append(state)
         
-        if verbose:
+        if verbose and table_header:
             print(tabulate(states_bookkeeping, headers=headers))
+        elif verbose and not table_header:
+            print(tabulate(states_bookkeeping))
 
         return states_action_pairs
     
@@ -789,7 +803,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars + self.uVars, self.prime_latches + self.prime_qVars + self.prime_uVars)
         
         # first evolve over the DFA
-        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the game
         preimage = dfa_preimage.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
@@ -815,14 +830,124 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage: ADD = gou_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
 
         return preimage
+
+
+    def symbolic_min_abstract(self, add_function):
+        """
+        Eliminates variables by taking the minimum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+        variables_to_abstract = self.oVars + self.iVars 
+
+        for var_add in variables_to_abstract:
+            # 1. Get cofactor where var is TRUE
+            pos_cofactor = result_add.cofactor(var_add)
+            
+            # 2. Get cofactor where var is FALSE
+            neg_cofactor = result_add.cofactor((~var_add))
+            
+            # 3. Take the MIN of both branches
+            #    This effectively says: "The cost is the best case scenario,
+            #    regardless of whether this specific bit is 0 or 1."
+            result_add = pos_cofactor.min(neg_cofactor) 
+            
+        return result_add
     
 
-    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
+    def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
+        """
+         Create Graph of Utility's accting nodes with utility values.
+        """
+        uVars_add = self.manager.plusInfinity()
+        # skip u = 0; we reason about u = 0 separately
+        for u in range(1, self.budget + 1):
+            uVars_add = uVars_add.min(self.uVar_map_sym[f'u{u}'].ite(self.manager.addConst(u), self.manager.plusInfinity()))
+
+        dfa_goal_cube: ADD = self.goal_latch.ite(self.manager.addOne(), self.manager.plusInfinity())
+        goal_add: ADD = dfa_goal_cube.times(uVars_add)
+        final_goal_add = (self.uVar_map_sym[f'u{0}'] & self.dfa_handle.goal_latch).ite(self.manager.addZero(), goal_add)
+        if verbose:
+            print(final_goal_add)
+            print("Initialized the goal states with Utility values!")
+        return final_goal_add
+
+    
+
+    def gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         
-        return super().solve(verbose=verbose, cooperative_game=cooperative_game)
+        goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+
+        # create action cube ADD where all cubes map to inf
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            preimage: ADD = self.compute_preimage(curr_winning_states)
+
+            # print("Current Preimage:")
+            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+            # go over all the env actions and preserve the maximum one
+            # MaxUpre = []
+            # for env_tr_dd in self.env_action_cube_list:
+            #     # MaxUpre.append(preimage.restrict(env_tr_dd))
+            #     MaxUpre.append(preimage.cofactor(env_tr_dd))
+            
+            # if cooperative_game:
+            #     Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+            # else:
+            #     Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+            # # Upre = Upre.min(goal)
+            # # preimage_eact = curr_winning_states.min(preimage)
+            # # assert preimage_eact.compare(Upre, 2), "Preimage computation mismatch between test and actual computation."
+
+            # # go over all the sys actions and preserve the minimum one
+            # Minpre = []
+            # for robot_tr_dd in self.robot_action_cube_list:
+            #     # Minpre.append(Upre.restrict(robot_tr_dd))
+            #     Minpre.append(Upre.cofactor(robot_tr_dd))
+            
+            # next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
+            # next_winning_states = next_winning_states.min(goal)
+
+            next_winning_states = self.symbolic_min_abstract(preimage)
+            next_winning_states = next_winning_states.min(goal)
+            
+            # test = curr_winning_states.min(preimage)
+            # next_winning_states = test.min(goal)
+
+            # assert test2.compare(next_winning_states, 2), "Preimage computation mismatch between test and actual computation."
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
     
 
     def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
@@ -877,6 +1002,74 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # from the human state the cost remains the same
         return next_state_dfa_game & self.uVar_map_sym[curr_state_utl], act_name
+    
+    
+    def gou_roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a strategy on the graph of utility game.
+        """
+        curr_state_sym = self.init_latch & self.dfa_handle.init_latch
+        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            # if verbose:
+            curr_state_exp: List[str] = self.gou_convert_cube_to_state_ADD(curr_state_sym,
+                                                                            state_flag=True,
+                                                                            robot_action=False,
+                                                                            verbose=False,
+                                                                            table_header=False,
+                                                                            print_val=False)
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+            "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            try:
+                opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+            except IndexError:
+                opt_sval = 0
+            
+            if verbose:
+                # print(tabulate([(curr_state_exp[0][0][0], opt_sval)], headers=['Current State', 'Optimal State Value']))
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
+
+            turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
+
+            # get the action to be taken at the current state
+            if turn == 'robot':
+                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+            else:
+                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.rAction_map.inv[act_cube_string] if turn == 'robot' else self.eAction_map.inv[act_cube_string]
+            except KeyError:
+                print("No robot action found!!")
+                return
+           
+            # get the next state in the game
+            curr_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
+            
+            # check if you evolved over the DFA 
+            # create DFA edge and check if it satisfies any of the dges or not
+            curr_dfa_state: int = curr_state_exp[0][0][0][1]
+            for dfa_state_sym in self.qVar_map_sym.values():
+                dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
+                dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+                edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym)).isZero()
+
+                if edge_exists:
+                    curr_dfa_state: ADD = dfa_state_sym.swapVariables(self.prime_qVars, self.qVars)
+                    break
+            
+            curr_state_sym: ADD = curr_game_state_sym & curr_dfa_state
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            if verbose:
+                print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
 
 
     
@@ -888,12 +1081,18 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utlity_transition_relation()
 
         tic = time.time()
-        strategy = self.solve(verbose=False, cooperative_game=True)
+        strategy = self.gou_solve(verbose=False, cooperative_game=True)
         toc = time.time()
         print(f"Time to synthesize strategy: {toc - tic} seconds")
 
+        # self.test_pre_image()
+
+        if strategy is not None:
+            self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+
         # print Sys transitions for sanity checking
         # self.gou_convert_full_cube_to_state_ADD(dd=self.monolithic_valid_full_gou_trns, robot_action=True, verbose=True)
+        return
 
         # compute best-alternate response
         self.compute_best_alternate_response()
@@ -1041,7 +1240,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         print("Computed the Regret Values!")
 
         goal_add: ADD = dfa_goal_cube.times(reg_vals)
-        # print(test3)
         print("Initialized the goal states with regret values!")
         return goal_add
 
@@ -1121,26 +1319,69 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
     
     
     def test_pre_image(self):
+        # set thigs up
+        latch_vars_exist_cube: BDD = reduce(lambda a, b: a & b, self.latches).bddPattern()
+        uvars_exist_cube: BDD = reduce(lambda a, b: a & b, self.uVars).bddPattern()
+        uVars_add = self.manager.plusInfinity()
+        for u in range(self.budget + 1):
+            uVars_add = uVars_add.min(self.uVar_map_sym[f'u{u}'].ite(self.manager.addConst(u), self.manager.plusInfinity()))
+
         # extende the DFA game latches
         graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.dfa_handle.goal_latch & self.uVar_map_sym['u5']
-        goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.dfa_handle.init_latch & self.uVar_map_sym['u1'] 
+        uvars_goal_cube = self.uVar_map_sym['u1'] 
+        dfa_game_goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.dfa_handle.init_latch
+        goal_cube = dfa_game_goal_cube & uvars_goal_cube
         # goal state is b0 and l0 and ready l0
         print('Goal state:', goal_cube)
 
         # first evolve over the DFA
         dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
-        print('DFA Preimage: ', dfa_preimage)
+        print('Preimage (Only DFA): ', dfa_preimage)
         # self.gou_convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
         
         # then evolve over the game
-        dfa_game_preimage = self.preimage_test(From=dfa_preimage,
+        print("************Old way of computing preimage:************")
+        old_dfa_game_preimage = self.preimage_test(From=dfa_preimage,
                                                latches=self.latches + self.uVars,
                                                prime_latches=self.prime_latches + self.prime_uVars,
                                                ts_action=graph_of_utility_tr)
-        print('DFA Game Preimage: ', dfa_game_preimage)
-        self.gou_convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False, verbose=True)
+        print('DFA Game Preimage: ', old_dfa_game_preimage)
+        self.gou_convert_cube_to_state_ADD(old_dfa_game_preimage, human_action=False, robot_action=False, verbose=True)
+        print("************************************************************")
+
+        # parse the goal cube into game and utility cubes
+        goal_bdd = goal_cube.bddPattern()
+        uls_bdd = goal_bdd.existAbstract(latch_vars_exist_cube)
+        dfa_game_bdd = goal_bdd.existAbstract(uvars_exist_cube)
+
+        # try using the min() method to extract utilities ADD
+        utls_add = goal_cube.min(uVars_add)
+
+        print("************Old way of computing preimage:************")
+        # test this alternate preimage computation
+        utls_preimage = self.preimage_test(From=uls_bdd.toADD(),
+                                                    latches=self.uVars,
+                                                    prime_latches=self.prime_uVars,
+                                                    ts_action=list(self.uVars_transition_relation.values()))
+        # print('Preimage (Only Utilities): ', utls_preimage)
+        # # self.gou_convert_cube_to_state_ADD(dfa_game_utls_preimage, human_action=False, robot_action=False, verbose=True)
+
+        dfa_game_preimage = self.preimage_test(From=dfa_game_bdd.toADD(),
+                                               latches=self.latches,
+                                               prime_latches=self.prime_latches,
+                                               ts_action=list(self.transition_relation.values()))
+        # print('Preimage (Only GAME): ', dfa_game_preimage)
+        # self.convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)
+
+        # final preimage
+        preimage_full = dfa_game_preimage & utls_preimage
+        print('Preimage (GOU GAME): ', preimage_full)
+        self.gou_convert_cube_to_state_ADD(preimage_full, human_action=False, robot_action=False, verbose=True)
+
+        assert old_dfa_game_preimage.compare(preimage_full, 2), "[Error]: Preimage computation mismatch between old and new way of computing preimage in GOU game."
+
 
 
     def test_br_pre_image(self):
