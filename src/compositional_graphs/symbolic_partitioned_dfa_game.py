@@ -447,7 +447,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
         
         # first evolve over the DFA
-        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the game
         preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
@@ -487,25 +488,13 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             preimage = preimage + self.weight
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-            # go over all the env actions and preserve the maximum one
-            MaxUpre = []
-            for env_tr_dd in self.env_action_cube_list:
-                # MaxUpre.append(preimage.restrict(env_tr_dd))
-                MaxUpre.append(preimage.cofactor(env_tr_dd))
-            
             if cooperative_game:
-                Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+                Upre: ADD = self.symbolic_min_abstract(preimage)
             else:
-                Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-
-            # go over all the sys actions and preserve the minimum one
-            Minpre = []
-            for robot_tr_dd in self.robot_action_cube_list:
-                # Minpre.append(Upre.restrict(robot_tr_dd))
-                Minpre.append(Upre.cofactor(robot_tr_dd))
+                Upre: ADD = self.symbolic_max_abstract(preimage)
             
-            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-            next_winning_states = next_winning_states.min(goal)
+            Cpre: ADD = self.symbolic_min_abstract(Upre)
+            next_winning_states = Cpre.min(goal)
 
             # adding debugging step
             if verbose:

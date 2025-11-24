@@ -461,7 +461,36 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         split_str = curr_state[box_idx].split(', ')
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] &  \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
+
+    def symbolic_min_abstract(self, add_function):
+        """
+        Eliminates variables by taking the minimum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in self.oVars :
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.min(neg_cofactor) 
+            
+        return result_add
     
+
+    def symbolic_max_abstract(self, add_function):
+        """
+        Eliminates variables by taking the maximum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in self.iVars :
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.max(neg_cofactor) 
+            
+        return result_add
+
 
     def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
@@ -494,25 +523,13 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             preimage = preimage + self.weight
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-            # go over all the env actions and preserve the maximum one
-            MaxUpre = []
-            for env_tr_dd in self.env_action_cube_list:
-                # MaxUpre.append(preimage.restrict(env_tr_dd))
-                MaxUpre.append(preimage.cofactor(env_tr_dd))
-            
             if cooperative_game:
-                Upre = reduce(lambda x, y: x.min(y), MaxUpre)
+                Upre: ADD = self.symbolic_min_abstract(preimage)
             else:
-                Upre = reduce(lambda x, y: x.max(y), MaxUpre)
+                Upre: ADD = self.symbolic_max_abstract(preimage)
 
-            # go over all the sys actions and preserve the minimum one
-            Minpre = []
-            for robot_tr_dd in self.robot_action_cube_list:
-                # Minpre.append(Upre.restrict(robot_tr_dd))
-                Minpre.append(Upre.cofactor(robot_tr_dd))
-            
-            next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-            next_winning_states = next_winning_states.min(goal)
+            Cpre: ADD = self.symbolic_min_abstract(Upre)
+            next_winning_states = Cpre.min(goal)
 
             # adding debugging step
             if verbose:

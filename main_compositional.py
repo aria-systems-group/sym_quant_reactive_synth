@@ -170,7 +170,7 @@ def DFA_Game_Main():
     # print the number of explicit states
     sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
     env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    print("Total num of explicit states in Game: ", env_states + sys_states)
+    print(f"Total num of explicit states in Game: {env_states + sys_states:,}")
 
     # print DFA Info
     print("*****************Printing Game Info*****************")
@@ -189,8 +189,8 @@ def DFA_Game_Main():
     dfa_game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
-    dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_dfa_game_trns)
-    sys.exit(-1)
+    # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_dfa_game_trns)
+    # sys.exit(-1)
 
     # dfa_game.test_pre_image()
 
