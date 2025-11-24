@@ -515,7 +515,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
-                    if self.init_latch & curr_winning_states == self.manager.addZero():
+                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
                         init_val: int = 0
                     else:

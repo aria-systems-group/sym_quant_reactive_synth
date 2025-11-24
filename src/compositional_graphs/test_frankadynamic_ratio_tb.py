@@ -443,6 +443,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
 
     def set_init_latch(self) -> ADD:
+        assert len(self.init) == self.boxes + 1, "[Error]: The init state should be fully defined for Regret Synthesis code else the Synthesis code will not work correctly."
         init_cube = self.tVar_map_sym['robot'] & self.kVar_map_sym['k0']
         for s in self.init:
             init_cube &= self.xVar_map_sym[s]
