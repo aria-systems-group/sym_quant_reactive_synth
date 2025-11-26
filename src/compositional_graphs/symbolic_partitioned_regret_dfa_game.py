@@ -206,8 +206,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
          A helper function that takes in the ADD weight abd return a vector of 0-1 ADD per cost.
         """
-        # min_val: int = self.weight.findMin() # must be equal to 0
-        # max_val: int = self.weight.findMax() # must be equal to infinity
         min_val: int = 0
         max_val: int = 1
         
@@ -215,7 +213,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # if val != 0:
                 # self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & ~self.init_latch
             # else:
-            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD()
+            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds
         
         # manually add the init state to cost 0
         # self.states_per_cost[1] |= self.init_latch
@@ -883,7 +881,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         curr_states =  self.manager.plusInfinity()
         curr_states = curr_states.min(goal)
         # keeps track of optimal state values
-        # states_vals = []
         opt_state_val: ADD = curr_states
         frontier_curr_states = curr_states
         
@@ -896,10 +893,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             if old_approch:  
                 preimage: ADD = self.compute_preimage(curr_states)
                 next_states = self.symbolic_min_abstract(preimage)
-            
-                # dont need this as preimage does compute states that stay in DFA's goal state
-                # if layer == 0:
-                # next_states = next_states.min(opt_state_val)
                 next_states = next_states.min(goal)
 
             # NEW APPROACH 
@@ -907,18 +900,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             frontier_preimage = frontier_preimage.min(opt_state_val)
             frontier_next_states = self.symbolic_min_abstract(frontier_preimage)
             frontier_next_states = frontier_next_states.min(goal)
-            frontier_nodes = opt_state_val - frontier_next_states
 
-            # DEBUGGING STEP
-            # print("Checking the support of each Variables")
-            # print("Optimal State Value Support: ", opt_state_val.bddPattern().support())
-            # print("frontier_preimage Support: ", frontier_preimage.bddPattern().support())
-            # print("frontier_next states Support: ", frontier_next_states.bddPattern().support())
-            # print("Correct (OLD) preimage Support: ", preimage.bddPattern().support())
-            # print("**********************************************************************")
-
-            # if curr_states.compare(next_states, 2):
-            if frontier_nodes.compare(self.manager.addZero(), 2):
+            if opt_state_val.compare(frontier_next_states, 2):
                 print("**************************Reached fixpoint**************************")
                 if (self.dfa_handle.init_latch & self.init_latch) & opt_state_val != self.manager.plusInfinity():
                     if (self.dfa_handle.init_latch & self.init_latch) & opt_state_val == self.manager.addZero():
@@ -932,25 +915,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 return None
             
             
-             
-            # any cube who's value is 0 did not change its value
-            # frontier_nodes_01_add = (frontier_nodes.bddInterval(1, math.inf) | frontier_nodes.bddInterval(-math.inf, -1)).toADD()
+            # any cube who's value is 0 did not change its opt. state value.
+            frontier_nodes = opt_state_val - frontier_next_states
             frontier_nodes_01_add = frontier_nodes.bddPattern().toADD()
-            # frontier_nodes_01_add_org = frontier_nodes.bddInterval(1, math.inf).toADD()
             
             # adding debugging step
             if verbose:
                 print("Current Winning States:")
-                # continue
-                # frontier_sVal = frontier_nodes_01_add.times(next_states)
                 frontier_sVal = frontier_nodes_01_add#.times(next_states)
                 self.gou_convert_cube_to_state_ADD(frontier_sVal, robot_action=False, verbose=True)
-
-            # update the counter
-            layer += 1
-            # get states with finite values
-            # new_states_mask = frontier_nodes.compare(self.manager.plusInfinity(), 3)
-            # visited_states = visited_states | new_states_mask
 
             # swap the winning states
             opt_state_val = frontier_next_states
@@ -958,13 +931,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 curr_states = next_states
                 assert next_states.compare(opt_state_val, 2), "Mismatch in optimal state values without!!"
             
-            # frontier_curr_states = frontier_nodes_01_add.ite(self.manager.addOne(), self.manager.plusInfinity()).times(opt_state_val)
-            frontier_curr_states = frontier_nodes_01_add.ite(opt_state_val, self.manager.plusInfinity())#.times(opt_state_val)
-            # assert frontier_curr_states_test == frontier_curr_states, "Mismatch in frontier current states computation!!"
-            # print("Checking the support of each Variables")
-            # print("(OLD) Current State Support: ", curr_states.bddPattern().support())
-            # print("(NEW) frontier_curr_states Support: ", frontier_curr_states.bddPattern().support())
-            # print("**********************************************************************")
+            frontier_curr_states = frontier_nodes_01_add.ite(opt_state_val, self.manager.plusInfinity())
+            
+            # update the counter
+            layer += 1
 
     
 
