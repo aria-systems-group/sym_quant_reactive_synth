@@ -463,7 +463,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
           for the Sys player (robot) to reach the goal state.
         """
         # initialize goal state with 0 state value and add it to the winning region
-        # goal = self.dfa_handle.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)

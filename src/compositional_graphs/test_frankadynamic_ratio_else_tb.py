@@ -71,6 +71,22 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 self.xVar_map['b' + str(b) + ' l' + str(l)] = bit_str
                 self.bVars_map[b]['b' + str(b) + ' l' + str(l)] = bit_str
     
+    def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
+        """
+         A method to to compute the |Sys States| and |Env states| in the game.
+         Sys States = Robot Configurations (ready, holding, to-obj) x Box Configurations x |turn variables|
+         Env States = Robot Configurations (in-transit, in-transfer) x Box Configurations x |turn variables|
+
+         Box conf. = (|locs + 1|)! / (|locs + 1| - |boxes|)! (locs = locations; +1 for end-effector loc)
+         |ready| = |locs|; |holding| = |locs|; |to-obj| = |boxes| + 1 (for the 0-offset)
+         |in-transit| = |boxes|; |in-transfer| = |locs|;
+        """
+        sys_states = (self.ratio + 1)*(2*self.locs + self.boxes + 1)*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
+        env_states = (self.ratio + 1)*((self.boxes + self.locs))*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
+        if verbose:
+            print(f'Number of States in Game: \n Sys States: {sys_states} \n Env States: {env_states} \n Total States: {sys_states + env_states}')
+        return sys_states, env_states
+    
 
     def create_valid_state_constraints(self):
         """

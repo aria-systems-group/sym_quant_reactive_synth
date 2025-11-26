@@ -163,7 +163,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
         varsize = self.manager.size()
-        # num. of preds = ready x |locs| + to-obj x |boxes| + holding x |locs| + 1 (to account for l0 being end effector loc) + grasp + release
+        # num. of preds = ready x |locs| + to-obj x |boxes| + holding x |locs| + 1 (to account for l0 being end effector loc)
         # additional preds: in-transit x |locs + 1| x |boxes| + in-transfer x |locs| x |locs  - 1|
         num_of_preds = 2*self.locs + self.boxes + 2 + 1 # +1 for ready-else state
         num_of_preds += (self.locs + 1) * self.boxes # in-transit preds +1 for the else location
@@ -440,6 +440,24 @@ class FrankaWorldDynamicRatioTurnBased():
     def set_prime_latches(self):
         self.prime_xVars: List[ADD] = self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds]
         self.prime_latches: List[ADD] = self.prime_tVar + self.prime_xVars
+    
+
+    def get_number_of_states(self, verbose: bool = True):
+        """
+         A method to to compute the |Sys States| and |Env states| in the game.
+         Sys States = Robot Configurations (ready, holding, to-obj) x Box Configurations x |turn variables|
+         Env States = Robot Configurations (in-transit, in-transfer) x Box Configurations x |turn variables|
+
+         Box conf. = (|locs + 1|)! / (|locs + 1| - |boxes|)! (locs = locations; +1 for end-effector loc)
+         |ready| = |locs|; |holding| = |locs|; |to-obj| = |boxes| + 1 (for the 0-offset)
+         |in-transit| = |boxes|*(|locs| + 1); |in-transfer| = |locs|*(|locs|-1);
+        """
+        sys_states = (self.ratio + 1)*(2*self.locs + self.boxes + 1)*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
+        env_states = (self.ratio + 1)*((self.boxes*(self.locs + 1) + self.locs*(self.locs - 1)))*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
+        if verbose:
+            print(f'Number of States in Game: \n Sys States: {sys_states} \n Env States: {env_states} \n Total States: {sys_states + env_states}')
+        return sys_states, env_states
+
 
 
     def set_init_latch(self) -> ADD:
@@ -1118,7 +1136,7 @@ class FrankaWorldDynamicRatioTurnBased():
             
             parent_constraint |= transit_constraint & transit_cube if i == 0 else transit_constraint & transfer_cube 
         
-        print("Added Transit constraint to robot frame axioms.")
+        print("Added Transit & Transfer constraints to robot frame axioms.")
         
         for b in range(self.boxes):
             for grasp_loc in range(1, self.locs + 1):

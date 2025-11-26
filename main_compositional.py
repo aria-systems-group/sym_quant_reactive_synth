@@ -69,12 +69,16 @@ def Regret_DFA_Game_Main():
     print("*****************Utility Value Map:*****************")
     for k, v in dfa_game.uVar_map.items():
         print(f"{k} : {v}")
+    
+    print("|xVars|: ", len(dfa_game.xVars))
+    print("|rAct|: ", len(dfa_game.oVars))
+    print("|eAct|: ", len(dfa_game.iVars))
+    print("|kVars|: ", len(dfa_game.kVars))
+    print("|uVars|: ", len(dfa_game.uVars))
 
 
     # print the number of explicit states
-    sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    print("Total num of explicit states in Game: ", env_states + sys_states)
+    sys_states, env_states = dfa_game.get_number_of_states(verbose=True)
 
     # print DFA Info
     print("*****************Printing Game Info*****************")
@@ -95,7 +99,7 @@ def Regret_DFA_Game_Main():
     tic = time.time()
     dfa_game.create_transition_relation()
     toc = time.time()
-    print(f"Time to create transition relation: {toc - tic} seconds")
+    # print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
 
     # dfa_game.test_pre_image()
@@ -168,9 +172,7 @@ def DFA_Game_Main():
 
 
     # print the number of explicit states
-    sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    print(f"Total num of explicit states in Game: {env_states + sys_states:,}")
+    sys_states, env_states = dfa_game.get_number_of_states(verbose=True)
 
     # print DFA Info
     print("*****************Printing Game Info*****************")
@@ -180,9 +182,11 @@ def DFA_Game_Main():
 
     # print DFA Game Info
     print("*****************Printing DFA Game Info*****************")
-    print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
+    print(f"Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
     print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
     print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
+
+     print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
 
     # create the game's transition relation
     tic = time.time()
@@ -251,10 +255,7 @@ def Game_Main():
         print(f"{k} : {v}")
 
 
-    # print the number of explicit states
-    sys_states = (ratio + 1)*(pow(locs + 1, 3) + boxes)*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    env_states = (ratio + 1)*(pow(locs + 1, 2) + boxes*(locs+1))*(math.factorial(locs+1) // math.factorial(locs+1 - boxes))
-    print("Total num of explicit states in Game: ", env_states + sys_states)
+    game.get_number_of_states(verbose=True)
 
 
     # print Game Info
