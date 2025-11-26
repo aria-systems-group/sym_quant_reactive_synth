@@ -874,75 +874,98 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     
 
-    def test_gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
+    def test_gou_solve(self, verbose: bool = False, cooperative_game: bool = False, old_approch: bool = False) -> Dict[str, ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         
         goal = self.create_goal_nodes_with_utility_values(verbose=False)
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
-        # visited_states: ADD = curr_winning_states
+        curr_states =  self.manager.plusInfinity()
+        curr_states = curr_states.min(goal)
+        # keeps track of optimal state values
+        # states_vals = []
+        opt_state_val: ADD = curr_states
+        frontier_curr_states = curr_states
         
         # intialize the iteration counter
         layer = 0
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            preimage: ADD = self.compute_preimage(curr_winning_states)
+            # OLD APPROACH
+            if old_approch:  
+                preimage: ADD = self.compute_preimage(curr_states)
+                next_states = self.symbolic_min_abstract(preimage)
+            
+                # dont need this as preimage does compute states that stay in DFA's goal state
+                # if layer == 0:
+                # next_states = next_states.min(opt_state_val)
+                next_states = next_states.min(goal)
 
-            next_winning_states = self.symbolic_min_abstract(preimage)
-            if layer == 0:
-                next_winning_states = next_winning_states.min(goal)
+            # NEW APPROACH 
+            frontier_preimage: ADD = self.compute_preimage(frontier_curr_states)
+            frontier_preimage = frontier_preimage.min(opt_state_val)
+            frontier_next_states = self.symbolic_min_abstract(frontier_preimage)
+            frontier_next_states = frontier_next_states.min(goal)
+            frontier_nodes = opt_state_val - frontier_next_states
 
-            if curr_winning_states.compare(next_winning_states, 2):
-            # if frontier_nodes.compare(self.manager.minusInfinity(), 2):
+            # DEBUGGING STEP
+            # print("Checking the support of each Variables")
+            # print("Optimal State Value Support: ", opt_state_val.bddPattern().support())
+            # print("frontier_preimage Support: ", frontier_preimage.bddPattern().support())
+            # print("frontier_next states Support: ", frontier_next_states.bddPattern().support())
+            # print("Correct (OLD) preimage Support: ", preimage.bddPattern().support())
+            # print("**********************************************************************")
+
+            # if curr_states.compare(next_states, 2):
+            if frontier_nodes.compare(self.manager.addZero(), 2):
                 print("**************************Reached fixpoint**************************")
-                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
-                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+                if (self.dfa_handle.init_latch & self.init_latch) & opt_state_val != self.manager.plusInfinity():
+                    if (self.dfa_handle.init_latch & self.init_latch) & opt_state_val == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
                         init_val: int = 0
                     else:
-                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & opt_state_val).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-                    self.comp_winning_states = curr_winning_states
-                    return preimage if init_val < math.inf else None
+                    self.comp_winning_states = opt_state_val
+                    return frontier_preimage if init_val < math.inf else None
                 return None
             
             
-            
-            # frontier_nodes = visited_states.ite(self.manager.plusInfinity(), next_winning_states)
-            frontier_nodes = curr_winning_states - next_winning_states 
-            frontier_nodes_01_add = frontier_nodes.bddInterval(1, math.inf).toADD()
+             
+            # any cube who's value is 0 did not change its value
+            # frontier_nodes_01_add = (frontier_nodes.bddInterval(1, math.inf) | frontier_nodes.bddInterval(-math.inf, -1)).toADD()
+            frontier_nodes_01_add = frontier_nodes.bddPattern().toADD()
+            # frontier_nodes_01_add_org = frontier_nodes.bddInterval(1, math.inf).toADD()
             
             # adding debugging step
             if verbose:
                 print("Current Winning States:")
-                self.gou_convert_cube_to_state_ADD(frontier_nodes_01_add, robot_action=False, verbose=True)
-            
-            # # if curr_winning_states.compare(next_winning_states, 2):
-            # if frontier_nodes.compare(self.manager.minusInfinity(), 2):
-            #     print("**************************Reached fixpoint**************************")
-            #     if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
-            #         if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
-            #             print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
-            #             init_val: int = 0
-            #         else:
-            #             init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
-            #         print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-            #         self.comp_winning_states = curr_winning_states
-            #         return preimage if init_val < math.inf else None
-                # return None
+                # continue
+                # frontier_sVal = frontier_nodes_01_add.times(next_states)
+                frontier_sVal = frontier_nodes_01_add#.times(next_states)
+                self.gou_convert_cube_to_state_ADD(frontier_sVal, robot_action=False, verbose=True)
 
             # update the counter
             layer += 1
-
             # get states with finite values
             # new_states_mask = frontier_nodes.compare(self.manager.plusInfinity(), 3)
             # visited_states = visited_states | new_states_mask
 
             # swap the winning states
-            curr_winning_states = frontier_nodes_01_add.ite(self.manager.addOne(), self.manager.plusInfinity()).times(next_winning_states)
+            opt_state_val = frontier_next_states
+            if old_approch:
+                curr_states = next_states
+                assert next_states.compare(opt_state_val, 2), "Mismatch in optimal state values without!!"
+            
+            # frontier_curr_states = frontier_nodes_01_add.ite(self.manager.addOne(), self.manager.plusInfinity()).times(opt_state_val)
+            frontier_curr_states = frontier_nodes_01_add.ite(opt_state_val, self.manager.plusInfinity())#.times(opt_state_val)
+            # assert frontier_curr_states_test == frontier_curr_states, "Mismatch in frontier current states computation!!"
+            # print("Checking the support of each Variables")
+            # print("(OLD) Current State Support: ", curr_states.bddPattern().support())
+            # print("(NEW) frontier_curr_states Support: ", frontier_curr_states.bddPattern().support())
+            # print("**********************************************************************")
+
     
 
     def gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Dict[str, ADD]:
@@ -1128,8 +1151,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # self.test_pre_image()
 
-        if strategy is not None:
-            self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+        # if strategy is not None:
+        #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
 
         # print Sys transitions for sanity checking
         # self.gou_convert_full_cube_to_state_ADD(dd=self.monolithic_valid_full_gou_trns, robot_action=True, verbose=True)
@@ -1371,7 +1394,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.dfa_handle.goal_latch & self.uVar_map_sym['u5']
-        uvars_goal_cube = self.uVar_map_sym['u1'] 
+        uvars_goal_cube = self.uVar_map_sym['u0'] 
         dfa_game_goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['holding l1'] & self.xVar_map_sym['b0 l0'] & self.dfa_handle.init_latch
         goal_cube = dfa_game_goal_cube & uvars_goal_cube
         # goal state is b0 and l0 and ready l0
@@ -1384,7 +1407,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         # then evolve over the game
         print("************Old way of computing preimage:************")
-        old_dfa_game_preimage = self.preimage_test(From=dfa_preimage,
+        old_dfa_game_preimage = self.preimage_test(From=uvars_goal_cube,
                                                latches=self.latches + self.uVars,
                                                prime_latches=self.prime_latches + self.prime_uVars,
                                                ts_action=graph_of_utility_tr)
