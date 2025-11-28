@@ -444,7 +444,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def get_number_of_states(self, verbose: bool = True):
         """
-         A method to to compute the |Sys States| and |Env states| in the game.
+        A method to to compute the |Sys States| and |Env states| in the game.
          Sys States = Robot Configurations (ready, holding, to-obj) x Box Configurations x |turn variables|
          Env States = Robot Configurations (in-transit, in-transfer) x Box Configurations x |turn variables|
 

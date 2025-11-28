@@ -415,7 +415,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return states_action_pairs
     
 
-    def gobr_convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, human_action: bool = False, verbose: bool = False) -> None:
+    def gobr_convert_cube_to_state_ADD(self,
+                                       dd: ADD, state_flag: bool = True,
+                                       dfa_flag: bool = True, robot_action: bool = False,
+                                       human_action: bool = False, verbose: bool = False,
+                                       table_header: bool = True, print_val: bool = True) -> None:
         """
         Convert Graph of Best-Response state-action cubes to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -433,10 +437,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.iVars) # env action vars (iVars)
         
         headers = []
-        if verbose and (robot_action or human_action):
-            headers = ['state', 'action', 'value']
-        elif verbose and not (robot_action and human_action):
-            headers = ['state', 'value']
+        if verbose:
+            headers.extend(['state'])
+            if robot_action:
+                headers.append('action')
+            if print_val:
+                headers.append('value')
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
@@ -516,8 +522,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             else:
                 states_bookkeeping.append((state, val))
         
-        if verbose:
+        if verbose and table_header:
             print(tabulate(states_bookkeeping, headers=headers))
+        elif verbose and not table_header:
+            print(tabulate(states_bookkeeping))
 
         return states_action_pairs
 
@@ -771,8 +779,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
             
             # if you made it till here then print stuff or store them
-            # print(state, f'--({rAction_str})-->', prime_state, sep="      ")
-            state_action_prime_pairs.append((state, rAction_str, prime_state, val))
+            if robot_action:
+                state_action_prime_pairs.append((state, rAction_str, prime_state, val))
+            else:
+                state_action_prime_pairs.append((state, '', prime_state, val))
         
         if verbose:
             print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state', 'value']))
@@ -1082,7 +1092,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 print("No robot action found!!")
                 return
            
-            # get the next state in the game
             curr_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
             
             # check if you evolved over the DFA 
@@ -1221,6 +1230,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             for leaf_val in lVals:
                 # leav_vals == inf may have invalid states into, so post-process and remove it later
                 bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val)).existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
+                bdd_state_act = bdd_state_act & ~self.dfa_handle.goal_latch.bddPattern()  # remove goal states from br computation; later we add them to +inf br value
                 self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
         
         # print stuff for debugging
@@ -1236,11 +1246,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
-        # sanity checking 
-        # unions of all states with br
         if sanity_checking:
-            states_br: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
-            assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
+            # unions of all states with br
+            states_br: ADD = reduce(lambda x, y: x + y, self.vector_of_br.values())
+            try:
+                assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
+            except AssertionError:
+                print("[Error]: Atleast one state-action pair has at-least 2 best-alternate values. This is incorrect. Fix This!!!")
+                print(states_br.bddInterval(2, math.inf).toADD())
+                sys.exit(1)
 
     
     def create_goal_nodes_with_regret_values(self) -> ADD:
@@ -1307,7 +1321,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
             for env_tr_dd in self.env_action_cube_list:
-                # MaxUpre.append(preimage.restrict(env_tr_dd))
                 MaxUpre.append(preimage.cofactor(env_tr_dd))
             
             if cooperative_game:
