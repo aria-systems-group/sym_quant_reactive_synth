@@ -26,9 +26,9 @@ def Regret_DFA_Game_Main():
     enable_reordering = False
     ltlf_flag = True
 
-    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    # init = ['ready l2', 'b0 l2', 'b1 l3']
-    init = ['ready l2', 'b0 l2']
+    # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
+    # init = ['ready l5', 'b0 l2', 'b1 l3', 'b2 l4']
+    init = ['ready l3', 'b0 l2']
     # goal = [['b0 l1']]
     goal = []
 
@@ -38,6 +38,7 @@ def Regret_DFA_Game_Main():
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
+    # formula = 'F(p01 & F(p02))'
     formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedRegretDFAGame(boxes=boxes, locs=locs,
@@ -99,27 +100,16 @@ def Regret_DFA_Game_Main():
     tic = time.time()
     dfa_game.create_transition_relation()
     toc = time.time()
-    # print(f"Time to create transition relation: {toc - tic} seconds")
+    print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
 
-    # dfa_game.test_pre_image()
-    # dfa_game.regret_solver(cooperative_game=False, verbose=False)
+    tic = time.time()
+    strategy = dfa_game.regret_solver(verbose=False)
+    toc = time.time()
+    print(f"Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
 
-    # tic = time.time()
-    # strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
-    # toc = time.time()
-    # print(f"Time to synthesize strategy: {toc - tic} seconds")
-
-    # compute best-alternate response
-    # dfa_game.compute_best_alternate_response()
-    # print stuff for debugging
-    # for ract in dfa_game.rAction_map.keys():
-    #     print(f"************* Best Alternatives for {ract} *************")
-    #     dfa_game.convert_full_cube_to_state_ADD(dd=dfa_game.ba_per_ract[ract], robot_action=True, verbose=True)
-    # sys.exit(-1)
-
-    # if strategy is not None:
-    #     dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+    if strategy is not None:
+        dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
 
 
 def DFA_Game_Main():
@@ -132,7 +122,7 @@ def DFA_Game_Main():
     enable_reordering = False
     ltlf_flag = True
 
-    # init = ['ready l2', 'b0 l2', 'b1 l3']
+    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5', 'b4 l6', 'b5 l7']
     init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
     goal = []
@@ -186,7 +176,7 @@ def DFA_Game_Main():
     print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
     print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
 
-     print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
+    print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
 
     # create the game's transition relation
     tic = time.time()
@@ -210,15 +200,15 @@ def DFA_Game_Main():
 
 def Game_Main():
     # setting things up
-    boxes = 2
-    locs = 3
-    ratio = 2
+    boxes = 1
+    locs = 2
+    ratio = 1
 
     cooperative_game = True
     enable_reordering = False
 
-    init = ['ready l2', 'b0 l2', 'b1 l3']
-    # init = ['ready l2', 'b0 l2']
+    # init = ['ready l2', 'b0 l2', 'b1 l3']
+    init = ['ready l2', 'b0 l2']
     goal = [['b0 l1']]
 
     human_locs = range(1, locs + 1)
