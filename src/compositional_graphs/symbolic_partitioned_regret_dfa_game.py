@@ -1398,10 +1398,22 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         print("Done taking the min between br and utility values!")
 
         reg_vals: ADD = uVars_add.minus(min_utility_br)
-        # print(test2)
-        print("Computed the Regret Values!")
+        # process reg values - all invalid uvArs conf. map to +inf
+        valid_uVars_add = reduce(lambda x, y: x | y, self.uVar_map_sym.values())
+        valid_brVars_add = reduce(lambda x, y: x | y, self.brVar_map_sym.values())
+        reg_vals = valid_uVars_add.ite(reg_vals, self.manager.plusInfinity())
 
-        goal_add: ADD = self.goal_latch.ite(reg_vals, self.manager.plusInfinity()) #dfa_goal_cube.times(reg_vals)
+        # If uVars is buget + 1, then it is a sink states and hence also maps to +inf regret value
+        reg_vals = self.uVar_map_sym[f'u{self.budget + 1}'].ite(self.manager.plusInfinity(), reg_vals)
+        
+        # invalid br vals also map to +inf regret value
+        reg_vals = valid_brVars_add.ite(reg_vals, self.manager.plusInfinity())
+        # print(reg_vals)
+        print("Processed the Regret Values!")
+
+        goal_add: ADD = self.goal_latch.ite(reg_vals, self.manager.plusInfinity())
+        # now restrict it to the set of valid box conf.
+        goal_add = self.monolithic_relevant_box_preds.ite(goal_add, self.manager.plusInfinity())
         print("Initialized the goal states with regret values!")
         return goal_add
 
@@ -1420,6 +1432,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         while True:
             print(f"**************************Layer: {layer}**************************")
             preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+            self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(0, 0).toADD(), human_action=False, robot_action=False, verbose=True)
 
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
@@ -1579,6 +1592,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
         new_preimage_su = self.compute_preimage_test(goal_cube)
 
+        # TODO: Should this & or should it be restrict?
         new_preimage_full = new_preimage_su & self.monolithic_valid_sabr_prime_br_trns
         print('Preimage over GoBR TR: \n', new_preimage_full)
         # remove dependency on prime br vars
