@@ -1338,9 +1338,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
             for leaf_val in lVals:
                 # leav_vals == inf may have invalid states into, so post-process and remove it later
-                bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val)).existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
-                bdd_state_act = bdd_state_act & ~self.dfa_handle.goal_latch.bddPattern()  # remove goal states from br computation; later we add them to +inf br value
-                self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
+                bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val))
+                if leaf_val == math.inf:
+                    # remove the current action ract from bdd_state_act as they are default set to inf. 
+                    bdd_state_act = (bdd_state_act & ~ract_sym.bddPattern()).existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
+                else:
+                    bdd_state_act = bdd_state_act.existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
+                # remove goal states from br computation; later we add them to +inf br value
+                bdd_state_act = bdd_state_act & ~self.dfa_handle.goal_latch.bddPattern()  
+                self.vector_of_br[leaf_val] |= bdd_state_act.toADD() & self.monolithic_valid_state_robot_actions
         
         # print stuff for debugging
         print("Done computing BR")
@@ -1351,7 +1357,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         if math.inf in self.vector_of_br.keys():
             inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
             inf_state_actions: BDD = inf_states & state_action_pair
-            self.vector_of_br[math.inf] = inf_state_actions.toADD()
+            self.vector_of_br[math.inf] |= inf_state_actions.toADD()
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
@@ -1399,8 +1405,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         # initialize goal state with 0 state value and add it to the winning region
         goal = self.create_goal_nodes_with_regret_values()
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
+        curr_winning_states = goal
 
         # print the initial winning states
         # if verbose:
