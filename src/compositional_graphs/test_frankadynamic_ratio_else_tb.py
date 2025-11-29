@@ -493,14 +493,17 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         return result_add
     
 
-    def symbolic_max_abstract(self, add_function):
+    def symbolic_max_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
         """
         Eliminates variables by taking the maximum of the cofactor branches.
          This replaces explicit loops over action lists.
         """
         result_add = add_function
+        vars_to_use = self.iVars
+        if variables_to_abstract is not None:
+            vars_to_use = variables_to_abstract
 
-        for var_add in self.iVars :
+        for var_add in vars_to_use :
             pos_cofactor = result_add.cofactor(var_add)
             neg_cofactor = result_add.cofactor((~var_add))
             result_add = pos_cofactor.max(neg_cofactor) 

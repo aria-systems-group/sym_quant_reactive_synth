@@ -836,33 +836,59 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return preimage
     
 
+    # def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
+    #     # prime the vars
+    #     curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+        
+    #     # first evolve over the DFA
+    #     # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+    #     dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+
+    #     # then evolve over the Graph of Best-response game
+    #     # prime br and evolve over br
+    #     br_preimage_primed: ADD = dfa_preimage.swapVariables(self.brVars, self.prime_brVars)
+    #     br_preimage = br_preimage_primed.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+
+    #     # then evolve over the DFA game state (s, u)
+    #     gou_preimage_primed = br_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
+    #     preimage: ADD = gou_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
+
+    #     return preimage
+    
     def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
         # first evolve over the DFA
-        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
         dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the Graph of Best-response game
         # prime br and evolve over br
-        br_preimage_primed: ADD = dfa_preimage.swapVariables(self.brVars, self.prime_brVars)
-        br_preimage = br_preimage_primed.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+        # br_preimage_primed: ADD = dfa_preimage.swapVariables(self.brVars, self.prime_brVars)
+        # br_preimage = br_preimage_primed.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
 
         # then evolve over the DFA game state (s, u)
-        gou_preimage_primed = br_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
-        preimage: ADD = gou_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars + self.brVars, self.prime_latches + self.prime_uVars + self.prime_brVars)
+        # dfa_preimage = dfa_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
+        preimage_su: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
+        preimage = preimage_su & self.monolithic_valid_sabr_prime_br_trns
 
-        return preimage
+        # remove dependency on prime br vars
+        tmp_preimage = self.manager.addZero()
+        for br in self.brVar_map_sym:
+            tmp_preimage |= preimage.cofactor(self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars))
+        
+        return tmp_preimage
 
 
-    def symbolic_min_abstract(self, add_function):
+    def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
         """
         Eliminates variables by taking the minimum of the cofactor branches.
          This replaces explicit loops over action lists.
         """
         result_add = add_function
-        variables_to_abstract = self.oVars + self.iVars 
+        if variables_to_abstract is None:
+            variables_to_abstract = self.oVars + self.iVars 
 
         for var_add in variables_to_abstract:
             # 1. Get cofactor where var is TRUE
@@ -1257,9 +1283,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # test BR TR for sanity checking
         # self.test_br_pre_image()
-
-        # create goal nodes with regret values
-        # self.create_goal_nodes_with_regret_values()
+        # self.test_pre_image()
+        # self.test_br_pre_image_old_approach()
     
 
     def count_actions_per_state_gou(self) -> ADD:
@@ -1529,6 +1554,81 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         assert old_dfa_game_preimage.compare(preimage_full, 2), "[Error]: Preimage computation mismatch between old and new way of computing preimage in GOU game."
 
+    
+
+    def test_br_pre_image_old_approach(self):
+        # s = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.uVar_map_sym['u2'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[1] #& self.brVar_map_sym[math.inf]
+        # sprime = self.tVar_map_sym['human'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l2'] & self.uVar_map_sym['u3'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[1] #& self.brVar_map_sym[math.inf]
+        # s2 = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l2'] & self.xVar_map_sym['b0 l1'] & self.uVar_map_sym['u3'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[2]  # hmove cooperative
+        s3 = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l2'] & self.uVar_map_sym['u1'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[1] # no hmove - adversarial
+
+        # br_cube = self.brVar_map_sym[4]#.ite(self.manager.addOne(), self.manager.plusInfinity()) # self.brVar_map_sym[math.inf]
+        br_cube = self.brVar_map_sym[math.inf]
+        # br_cube = self.brVar_map_sym[4]
+        sprime = s3
+
+        goal_cube = sprime & br_cube
+        print('Goal state:\n', goal_cube)
+
+        # call symbolic min abstract
+        # test = self.symbolic_min_abstract(goal_cube, variables_to_abstract=self.gou_game_latches)
+        # print("Symbolic min abstract result: ", test)
+        # test = self.symbolic_max_abstract(goal_cube, variables_to_abstract=self.gou_game_latches)
+        # print("Symbolic min abstract result: ", test)
+        # sys.exit(0)
+        
+        # evolve over BR TR
+        # From = br_cube.swapVariables(self.brVars, self.prime_brVars)
+        # preimage_br = From.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+        # print("Evolved over BR TR: ", preimage_br)
+        # From = goal_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches)
+        # preimage_br = From
+        # if robot_states.isZero():
+        print("**********************************************************")
+        print("Old method using Compose Operation for BR Cube")
+        From = goal_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches)
+        preimage_br = From.vectorCompose(self.prime_brVars, list(self.brVars_transition_relation.values()))
+        print("Evolved over BR TR: \n", preimage_br)
+        # self.gobr_convert_cube_to_state_ADD(preimage_br, robot_action=False, human_action=False, verbose=True)
+
+        # then evolve over the game
+        goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
+        preimage_su = self.compute_preimage_test(goal_cube)
+        self.gou_convert_cube_to_state_ADD(preimage_su, human_action=False, robot_action=False, verbose=True)
+        robot_states = preimage_su & self.tVar_map_sym['robot']
+        humans_states = preimage_su & self.tVar_map_sym['human']
+        preimage_full_2 = self.manager.addZero()
+        preimage_full_1 = self.manager.addZero()
+        if not robot_states.isZero():
+            preimage_full_1 = preimage_br & preimage_su
+        if not humans_states.isZero():
+            preimage_full_2 = goal_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches) & preimage_su 
+        
+        preimage_full = preimage_full_1 | preimage_full_2
+        # preimage_full = preimage_su
+        print_cube = preimage_full #& goal_cube.swapVariables(self.gobr_game_latches, self.gobr_game_prime_latches)
+        print('Preimage over GoBR TR: ', print_cube)
+        # self.gobr_convert_full_cube_to_state_ADD(print_cube, robot_action=False, verbose=True)
+        # print('DFA Game Preimage: ', dfa_game_preimage)
+        self.gobr_convert_cube_to_state_ADD(print_cube, human_action=False, robot_action=False, verbose=True)
+
+        # here use the monolithic valid full GoBR TR to compute preimage of BR
+        print("**********************************************************")
+        print("New method using AND Operation wihtout computing preimage of BR Cube")
+        # goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
+        new_preimage_su = self.compute_preimage_test(goal_cube)
+
+        new_preimage_full = new_preimage_su & self.monolithic_valid_sabr_prime_br_trns
+        print('Preimage over GoBR TR: \n', new_preimage_full)
+        # remove dependency on prime br vars
+        tmp_preimage = self.manager.addZero()
+        for br in self.brVar_map_sym:
+            tmp_preimage |= new_preimage_full.cofactor(self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars))
+        
+        print('Preimage over GoBR TR (no prime vars): \n', tmp_preimage)
+        self.gobr_convert_cube_to_state_ADD(tmp_preimage, human_action=False, robot_action=False, verbose=True)
+        # assert preimage_full.compare(new_preimage_full, 2), "[Error]: Preimage computation mismatch between old and new way of computing preimage in GoBR game."
+        print("**********************************************************")
 
 
     def test_br_pre_image(self):
