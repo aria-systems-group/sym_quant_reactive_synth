@@ -106,6 +106,10 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         some_box_at_ee: ADD = reduce(lambda x, y: x | y, [self.xVar_map_sym[f'b{b} l0'] for b in range(self.boxes)])
         for to_loc in range(1, self.locs + 1):
             self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'in-transfer l{to_loc}'] | self.xVar_map_sym[f'holding l{to_loc}']).ite(some_box_at_ee, self.manager.addOne())
+        
+        # map all invalid Rconf to zero
+        valid_rconf: ADD = reduce(lambda x, y: x | y, [self.cube_to_add(i, self.pVars) for i in self.pVar_map.values()])
+        self.monolithic_relevant_box_preds = valid_rconf.ite(self.monolithic_relevant_box_preds, self.manager.addZero())
 
     
     def preprocess_monolithic_valid_state_robot_actions(self):

@@ -555,6 +555,11 @@ class FrankaWorldDynamicRatioTurnBased():
         
         for at_loc in range(1, self.locs + 1):
             self.monolithic_relevant_box_preds &= (self.xVar_map_sym[f'holding l{at_loc}']).ite(some_box_at_ee, self.manager.addOne())
+        
+
+        # map all invalid Rconf to zero
+        valid_rconf: ADD = reduce(lambda x, y: x | y, [self.cube_to_add(i, self.pVars) for i in self.pVar_map.values()])
+        self.monolithic_relevant_box_preds = valid_rconf.ite(self.monolithic_relevant_box_preds, self.manager.addZero())
     
 
     def preprocess_monolithic_valid_state_robot_actions(self):
@@ -598,8 +603,6 @@ class FrankaWorldDynamicRatioTurnBased():
          A method to post-process the transition relation after all action rules and frame axioms have been added.
         """
         self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero()) #& \
-            #   self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions & \
-            #   self.monolithic_relevant_box_preds.swapVariables(self.latches, self.prime_latches) & self.monolithic_valid_state_robot_actions.swapVariables(self.latches, self.prime_latches)
         
         constraint_cube = self.manager.addZero() 
         for kVal in self.kVar_map.keys():
