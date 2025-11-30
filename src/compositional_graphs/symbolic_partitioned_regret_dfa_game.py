@@ -845,7 +845,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage_br_0: ADD = preimage_0.ite(test, self.manager.plusInfinity())
         # get the states with value 1
         tmp_preimage_br_0 = preimage_br_0.bddInterval(1, 1).toADD()
-        preimage_br_0 = tmp_preimage_br_0.ite(self.manager.addZero(), self.manager.plusInfinity())
+        # preimage_br_0 = tmp_preimage_br_0.ite(self.manager.addZero(), self.manager.plusInfinity())
+        # remove dependency on prime br vars
+        tmp_preimage_0 = self.manager.addZero()
+        for br in self.brVar_map_sym:
+            br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+            tmp_preimage_0 |= tmp_preimage_br_0.cofactor(br_cube)
+        tmp_preimage_0 = tmp_preimage_0.ite(self.manager.addZero(), self.manager.plusInfinity())
         # return preimage_br_0
         
         # preimage_br_0 = preimage_br_0.ite(self.manager.addZero(), preimage_br_0)
@@ -856,7 +862,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage_br: ADD = preimage_pos_org & test
         # preimage_br: ADD = preimage_pos.ite(test, self.manager.plusInfinity())
 
-        return preimage_br & preimage_br_0
+        tmp_preimage_br = self.manager.addZero()
+        for br in self.brVar_map_sym:
+            br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+            tmp_preimage_br |= preimage_br.cofactor(br_cube)
+
+        # return preimage_br & preimage_br_0
+        return tmp_preimage_0 & tmp_preimage_br
 
     
     def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
@@ -872,13 +884,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage_su: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
         # preimage = preimage_su & test
         preimage: ADD = self.compute_preimage_br(preimage_su, test)
+        return preimage
 
-        # remove dependency on prime br vars
-        tmp_preimage = self.manager.addZero()
-        for br in self.brVar_map_sym:
-            tmp_preimage |= preimage.cofactor(self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars))
+        # # remove dependency on prime br vars
+        # tmp_preimage = self.manager.addZero()
+        # for br in self.brVar_map_sym:
+        #     br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)#.ite(self.manager.addOne(), self.manager.plusInfinity())
+        #     tmp_preimage |= preimage.cofactor(br_cube)
         
-        return tmp_preimage
+        # return tmp_preimage
 
 
     def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
@@ -1426,9 +1440,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         goal = self.create_goal_nodes_with_regret_values()
         curr_winning_states = goal
         # testing preimage comptuation with a specific cube
-        state = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.uVar_map_sym['u1'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[1] & self.brVar_map_sym[math.inf]
-        goal = state.ite(goal, self.manager.plusInfinity())
-        curr_winning_states = state.ite(self.manager.addZero(), self.manager.plusInfinity())
+        # state = self.tVar_map_sym['robot'] & self.xVar_map_sym['holding l2'] & self.xVar_map_sym['b0 l0'] & self.uVar_map_sym['u1'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[1] & self.brVar_map_sym[math.inf]
+        # goal = state.ite(goal, self.manager.plusInfinity())
+        # curr_winning_states = state.ite(self.manager.addZero(), self.manager.plusInfinity())
         # intialize the iteration counter
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
@@ -1436,10 +1450,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         while True:
             print(f"**************************Layer: {layer}**************************")
             preimage: ADD = self.compute_regret_preimage(curr_winning_states)
-            self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(0, 0).toADD(), human_action=False, robot_action=False, verbose=True)
-
             # print("Current Preimage:")
-            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+            # print("State with regret value zero")
+            # self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(0, 0).toADD(), human_action=False, robot_action=False, verbose=True)
+            # print("State with regret values positive and within budget")
+            # self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(1, self.budget).toADD(), human_action=False, robot_action=False, verbose=True)
+
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
             for env_tr_dd in self.env_action_cube_list:
@@ -1456,12 +1472,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 Minpre.append(Upre.cofactor(robot_tr_dd))
             
             next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
-            # next_winning_states = next_winning_states.min(goal)
+            next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
             if verbose:
                 print("Current Winning States:")
-                self.gobr_convert_cube_to_state_ADD(next_winning_states, robot_action=False, human_action=False, verbose=True)
+                print("State with regret value zero")
+                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(0, 0).toADD(), robot_action=False, human_action=False, verbose=True)
+                print("State with regret values  positive and within budget")
+                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), robot_action=False, human_action=False, verbose=True)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
