@@ -221,7 +221,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         """
          From the in-transit states, if human moves a box, the robot conf and the box conf. change. 
           If the human does not move a box, the robot conf. evolves to to-obj box and box conf. remain the same for all the boxes. 
-          The robot conf. evolve to ready at else state
+          If the human does move a box, then robot conf. evolves to ready at else state
         """
         turn_bit: ADD = self.tVar_map_sym['human']
         for k in range(self.ratio + 1):
@@ -482,14 +482,17 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] &  \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
 
-    def symbolic_min_abstract(self, add_function):
+    def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD]):
         """
         Eliminates variables by taking the minimum of the cofactor branches.
          This replaces explicit loops over action lists.
         """
         result_add = add_function
+        # vars_to_use = self.oVars
+        # if variables_to_abstract is not None:
+            # vars_to_use = variables_to_abstract
 
-        for var_add in self.oVars :
+        for var_add in variables_to_abstract:
             pos_cofactor = result_add.cofactor(var_add)
             neg_cofactor = result_add.cofactor((~var_add))
             result_add = pos_cofactor.min(neg_cofactor) 
@@ -497,17 +500,17 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         return result_add
     
 
-    def symbolic_max_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
+    def symbolic_max_abstract(self, add_function, variables_to_abstract: List[ADD]) -> ADD:
         """
         Eliminates variables by taking the maximum of the cofactor branches.
          This replaces explicit loops over action lists.
         """
         result_add = add_function
-        vars_to_use = self.iVars
-        if variables_to_abstract is not None:
-            vars_to_use = variables_to_abstract
+        # vars_to_use = self.iVars
+        # if variables_to_abstract is not None:
+        #     vars_to_use = variables_to_abstract
 
-        for var_add in vars_to_use :
+        for var_add in variables_to_abstract:
             pos_cofactor = result_add.cofactor(var_add)
             neg_cofactor = result_add.cofactor((~var_add))
             result_add = pos_cofactor.max(neg_cofactor) 
@@ -547,11 +550,11 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
             if cooperative_game:
-                Upre: ADD = self.symbolic_min_abstract(preimage)
+                Upre: ADD = self.symbolic_min_abstract(preimage, variables_to_abstract=self.iVars)
             else:
-                Upre: ADD = self.symbolic_max_abstract(preimage)
+                Upre: ADD = self.symbolic_max_abstract(preimage, variables_to_abstract=self.iVars)
 
-            Cpre: ADD = self.symbolic_min_abstract(Upre)
+            Cpre: ADD = self.symbolic_min_abstract(Upre, variables_to_abstract=self.oVars)
             next_winning_states = Cpre.min(goal)
 
             # adding debugging step

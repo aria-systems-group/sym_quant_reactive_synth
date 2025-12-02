@@ -488,11 +488,11 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             # print("Current Preimage:")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
             if cooperative_game:
-                Upre: ADD = self.symbolic_min_abstract(preimage)
+                Upre: ADD = self.symbolic_min_abstract(preimage, variables_to_abstract=self.iVars)
             else:
-                Upre: ADD = self.symbolic_max_abstract(preimage)
+                Upre: ADD = self.symbolic_max_abstract(preimage, variables_to_abstract=self.iVars)
             
-            Cpre: ADD = self.symbolic_min_abstract(Upre)
+            Cpre: ADD = self.symbolic_min_abstract(Upre, variables_to_abstract=self.oVars)
             next_winning_states = Cpre.min(goal)
 
             # adding debugging step
