@@ -1896,7 +1896,6 @@ if __name__ == "__main__":
     print(f"Time to create transition relation: {toc - tic} seconds")
 
     # fw_tb.test_pre_image_restricted_human_moves()
-    # fw_tb.test_pre_image()
     tic = time.time()
     strategy = fw_tb.solve(verbose=False)
     toc = time.time()

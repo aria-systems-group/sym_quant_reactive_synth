@@ -225,7 +225,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # self.states_per_cost[1] |= self.init_latch
     
 
-    def create_utlity_transition_relation(self):
+    def create_utility_transition_relation(self):
         """
          Create the transition relation for utility variables.
         """
@@ -1259,10 +1259,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         super().create_transition_relation()
 
         # now create utility transition relation
-        self.create_utlity_transition_relation()
+        self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False, cooperative_game=True)
+        strategy = self.gou_solve(verbose=True, cooperative_game=True)
         # strategy = self.TVI_gou_solver(verbose=False, cooperative_game=True)
         toc = time.time()
         print(f"Time to synthesize strategy: {toc - tic} seconds")

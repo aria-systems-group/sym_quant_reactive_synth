@@ -376,15 +376,34 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
         
         return curr_game_state_sym, act_name
+        
+    
+    def get_act_cube_rollout(self, strategy: ADD, curr_state_sym: ADD, turn: str, opt_sval: int, oVars_bdd, iVars_bdd, iVars_cube, cooperative_game: bool = False) -> BDD:
+        """
+         A function to get the action cube from the strategy at the current state
+        """
+        if turn == 'robot':
+            # when the game is coooperative, the restrict strategy may have have human action(s) in it.
+            # If the action cube is depedent on human actions, we need to abstract them out to get the robot action only.
+            if cooperative_game:
+                act_cube_for_human_moves: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).univAbstract(iVars_cube)
+                if act_cube_for_human_moves.isZero():
+                    return (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+                return act_cube_for_human_moves.pickOneMinterm(oVars_bdd)
+            else:
+                return (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+        else:
+            return (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
 
 
-    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False, cooperative_game: bool = False) -> None:
         """
          A function to rollout a given strategy
         """
         curr_state_sym = self.init_latch & self.dfa_handle.init_latch
         oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
         iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+        iVars_cube: List[BDD] = reduce(lambda x, y : x & y, iVars_bdd)
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             if verbose:
@@ -400,12 +419,12 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 opt_sval = 0
             
             turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
-
+            
             # get the action to be taken at the current state
-            if turn == 'robot':
-                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-            else:
-                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            act_cube = self.get_act_cube_rollout(strategy=strategy, curr_state_sym=curr_state_sym,
+                                                 turn=turn, opt_sval=opt_sval,
+                                                 oVars_bdd=oVars_bdd, iVars_bdd=iVars_bdd,
+                                                 iVars_cube=iVars_cube, cooperative_game=cooperative_game)
             
             act_cube_string = act_cube.cubeString().replace('-', '')
 
@@ -416,10 +435,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 return
            
             # get the next state in the game
-            # if turn == 'robot':
-            #     curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name)
-            # else:
-            #     curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name)
             curr_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
             
             # check if you evolved over the DFA 
