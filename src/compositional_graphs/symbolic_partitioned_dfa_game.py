@@ -444,14 +444,16 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
-        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+        # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
         
         # first evolve over the DFA
         # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
         dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the game
-        preimage = dfa_preimage.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches, self.prime_latches)
+        preimage = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
 
         return preimage
 
@@ -527,12 +529,13 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
 
     def test_pre_image(self):
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.dfa_handle.goal_latch
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l3'] & self.xVar_map_sym['b0 l1'] & self.kVar_map_sym['k1'] & self.dfa_handle.goal_latch
         # goal state is b0 and l0 and ready l0
         print('Goal state:', goal_cube)
 
         # first evolve over the DFA
-        dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
+        # dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
+        dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
         print('DFA Preimage: ', dfa_preimage)
         self.convert_cube_to_state_ADD(dfa_preimage, human_action=False, robot_action=False)
         
@@ -540,3 +543,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         dfa_game_preimage = self.preimage_test(From=dfa_preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('DFA Game Preimage: ', dfa_game_preimage)
         self.convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, robot_action=False)
+
+        # testing if the swapiing all vars first still gives the same result
+        preimage: ADD = self.compute_preimage(goal_cube)
+        print('DFA Game Preimage (Swap all Vars first): ', preimage)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
+        assert preimage.compare(dfa_game_preimage, 2), "Preimage computation mismatch!!"
