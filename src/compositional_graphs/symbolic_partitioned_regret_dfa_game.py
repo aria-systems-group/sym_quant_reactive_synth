@@ -988,7 +988,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             layer += 1
     
 
-    def gou_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Optional[ADD]:
+    def gou_solve(self, verbose: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
@@ -1262,16 +1262,17 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=True, cooperative_game=True)
+        strategy = self.gou_solve(verbose=False)
         # strategy = self.TVI_gou_solver(verbose=False, cooperative_game=True)
         toc = time.time()
         print(f"Time to synthesize strategy: {toc - tic} seconds")
 
         # if strategy is not None:
         #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+        # return
 
         # compute best-alternate response
-        self.compute_best_alternate_response(sanity_checking=True)
+        self.compute_best_alternate_response(verbose=False)
 
         # create boolean vars and their prime versions for Best-alternate response values computed
         self.create_all_br_vars_maps()
@@ -1286,7 +1287,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def count_actions_per_state_gou(self) -> ADD:
         """
-         A function that counts the numbe of actions per state in grapg of utility.
+         A function that counts the numbe of actions per state in graph of utility.
         """
         prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
         robot_action_cube = reduce(lambda a, b: a & b, self.oVars)
@@ -1299,7 +1300,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return state_ract_count
 
     
-    def compute_best_alternate_response(self, sanity_checking: bool = False) -> None:
+    def compute_best_alternate_response(self, verbose: bool = False) -> None:
         """
          A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
             Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
@@ -1383,16 +1384,22 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
-        if sanity_checking:
-            # unions of all states with br
-            states_br: ADD = reduce(lambda x, y: x + y, self.vector_of_br.values())
-            try:
-                assert states_br.findMax() == self.manager.addOne(), "[Error]: Atleast one state-action pair has 2 best-alternate values. This is incorrect. Fix This!!!"
-            except AssertionError:
-                print("[Error]: Atleast one state-action pair has at-least 2 best-alternate values. This is incorrect. Fix This!!!")
-                print(states_br.bddInterval(2, math.inf).toADD())
-                sys.exit(1)
+        # post-processingbrst-response to only preserve the lwer states action pair value
+        # unions of all predecessors
+        pre_states: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
+        self.monolithich_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
+        for br in sorted(self.vector_of_br.keys(), reverse=True):
+            br_states: ADD = self.vector_of_br[br]
+            self.monolithich_br = br_states.ite(self.manager.addConst(br), self.monolithich_br)
+        
+        # finally put them back in vector_of_br
+        for br in self.vector_of_br.keys():
+            self.vector_of_br[br] = self.monolithich_br.bddInterval(br, br).toADD()
 
+        if verbose:
+            l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
+            t = self.monolithich_br.bddInterval(l, h).toADD()
+            self.gou_convert_cube_to_state_ADD(t, robot_action=True, verbose=True)
     
     def create_goal_nodes_with_regret_values(self) -> ADD:
         """
@@ -1484,7 +1491,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
-                if (self.dfa_handle.init_latch & regret_init_latch) & curr_winning_states != self.manager.plusInfinity():
+                if curr_winning_states.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
                     if self.dfa_handle.init_latch & regret_init_latch & curr_winning_states == self.manager.addZero():
                         init_val: int = 0
                     else:
