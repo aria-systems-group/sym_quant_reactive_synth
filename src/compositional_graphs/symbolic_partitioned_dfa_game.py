@@ -460,7 +460,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
-        # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars, self.prime_latches + self.prime_qVars)
         
         # first evolve over the DFA
         # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))

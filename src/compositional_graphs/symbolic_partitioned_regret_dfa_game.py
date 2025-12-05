@@ -48,6 +48,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
         self.uVars_transition_relation = None
+        self.brVars_transition_relation = None
+        self.graph_of_utility_tr = None
+        self.graph_of_br_tr  = None
+        
         # store ADD(s-as-s')-1 transition relation for graph of utility
         self.monolithic_valid_full_gou_trns: ADD = self.manager.addZero()
         self.monolithic_valid_full_gobr_trns: ADD = self.manager.addZero()
@@ -807,25 +811,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             
         return states_action_pairs
 
-
-    def compute_preimage_test(self, curr_winning_states: ADD) -> ADD:
-        # prime the vars
-        # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars + self.uVars, self.prime_latches + self.prime_qVars + self.prime_uVars)
-        
-        # first evolve over the DFA
-        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
-        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
-
-        # then evolve over the game
-        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
-        preimage = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
-
-        return preimage
-    
-
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
-        # curr_winning_states_primed = curr_winning_states.swapVariables(self.latches + self.qVars + self.uVars, self.prime_latches + self.prime_qVars + self.prime_uVars)
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
         # first evolve over the DFA
@@ -837,52 +824,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
 
         return preimage
-    
-
-    def compute_preimage_br(self, preimage: ADD, test: ADD):
-        """
-         A method that evolves over best-alternate response transitions.
-        """
-        # we need to take special care when evolving over preimage state with value 0
-        preimage_0: ADD = preimage.bddInterval(0, 0).toADD()
-        # if there are no states with value 0, then skip this
-        if not preimage_0.isZero():
-            preimage_br_0: ADD = preimage_0.ite(test, self.manager.plusInfinity())
-            # get the states with value 1
-            tmp_preimage_br_0 = preimage_br_0.bddInterval(1, 1).toADD()
-            # preimage_br_0 = tmp_preimage_br_0.ite(self.manager.addZero(), self.manager.plusInfinity())
-            # remove dependency on prime br vars
-            
-            # NEED to check correctness we could cofactor more efficient by possibly doing this 
-            # br_cube = self.manager.bddOne().cube(*self.prime_brVars)
-            # tmp_preimage_br = preimage_br.cofactor(br_cube)
-            tmp_preimage_0 = self.manager.addZero()
-            for br in self.brVar_map_sym:
-                br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-                tmp_preimage_0 |= tmp_preimage_br_0.cofactor(br_cube)
-            tmp_preimage_0 = tmp_preimage_0.ite(self.manager.addZero(), self.manager.plusInfinity())
-        # return preimage_br_0
-        
-        # preimage_br_0 = preimage_br_0.ite(self.manager.addZero(), preimage_br_0)
-        
-        # now evolve over the rest of the states
-        preimage_pos = preimage.bddPattern().toADD()
-        preimage_pos_org = preimage_pos.ite(preimage, self.manager.plusInfinity())
-        preimage_br: ADD = preimage_pos_org & test
-        # preimage_br: ADD = preimage_pos.ite(test, self.manager.plusInfinity())
-
-        tmp_preimage_br = self.manager.addZero()
-        for br in self.brVar_map_sym:
-            br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-            tmp_preimage_br |= preimage_br.cofactor(br_cube)
-
-        # return preimage_br & preimage_br_0
-        # return tmp_preimage_0 & tmp_preimage_br
-        return tmp_preimage_br
 
     
     def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
-        test = self.monolithic_valid_sabr_prime_br_trns.ite(self.manager.addOne(), self.manager.plusInfinity())
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
@@ -891,25 +835,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # then evolve over the DFA game state (s, u)
         dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars + self.brVars, self.prime_latches + self.prime_uVars + self.prime_brVars)
-        tmp_list = list(self.transition_relation.values())
-        tmp_list.extend(list(self.uVars_transition_relation.values()))
-        tmp_list.extend(list(self.brVars_transition_relation.values()))
-        preimage_subr: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars + self.prime_brVars, tmp_list)
+        preimage_subr: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars + self.prime_brVars, self.graph_of_br_tr)
 
-        # preimage_su: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
-        # preimage = preimage_su & test
-        # preimage: ADD = self.compute_preimage_br(preimage_su, test)
-        # if preimage_subr.compare(preimage, 2):
-        #     print("Regret Preimage matches Suboptimal Best-Alternate Response Preimage")
         return preimage_subr
-
-        # # remove dependency on prime br vars
-        # tmp_preimage = self.manager.addZero()
-        # for br in self.brVar_map_sym:
-        #     br_cube = self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)#.ite(self.manager.addOne(), self.manager.plusInfinity())
-        #     tmp_preimage |= preimage.cofactor(br_cube)
-        
-        # return tmp_preimage
 
 
     def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
@@ -1460,13 +1388,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         A method that implements the value iteration algorithm For computing regret minimizing strategies. 
         """
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
         # initialize goal state with respective regret values
         goal = self.create_goal_nodes_with_regret_values()
         curr_winning_states = goal
-        # testing preimage comptuation with a specific cube
-        # state = self.tVar_map_sym['human'] & self.xVar_map_sym['ready l1'] & self.xVar_map_sym['b0 l1'] & self.uVar_map_sym['u3'] & self.kVar_map_sym['k0'] & self.qVar_map_sym[2] & self.brVar_map_sym[2]
-        # goal = state.ite(goal, self.manager.plusInfinity())
-        # curr_winning_states = state.ite(self.manager.addOne(), self.manager.plusInfinity())
+        
         # intialize the iteration counter
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
@@ -1615,7 +1543,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # then evolve over the game
         goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
-        preimage_su = self.compute_preimage_test(goal_cube)
+        preimage_su = self.compute_preimage(goal_cube)
         self.gou_convert_cube_to_state_ADD(preimage_su, human_action=False, robot_action=False, verbose=True)
         robot_states = preimage_su & self.tVar_map_sym['robot']
         humans_states = preimage_su & self.tVar_map_sym['human']
@@ -1638,7 +1566,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         print("**********************************************************")
         print("New method using AND Operation wihtout computing preimage of BR Cube")
         # goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
-        new_preimage_su = self.compute_preimage_test(goal_cube)
+        new_preimage_su = self.compute_preimage(goal_cube)
 
         # TODO: Should this & or should it be restrict?
         new_preimage_full = new_preimage_su & self.monolithic_valid_sabr_prime_br_trns
