@@ -25,11 +25,13 @@ from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 class FrankaWorldDynamicRatioTurnBased():
 
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], enable_reordering: bool = False):
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], enable_reordering: bool = False):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
+        # TODO: Add assert statements that human boxes and human locs are subset of all boxes and locs
         self.human_locs: List[int] = restricted_human_locs
+        self.human_boxes: List[int] = restricted_human_boxes
         self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
         self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
@@ -353,7 +355,7 @@ class FrankaWorldDynamicRatioTurnBased():
          Num. of human actions = |boxes| x |locs| + 1 (for no-op action)
         """
         varsize = self.manager.size()
-        num_of_rActions = self.boxes * len(self.human_locs) + 1
+        num_of_rActions = len(self.human_boxes) * len(self.human_locs) + 1
         iVars_size = math.ceil(math.log2(num_of_rActions)) if num_of_rActions > 1 else 1
         iVars: List[ADD] =  [self.manager.addVar(h + varsize , 'i' + str(h)) for h in range(iVars_size)]
         return iVars
@@ -400,7 +402,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # Add a no-op action for the human
         self.eAction_map[f'{self.human_action[0]} noop'] = f"{0:0{len(self.iVars)}b}"
         offset = 1
-        for b in range(self.boxes):
+        for b in self.human_boxes:
             for l in self.human_locs:
                 act_str = f'{self.human_action[0]} b{b} l{l}'
                 hbit_str = f"{offset:0{len(self.iVars)}b}"
@@ -461,7 +463,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
 
     def set_init_latch(self) -> ADD:
-        assert len(self.init) == self.boxes + 1, "[Error]: The init state should be fully defined for Regret Synthesis code else the Synthesis code will not work correctly."
+        assert len(self.init) == self.boxes + 1, "[Error]: The init state should be fully defined for the Synthesis code else the Synthesis code will not work correctly."
         init_cube = self.tVar_map_sym['robot'] & self.kVar_map_sym['k0']
         for s in self.init:
             init_cube &= self.xVar_map_sym[s]
@@ -497,7 +499,7 @@ class FrankaWorldDynamicRatioTurnBased():
         """
          A tiny method to create relevant env actions for the human moves for each box.
         """
-        for b in range(self.boxes):
+        for b in self.human_boxes:
             for act_str, act_add in self.eAction_map_sym.items():
                 if f'b{b}' in act_str:
                     self.relevant_env_actions_per_box[b] |= act_add
@@ -602,7 +604,7 @@ class FrankaWorldDynamicRatioTurnBased():
         """
          A method to post-process the transition relation after all action rules and frame axioms have been added.
         """
-        self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero()) #& \
+        self.monolithic_valid_state_robot_actions_prime_state &= self.tVar_map_sym['robot'].ite(self.prime_tVar_map_sym['human'], self.manager.addZero())
         
         constraint_cube = self.manager.addZero() 
         for kVal in self.kVar_map.keys():
@@ -877,7 +879,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']
 
-                    for human_box in range(self.boxes):
+                    # for human_box in range(self.boxes):
+                    for human_box in self.human_boxes:
                         for human_to_loc in self.human_locs:
                             ##### VALID MOVE CASE #####
                             hmove_cube = turn_bit & kVal_cube & \
@@ -937,7 +940,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transit l{from_loc} b{b}']
 
-                    for human_box in range(self.boxes):
+                    # for human_box in range(self.boxes):
+                    for human_box in self.human_boxes:
                         for human_to_loc in self.human_locs:
                             ##### VALID MOVE CASE #####
                             hmove_cube = turn_bit & kVal_cube & \
@@ -994,7 +998,8 @@ class FrankaWorldDynamicRatioTurnBased():
         turn_bit: ADD = self.tVar_map_sym['human']
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-            for hb in range(self.boxes):
+            # for hb in range(self.boxes):
+            for hb in self.human_boxes:
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
@@ -1030,7 +1035,7 @@ class FrankaWorldDynamicRatioTurnBased():
                             kVal_prime_str = self.kVar_map[f'k{k + 1}']
                             for sidx, s in enumerate(kVal_prime_str):
                                 if s == '1':
-                                    self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
+                                    self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
                         
                         # the human has reached the max number of interventions in this robot turn;
                         # all they can do is noop so we add all hmove to invalid move case
@@ -1054,7 +1059,8 @@ class FrankaWorldDynamicRatioTurnBased():
         turn_bit: ADD = self.tVar_map_sym['human']
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-            for hb in range(self.boxes):
+            # for hb in range(self.boxes):
+            for hb in self.human_boxes:
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
@@ -1215,14 +1221,13 @@ class FrankaWorldDynamicRatioTurnBased():
 
 
 
-
     def add_robot_frame_axioms(self):
         """
         A helper function to test the frame axioms. Frame axioms ensure that the boxes that
           are not being moved by the robot do not change their location. This is like a state invariance constraint.
         
         Here, we add frame axioms for all boxes that are currently "grounded" (i.e., not being moved by the robot). 
-          For thw box that is at end-effector (ee) location (l0), we add the state invariance constraint during the action construction.
+          For the box that is at end-effector (ee) location (l0), we add the state invariance constraint during the action construction.
         """
         grasp_action_cube = self.rAction_map_sym['grasp']
         release_action_cube = self.rAction_map_sym['release']
@@ -1248,7 +1253,8 @@ class FrankaWorldDynamicRatioTurnBased():
         for b in range(self.boxes):
             for l in range(0, self.locs + 1):
                 box_pred = f"b{b} l{l}"
-                if l in self.restricted_human_locs:
+                # if l in self.restricted_human_locs:
+                if (l in self.restricted_human_locs) or (b not in self.human_boxes):
                     haction_cube = self.tVar_map_sym['human'] & self.xVar_map_sym[box_pred] & self.kVal_cube
                 else:
                     haction_cube = self.tVar_map_sym['human'] \
@@ -1830,14 +1836,15 @@ class FrankaWorldDynamicRatioTurnBased():
 
     
     def test_pre_image_restricted_human_moves(self):
-        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k0'] #& self.xVar_map_sym['b1 l3']
+        # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k0'] #& self.xVar_map_sym['b1 l3']
         # goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['in-transfer l2'] & self.xVar_map_sym['b0 l0']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l3'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.kVar_map_sym['k1']
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
         preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=True, verbose=True)
+        self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False, verbose=True)
 
 
 

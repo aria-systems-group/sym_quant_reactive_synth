@@ -32,6 +32,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                  ratio: int, init: tuple,
                  goal: tuple, formula: str,
                  restricted_human_locs: List[int],
+                 restricted_human_boxes: List[int],
                  budget: int,
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
@@ -45,7 +46,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.brVar_map: List[ADD] = bidict({}) 
         self.brVar_map_sym: List[ADD] = bidict({}) 
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
+        super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, restricted_human_boxes, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
         self.uVars_transition_relation = None
         self.brVars_transition_relation = None
@@ -1394,7 +1395,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # initialize goal state with respective regret values
         goal = self.create_goal_nodes_with_regret_values()
         curr_winning_states = goal
-        
+
         # intialize the iteration counter
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
@@ -1402,11 +1403,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         while True:
             print(f"**************************Layer: {layer}**************************")
             preimage: ADD = self.compute_regret_preimage(curr_winning_states)
-            # print("Current Preimage:")
-            # print("State with regret value zero")
-            # self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(0, 0).toADD(), human_action=False, robot_action=False, verbose=True)
-            # print("State with regret values positive and within budget")
-            # self.gobr_convert_cube_to_state_ADD(preimage.bddInterval(1, self.budget).toADD(), human_action=False, robot_action=False, verbose=True)
 
             # go over all the env actions and preserve the maximum one
             MaxUpre = []
@@ -1441,9 +1437,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         init_val: int = 0
                     else:
                         init_val: int = list((self.dfa_handle.init_latch & regret_init_latch & curr_winning_states).generate_cubes())[0][1]
-                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
                     return preimage if init_val < math.inf else None
+                else:
+                    print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
                 return None
 
             # update the counter

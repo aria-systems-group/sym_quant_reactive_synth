@@ -15,8 +15,8 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
      This class inherits from FrankaWorldDyanmicRatioTurnBased aand makes the following change:
      In TR, when the human moves a box, the robot transit to an "else" state rather than going to original state.
     """
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], enable_reordering: bool = False):
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, enable_reordering)
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], enable_reordering: bool = False):
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering)
     
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
@@ -231,7 +231,8 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 invalid_hmove_cube = self.manager.addZero()
                 rConf_cube = self.xVar_map_sym[f'in-transit b{b}']
 
-                for human_box in range(self.boxes):
+                # for human_box in range(self.boxes):
+                for human_box in self.human_boxes:
                     for human_to_loc in self.human_locs:
                         ##### VALID MOVE CASE #####
                         hmove_cube = turn_bit & kVal_cube & \
@@ -292,7 +293,8 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 invalid_hmove_cube = self.manager.addZero()
                 rConf_cube = self.xVar_map_sym[f'in-transfer l{to_loc}']
 
-                for human_box in range(self.boxes):
+                # for human_box in range(self.boxes):
+                for human_box in self.human_boxes:
                     for human_to_loc in self.human_locs:
                         ##### VALID MOVE CASE #####
                         hmove_cube = turn_bit & kVal_cube & \
@@ -488,9 +490,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
          This replaces explicit loops over action lists.
         """
         result_add = add_function
-        # vars_to_use = self.oVars
-        # if variables_to_abstract is not None:
-            # vars_to_use = variables_to_abstract
 
         for var_add in variables_to_abstract:
             pos_cofactor = result_add.cofactor(var_add)
@@ -506,9 +505,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
          This replaces explicit loops over action lists.
         """
         result_add = add_function
-        # vars_to_use = self.iVars
-        # if variables_to_abstract is not None:
-        #     vars_to_use = variables_to_abstract
 
         for var_add in variables_to_abstract:
             pos_cofactor = result_add.cofactor(var_add)
@@ -589,15 +585,15 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
 
     def test_pre_image(self):
         # convert transition relation to latches bdd
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l4'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l3']  #& \
+        # goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l4'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l3']  #& \
         #(self.xVar_map_sym['b1 l4'] | self.xVar_map_sym['b1 l3'])
-
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l3'] & self.xVar_map_sym['b0 l1'] & self.kVar_map_sym['k1']
         # goal state is b0 and l0 and ready l0
         print('Goal state:', goal_cube)
         # From = goal_cube
         preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False, verbose=True)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                  ratio: int, init: tuple,
                  goal: tuple, formula: str,
                  restricted_human_locs: List[int],
+                 restricted_human_boxes: List[int],
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
         """
@@ -56,7 +57,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, enable_reordering=False)
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering=False)
 
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
