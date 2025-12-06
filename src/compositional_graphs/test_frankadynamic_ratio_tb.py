@@ -29,7 +29,6 @@ class FrankaWorldDynamicRatioTurnBased():
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
-        # TODO: Add assert statements that human boxes and human locs are subset of all boxes and locs
         self.human_locs: List[int] = restricted_human_locs
         self.human_boxes: List[int] = restricted_human_boxes
         self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
@@ -97,7 +96,25 @@ class FrankaWorldDynamicRatioTurnBased():
         self.miscellanoues_helper_stuff()
 
         if enable_reordering:
-            self.enable_variable_reordering()            
+            self.enable_variable_reordering()
+    
+    @property
+    def human_boxes(self):
+        return self._human_boxes
+    
+    @property
+    def human_locs(self):
+        return self._human_locs
+
+    @human_boxes.setter
+    def human_boxes(self, hboxes: List[int]):
+        assert set(hboxes).issubset(set(range(self.boxes))), "[Error] Human boxes should be a subset of all boxes."
+        self._human_boxes = boxes  
+
+    @human_locs.setter
+    def human_locs(self, hlocs: List[int]):
+        assert set(hlocs).issubset(set(range(1, self.locs + 1))), "[Error] Human locs should be a subset of all locs."
+        self._human_locs = hlocs  
     
 
     def create_all_boolean_state_vars_and_maps(self):
