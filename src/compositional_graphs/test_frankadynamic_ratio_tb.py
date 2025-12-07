@@ -72,9 +72,26 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        # transition relation with new compact action encoding
+        self.new_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+
+        # create robot and human action vars and maps
+        self.rVars: List[ADD] = self.create_action_vars()
+        self.human_action: List[str] = ['hmove']
+        self.action_map = bidict({})
+        self.new_relevant_robot_actions = None
+        self.create_action_map()
+        self.action_map_sym = bidict({k: self.cube_to_add(v, self.rVars) for k, v in self.action_map.items()})
+        self.rVars_cube = reduce(lambda x, y: x & y, self.rVars)
+        self.action_cube_list: List[ADD] = list(self.action_map_sym.values())
+        
+        # the rest of the stuff can be commented out later
+        self.oVars: List[ADD] = self.create_output_vars()
+        self.create_rAction_map()
+        self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
 
         # create env move related vars and maps
-        self.human_action: List[str] = ['hmove']
+        # self.human_action: List[str] = ['hmove']
         self.iVars: List[ADD] = self.create_input_vars()
         self.eAction_map = bidict({})
         self.create_eAction_map()
@@ -88,6 +105,17 @@ class FrankaWorldDynamicRatioTurnBased():
         # precompute cubes of valid Robot and Env actions - needed for synthesis
         self.robot_action_cube_list: List[ADD] = [self.cube_to_add(r, self.oVars) for r in self.rAction_map.values()]
         self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
+
+        self.new_env_action_cube_list = []
+        self.new_robot_action_cube_list = []
+        for act_str, act_dd in self.action_map_sym.items():
+            if act_str.startswith('hmove'):
+                if act_str.startswith('hmove noop') and len(act_str.split(' ')) > 2:
+                    continue
+                self.new_env_action_cube_list.append(act_dd)
+            else:
+                self.new_robot_action_cube_list.append(act_dd)
+        
 
         self.miscellanoues_helper_stuff()
 
@@ -331,15 +359,13 @@ class FrankaWorldDynamicRatioTurnBased():
         self.prime_bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_bVars]
         # create relevant env and robot actions; boxes
         self.monolithic_hnoop = reduce(lambda x, y: x | y, [act for act_str, act in self.eAction_map_sym.items() if act_str.startswith('hmove noop')])
-        # self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
         self.relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.rAction_map_sym.values())
         # self.new_relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.action_map_sym.values())
-        # self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
         self.relevant_box_preds_sym = defaultdict(lambda: self.manager.addZero())
-        # self.create_relevant_env_actions_per_box()
         self.create_relevant_box_predicates()
         self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
         self.monolithic_valid_state_robot_actions: ADD = self.manager.addZero()
+        self.new_monolithic_valid_state_robot_actions: ADD = self.manager.addZero()
         self.monolithic_valid_state_robot_actions_prime_state: ADD = self.manager.addZero()
         
         # state invariance constraint - end-effector empty cube - used in transit and grasp actions
@@ -352,6 +378,22 @@ class FrankaWorldDynamicRatioTurnBased():
         self.locs_empty_constraints = defaultdict(lambda: self.manager.addZero())
         self.create_loc_empty_constraint()
         self.kVal_cube = reduce(lambda x, y: x | y, self.kVar_map_sym.values())
+    
+
+    def create_action_vars(self) -> List[ADD]:
+        """
+         Create a single method wehre we create robot action and env actions using the same of variables.
+         
+         This will lead to savings in the # of boolean vars needed. 
+         This approach will require log(num_robot_actions + num_env_actions) boolean vars.
+         Old approach required log(num_robot_actions) + log(num_env_actions) boolean vars.
+        """
+        varsize = self.manager.size()
+        num_of_rActions = self.boxes + self.locs + 2 #+ 1 # +1 to offset the 0-vector
+        num_of_eActions = len(self.human_boxes) * len(self.human_locs) + 1 # +1 is for no-op action
+        rVars_size = math.ceil(math.log2(num_of_rActions + num_of_eActions)) #if (num_of_rActions > 1 else 1
+        rVars: List[ADD] =  [self.manager.addVar(r + varsize , 'r' + str(r)) for r in range(rVars_size)]
+        return rVars
 
 
     def create_output_vars(self) -> List[ADD]:
@@ -392,6 +434,49 @@ class FrankaWorldDynamicRatioTurnBased():
                 else:
                     self.xVar_map_sym[k] = self.cube_to_add(v, self.bVars[bidx])
                     self.bVar_map_sym[k] = self.cube_to_add(v, self.bVars[bidx])
+    
+    def create_action_map(self) -> None:
+        # robot actions - testing with no offset
+        self.new_relevant_robot_actions: ADD = self.manager.addZero()
+        for ract in self.robot_actions:
+            if ract == 'transit':
+                for b in range(self.boxes):
+                    act_str = f'{ract} b{b}'
+                    rbit_str = f"{b:0{len(self.rVars)}b}"
+                    self.action_map[act_str] = rbit_str
+                    self.new_relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
+            elif ract == 'transfer':
+                for l in range(1, self.locs + 1):
+                    act_str = f'{ract} l{l}'
+                    # -1 offset the loc 0 str
+                    rbit_str = f"{self.boxes + l -1:0{len(self.rVars)}b}"
+                    self.action_map[act_str] = rbit_str
+                    self.new_relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
+        rbit_str = f"{self.boxes + self.locs:0{len(self.rVars)}b}"
+        self.action_map['grasp'] = rbit_str
+        self.new_relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
+        rbit_str = f"{self.boxes + self.locs + 1:0{len(self.rVars)}b}"
+        self.action_map['release'] = rbit_str
+        self.new_relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
+
+        # human actions
+        # Add a no-op action for the human
+        offset = len(self.action_map.keys())
+        self.action_map[f'{self.human_action[0]} noop'] = f"{offset:0{len(self.rVars)}b}"
+        offset += 1
+        for b in self.human_boxes:
+            for l in self.human_locs:
+                act_str = f'{self.human_action[0]} b{b} l{l}'
+                hbit_str = f"{offset:0{len(self.rVars)}b}"
+                self.action_map[act_str] = hbit_str
+                offset += 1
+        
+        # This is the tricky part!!! - what dhould with this?
+        # the rest of them map to human noop as well.
+        for i in range(offset, pow(2, len(self.rVars))):
+            hbit_str = f"{offset:0{len(self.rVars)}b}"
+            self.action_map[f'{self.human_action[0]} noop {i}'] = hbit_str
+            offset += 1
 
     def create_rAction_map(self) -> None:
         for ract in self.robot_actions:
@@ -431,6 +516,16 @@ class FrankaWorldDynamicRatioTurnBased():
             offset += 1
 
     def create_sym_weight_dict(self) -> None:
+        for ract, dd in self.action_map_sym.items():
+            if ract.startswith('hmove'):
+                continue
+            # extract the name
+            act_name: str = ract.split(' ')[0]
+            w = self.weight_dict[act_name]
+            self.symbolic_weight_dict[ract] = dd.ite(self.manager.addConst(w), self.manager.addZero()) & self.tVar_map_sym['robot']
+        
+        self.new_weight = reduce(lambda x, y: x | y, self.symbolic_weight_dict.values())
+
         for ract, dd in self.rAction_map_sym.items():
             # extract the name
             act_name: str = ract.split(' ')[0]
@@ -507,16 +602,6 @@ class FrankaWorldDynamicRatioTurnBased():
                 continue
             bConf_cube &= ~self.xVar_map_sym['b' + str(ob) + f' {curr_loc}']
         return bConf_cube
-    
-
-    # def create_relevant_env_actions_per_box(self):
-    #     """
-    #      A tiny method to create relevant env actions for the human moves for each box.
-    #     """
-    #     for b in self.human_boxes:
-    #         for act_str, act_add in self.eAction_map_sym.items():
-    #             if f'b{b}' in act_str:
-    #                 self.relevant_env_actions_per_box[b] |= act_add
 
 
     def create_relevant_box_predicates(self):
@@ -538,7 +623,14 @@ class FrankaWorldDynamicRatioTurnBased():
             for act_str, act_add in self.eAction_map_sym.items():
                 if f'b{b}' not in act_str and not act_str.startswith('hmove noop'):
                     self.hmove_not_b[b] |= act_add
-    
+        
+        self.new_hmove_not_b = defaultdict(lambda: self.manager.addZero())
+        for b in range(self.boxes):
+            for act_str, act_add in self.action_map_sym.items():
+                # first check if it is a human move
+                if act_str.startswith('hmove'):
+                    if f'b{b}' not in act_str and not act_str.startswith('hmove noop'):
+                        self.new_hmove_not_b[b] |= act_add
 
     def create_monoltithic_box_conf_cube(self):
         """
