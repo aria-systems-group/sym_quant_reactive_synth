@@ -682,6 +682,7 @@ class FrankaWorldDynamicRatioTurnBased():
         for from_loc in range(1, self.locs + 2):
             for b in range(self.boxes):
                 self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transit l{from_loc} b{b}']).ite(self.manager.addOne(), self.manager.addZero())
         
         # now lets add constraints that is rConf is holding then some box is at ee-location
         for from_loc in range(1, self.locs + 1):
@@ -689,13 +690,17 @@ class FrankaWorldDynamicRatioTurnBased():
                 if from_loc == to_loc:
                     continue
                 self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']).ite(self.manager.addOne(), self.manager.addZero())
         
         for loc in range(1, self.locs + 2):
             if loc < self.locs + 1:
                 self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
                 self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
             else:
                 self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
 
 
     def post_process_transition_relation(self):
@@ -704,6 +709,7 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         for tr_key, tr_dd in self.transition_relation.items():
             self.transition_relation[tr_key] = tr_dd & self.monolithic_relevant_box_preds & self.monolithic_valid_state_robot_actions
+            self.new_transition_relation[tr_key] &= self.monolithic_relevant_box_preds & self.new_monolithic_valid_state_robot_actions
     
 
     def postprocess_monolithic_valid_state_robot_actions_prime_state(self):
@@ -729,6 +735,7 @@ class FrankaWorldDynamicRatioTurnBased():
             for sidx, s in enumerate(turn_prime_string):
                 if s == '1':
                     self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= turn_bit
+                    self.new_transition_relation[self.tVar[sidx].bddPattern().__str__()] |= turn_bit
     
     def add_hmove_var_update_rule_from_robot_states(self):
         """
@@ -740,6 +747,7 @@ class FrankaWorldDynamicRatioTurnBased():
             for sidx, s in enumerate(kVal_str):
                 if s == '1':
                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  self.tVar_map_sym['robot'] & self.kVar_map_sym[kVal]
+                    self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  self.tVar_map_sym['robot'] & self.kVar_map_sym[kVal]
 
 
     def create_transition_relation(self):
@@ -802,6 +810,7 @@ class FrankaWorldDynamicRatioTurnBased():
         turn_bit: ADD = self.tVar_map_sym['robot']
         state_constraint_cube = self.ee_empty_cube
         robot_act_cube = self.rAction_map_sym['grasp']
+        new_robot_act_cube = self.action_map_sym['grasp']
         for b in range(self.boxes):
             rConf_cube = self.xVar_map_sym[f'to-obj b{b}']
 
@@ -814,9 +823,11 @@ class FrankaWorldDynamicRatioTurnBased():
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l' + str(loc), bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
                 robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & robot_act_cube & (rConf_cube | rConf_cube_ready)
+                new_robot_transition_cube = turn_bit & self.kVal_cube & bConf_cube & state_constraint_cube & new_robot_act_cube & (rConf_cube | rConf_cube_ready)
 
                 # update the valid robot moves
                 self.monolithic_valid_state_robot_actions |= (turn_bit & (rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (turn_bit & (rConf_cube | rConf_cube_ready) & self.xVar_map_sym[curr_box_pred]).ite(new_robot_act_cube, self.manager.addZero())
                 
                 # this is fixed
                 pred_clause_prime_string = self.xVar_map['holding l' + str(loc)]
@@ -826,10 +837,12 @@ class FrankaWorldDynamicRatioTurnBased():
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_robot_transition_cube
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.new_transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= new_robot_transition_cube
                 
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['holding l' + str(loc)] & self.prime_xVar_map_sym[f'b{b} l0']
@@ -849,6 +862,7 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         turn_bit = self.tVar_map_sym['robot']
         robot_act_cube = self.rAction_map_sym['release']
+        new_robot_act_cube = self.action_map_sym['release']
         for loc in range(1, self.locs + 1):
             rConf_cube = self.xVar_map_sym[f'holding l{loc}']
 
@@ -859,9 +873,11 @@ class FrankaWorldDynamicRatioTurnBased():
                 bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc='l0', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
                 robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & bConf_cube & robot_act_cube & self.locs_empty_constraints[f'l{loc}']
+                new_robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & bConf_cube & new_robot_act_cube & self.locs_empty_constraints[f'l{loc}']
 
                 # update the valid robot moves
                 self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                self.new_monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(new_robot_act_cube, self.manager.addZero())
 
                 # this is fixed
                 next_box_pred = f"b{b} l{loc}"
@@ -871,10 +887,12 @@ class FrankaWorldDynamicRatioTurnBased():
                 for sidx, s in enumerate(pred_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_robot_transition_cube
                 
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                        self.new_transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= new_robot_transition_cube
 
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['ready l' + str(loc)] & self.prime_xVar_map_sym[next_box_pred]
@@ -894,6 +912,7 @@ class FrankaWorldDynamicRatioTurnBased():
         turn_bit = self.tVar_map_sym['robot']
         for b in range(self.boxes):
             robot_act_cube = self.rAction_map_sym[f"transit b{b}"]
+            new_robot_act_cube = self.action_map_sym[f"transit b{b}"]
 
             for from_loc in range(1, self.locs + 2):
                 rConf_cube = self.xVar_map_sym[f'ready l{from_loc}']
@@ -906,15 +925,18 @@ class FrankaWorldDynamicRatioTurnBased():
                     bConf_cube = self.create_only_b_at_l_cube(curr_box=b, curr_loc=f'l{to_loc}', bConf_cube=bConf_cube) & self.monolithic_relevant_box_preds
 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & robot_act_cube & bConf_cube
+                    new_robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & state_constraint_cube & new_robot_act_cube & bConf_cube
 
                     # update the valid robot moves
                     self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.new_monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(new_robot_act_cube, self.manager.addZero())
 
                     pred_clause_prime_string = self.xVar_map[f"in-transit l{from_loc} b{b}"]
                     
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_robot_transition_cube
                     
                     # create s a_s s' transitions
                     prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit l{from_loc} b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
@@ -945,11 +967,14 @@ class FrankaWorldDynamicRatioTurnBased():
                     if from_loc == to_loc:
                         continue
                     robot_act_cube = self.rAction_map_sym[f'transfer l{to_loc}']
+                    new_robot_act_cube = self.action_map_sym[f'transfer l{to_loc}']
 
                     robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & robot_act_cube & bConf_cube
+                    new_robot_transition_cube = turn_bit & self.kVal_cube & rConf_cube & new_robot_act_cube & bConf_cube
 
                     # update the valid robot moves
                     self.monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(robot_act_cube, self.manager.addZero())
+                    self.new_monolithic_valid_state_robot_actions |= (turn_bit & rConf_cube & self.xVar_map_sym[curr_box_pred]).ite(new_robot_act_cube, self.manager.addZero())
 
                     # next state clause - (in-transfer from_loc to_loc); box location does not change
                     pred_clause_prime_string = self.xVar_map[f'in-transfer l{from_loc} l{to_loc}']
@@ -957,11 +982,13 @@ class FrankaWorldDynamicRatioTurnBased():
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_robot_transition_cube
                     
                     box_clause_prime_string = self.xVar_map[curr_box_pred]
                     for sidx, s in enumerate(box_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                            self.new_transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= new_robot_transition_cube
                     
                     # create s a_s s' transitions
                     prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'] & self.prime_xVar_map_sym[curr_box_pred]
@@ -983,6 +1010,7 @@ class FrankaWorldDynamicRatioTurnBased():
                         continue
                     # for all in-transfer preds
                     invalid_hmove_cube = self.manager.addZero()
+                    new_invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']
 
                     # for human_box in range(self.boxes):
@@ -991,11 +1019,17 @@ class FrankaWorldDynamicRatioTurnBased():
                             ##### VALID MOVE CASE #####
                             hmove_cube = turn_bit & kVal_cube & \
                             self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & rConf_cube
+
+                            new_hmove_cube = turn_bit & kVal_cube & \
+                            self.action_map_sym[f'hmove b{human_box} l{human_to_loc}'] & rConf_cube
+                            
                             
                             constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
                             for restricted_loc in self.restricted_human_locs:
                                 constraint_cube &= ~self.xVar_map_sym[f'b{human_box} l{restricted_loc}']
                             hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
+
+                            new_hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
                             
                             ##### INVALID MOVE CASE #####
                             constraint_cube = ~self.locs_empty_constraints[f'l{human_to_loc}']
@@ -1003,32 +1037,42 @@ class FrankaWorldDynamicRatioTurnBased():
                                 constraint_cube |= self.xVar_map_sym[f'b{human_box} l{restricted_loc}']
                             invalid_hmove_cube |=  turn_bit & kVal_cube & rConf_cube & \
                                 self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
+                            
+                            new_invalid_hmove_cube |=  turn_bit & kVal_cube & rConf_cube & \
+                                self.action_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
 
                             if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
                                 pred_clause_prime_string = self.xVar_map[f'holding l{from_loc}']
                                 for sidx, s in enumerate(pred_clause_prime_string):
                                     if s == '1':
                                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                        self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                                 
                                 # update k var - increment k by 1
                                 kVal_prime_str = self.kVar_map[f'k{k + 1}']
                                 for sidx, s in enumerate(kVal_prime_str):
                                     if s == '1':
-                                        self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
+                                        self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                        self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                             else:
                                 invalid_hmove_cube |= hmove_cube
+                                new_invalid_hmove_cube |= new_hmove_cube
 
                             
                     # add the human noop action here - hmove noop is always a valid human move
                     pred_clause_prime_string = self.xVar_map[f'holding l{to_loc}']
                     hmove_cube = turn_bit & kVal_cube & (self.monolithic_hnoop | invalid_hmove_cube) & rConf_cube
+                    
+                    new_hmove_cube = turn_bit & kVal_cube & (self.action_map_sym['hmove noop'] | new_invalid_hmove_cube) & rConf_cube
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                     
                     for sidx, s in enumerate(self.kVar_map['k0']):
                         if s == '1':
                             self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
 
     
 
@@ -1044,6 +1088,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 for from_loc in range(1, self.locs + 2):
                     # for all in-transit preds
                     invalid_hmove_cube = self.manager.addZero()
+                    new_invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transit l{from_loc} b{b}']
 
                     # for human_box in range(self.boxes):
@@ -1052,11 +1097,16 @@ class FrankaWorldDynamicRatioTurnBased():
                             ##### VALID MOVE CASE #####
                             hmove_cube = turn_bit & kVal_cube & \
                                 self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & rConf_cube & self.ee_empty_cube
+
+                            new_hmove_cube = turn_bit & kVal_cube & \
+                                self.action_map_sym[f'hmove b{human_box} l{human_to_loc}'] & rConf_cube & self.ee_empty_cube
                             
                             constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
                             for restricted_loc in self.restricted_human_locs:
                                 constraint_cube &= ~self.xVar_map_sym[f'b{human_box} l{restricted_loc}']
                             hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
+                            
+                            new_hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
                             ##### INVALID MOVE CASE (not because of reaching the max human intervention) #####
                             constraint_cube = ~self.locs_empty_constraints[f'l{human_to_loc}']
@@ -1064,35 +1114,46 @@ class FrankaWorldDynamicRatioTurnBased():
                                 constraint_cube |= self.xVar_map_sym[f'b{human_box} l{restricted_loc}']
                             invalid_hmove_cube |=  turn_bit & kVal_cube & \
                                 self.eAction_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
+                            
+                            new_invalid_hmove_cube |=  turn_bit & kVal_cube & \
+                                self.action_map_sym[f'hmove b{human_box} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
 
                             # If the human can still intervene then add it set of valis moves and increment k by 1
                             if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
                                 pred_clause_prime_string = self.xVar_map[f'ready l{from_loc}']
                                 for sidx, s in enumerate(pred_clause_prime_string):
                                     if s == '1':
-                                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube 
+                                        self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                        self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube
 
                                 # update k var - increment k by 1
                                 kVal_prime_str = self.kVar_map[f'k{k + 1}']
                                 for sidx, s in enumerate(kVal_prime_str):
                                     if s == '1':
                                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
+                                        self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                             
                             # the human has reached the max number of interventions in this robot turn;
                             # all they can do is noop so we add all hmove to invalid move case
                             else:
                                 invalid_hmove_cube |= hmove_cube
+                                new_invalid_hmove_cube |= new_hmove_cube
                         
                     # add the human noop action here - hmove noop is always a valid human move
                     hmove_cube = turn_bit & kVal_cube & (self.monolithic_hnoop | invalid_hmove_cube) & rConf_cube & self.ee_empty_cube
+                    
+                    # Lets try without the monolithic hnoop first
+                    new_hmove_cube = turn_bit & kVal_cube & (self.action_map_sym['hmove noop'] | new_invalid_hmove_cube) & rConf_cube & self.ee_empty_cube
                     pred_clause_prime_string = self.xVar_map[f'to-obj b{b}']
                     for sidx, s in enumerate(pred_clause_prime_string):
                         if s == '1':
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                     
                     for sidx, s in enumerate(self.kVar_map['k0']):
                         if s == '1':
                             self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
 
 
     def create_human_move_actions(self) -> None:
@@ -1109,17 +1170,22 @@ class FrankaWorldDynamicRatioTurnBased():
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
+                    new_invalid_hmove_cube = self.manager.addZero()
                     box_pred = f"b{hb} l{from_loc}"
                     bConf_cube = self.xVar_map_sym[box_pred]
                     for human_to_loc in self.human_locs:
                         ##### VALID MOVE CASE #####
                         hmove_cube = turn_bit & kVal_cube & \
                             self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}']
+                        new_hmove_cube = turn_bit & kVal_cube & \
+                            self.action_map_sym[f'hmove b{hb} l{human_to_loc}']
                         
                         constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
                         for restricted_loc in self.restricted_human_locs:
                             constraint_cube &= ~self.xVar_map_sym[f'b{hb} l{restricted_loc}']
                         hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
+
+                        new_hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
                         ##### INVALID MOVE CASE #####
                         # if it not a valid move, then human action should not have any affect
@@ -1128,6 +1194,9 @@ class FrankaWorldDynamicRatioTurnBased():
                             constraint_cube |= self.xVar_map_sym[f'b{hb} l{restricted_loc}']
                         invalid_hmove_cube |= turn_bit & kVal_cube &  \
                             self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
+
+                        new_invalid_hmove_cube |= turn_bit & kVal_cube &  \
+                            self.action_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
                         
 
                         if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
@@ -1136,27 +1205,33 @@ class FrankaWorldDynamicRatioTurnBased():
                             for sidx, s in enumerate(moved_box_prime_str):
                                 if s == '1':
                                     self.transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= hmove_cube
+                                    self.new_transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= new_hmove_cube
                             
                             # update k var - increment k by 1
                             kVal_prime_str = self.kVar_map[f'k{k + 1}']
                             for sidx, s in enumerate(kVal_prime_str):
                                 if s == '1':
                                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                    self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                         
                         # the human has reached the max number of interventions in this robot turn;
                         # all they can do is noop so we add all hmove to invalid move case
                         else:
                             invalid_hmove_cube |= hmove_cube
+                            new_invalid_hmove_cube |= new_hmove_cube
                     
                     
                     hmove_cube = turn_bit & kVal_cube & (self.monolithic_hnoop | invalid_hmove_cube) & bConf_cube
+                    new_hmove_cube = turn_bit & kVal_cube & (self.action_map_sym['hmove noop'] | new_invalid_hmove_cube) & bConf_cube
                     for sidx, s in enumerate(self.xVar_map[box_pred]):
                         if s == '1':
                             self.transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.bVars[hb][sidx].bddPattern().__str__()] |= new_hmove_cube
                     
                     for sidx, s in enumerate(self.kVar_map['k0']):
                         if s == '1':
                             self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                            self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
     
     def create_human_move_action_grasp(self) -> None:
         """
@@ -1170,6 +1245,8 @@ class FrankaWorldDynamicRatioTurnBased():
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
                     invalid_hmove_cube = self.manager.addZero()
+                    new_invalid_hmove_cube = self.manager.addZero()
+                    
                     rConf_cubes_list = [self.xVar_map_sym[f'holding l{from_loc}'], self.xVar_map_sym[f'ready l{from_loc}'] & self.ee_empty_cube]
                     pred_clause_prime_string_list = [self.xVar_map[f'holding l{from_loc}'], self.xVar_map[f'ready l{from_loc}']]
                     for rConf_cube, pred_clause_prime_string in zip(rConf_cubes_list, pred_clause_prime_string_list):
@@ -1178,10 +1255,14 @@ class FrankaWorldDynamicRatioTurnBased():
                             hmove_cube = turn_bit & kVal_cube & \
                                 self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & rConf_cube
                             
+                            new_hmove_cube = turn_bit & kVal_cube & self.action_map_sym[f'hmove b{hb} l{human_to_loc}'] & rConf_cube
+                            
                             constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
                             for restricted_loc in self.restricted_human_locs:
                                 constraint_cube &= ~self.xVar_map_sym[f'b{hb} l{restricted_loc}']
                             hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
+
+                            new_hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
                             ##### INVALID MOVE CASE #####
                             # if it not a valid move, then human action should not have any affect
@@ -1191,32 +1272,41 @@ class FrankaWorldDynamicRatioTurnBased():
                             invalid_hmove_cube |= turn_bit & kVal_cube & rConf_cube & \
                                 self.eAction_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
                             
+                            new_invalid_hmove_cube |= turn_bit & kVal_cube & rConf_cube & \
+                                self.action_map_sym[f'hmove b{hb} l{human_to_loc}'] & constraint_cube & self.monolithic_relevant_box_preds
+                            
                             if (k == 0 or k % self.ratio != 0) and self.ratio != 0:
                                 for sidx, s in enumerate(pred_clause_prime_string):
                                     if s == '1':
                                         self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube 
+                                        self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube 
                                 
                                 # update k var - increment k by 1
                                 kVal_prime_str = self.kVar_map[f'k{k + 1}']
                                 for sidx, s in enumerate(kVal_prime_str):
                                     if s == '1':
                                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                        self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                             
                             # the human has reached the max number of interventions in this robot turn;
                             # all they can do is noop so we add all hmove to invalid move case
                             else:
                                 invalid_hmove_cube |= hmove_cube
+                                new_invalid_hmove_cube |= new_hmove_cube
                         
                         
                         hmove_cube = turn_bit & kVal_cube & (self.monolithic_hnoop | invalid_hmove_cube) & rConf_cube
+                        new_hmove_cube = turn_bit & kVal_cube & (self.action_map_sym['hmove noop'] | new_invalid_hmove_cube) & rConf_cube
                         # pred_clause_prime_string = self.xVar_map[f'holding l{from_loc}']
                         for sidx, s in enumerate(pred_clause_prime_string):
                             if s == '1':
-                                self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube 
+                                self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                self.new_transition_relation[self.pVars[sidx].bddPattern().__str__()] |= new_hmove_cube
                         
                         for sidx, s in enumerate(self.kVar_map['k0']):
                             if s == '1':
                                 self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                                self.new_transition_relation[self.kVars[sidx].bddPattern().__str__()] |= new_hmove_cube
     
 
     def add_robot_s_sprime_frame_axioms(self):
@@ -1337,6 +1427,8 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         grasp_action_cube = self.rAction_map_sym['grasp']
         release_action_cube = self.rAction_map_sym['release']
+        new_grasp_action_cube = self.action_map_sym['grasp']
+        new_release_action_cube = self.action_map_sym['release']
         for b in range(self.boxes):
             for l in range(1, self.locs + 1):
                 constraint_cube = self.manager.addOne()
@@ -1344,12 +1436,21 @@ class FrankaWorldDynamicRatioTurnBased():
                 not_grasp_cube = ~((self.xVar_map_sym[f'to-obj b{b}'] | self.xVar_map_sym[f'ready l{l}']) & grasp_action_cube)
                 not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & release_action_cube)
                 constraint_cube &= not_grasp_cube & not_release_cube \
-                    & self.relevant_robot_actions & self.monolithic_relevant_box_preds 
+                    & self.relevant_robot_actions & self.monolithic_relevant_box_preds
+
+
+                new_constraint_cube = self.manager.addOne()
+                new_not_grasp_cube = ~((self.xVar_map_sym[f'to-obj b{b}'] | self.xVar_map_sym[f'ready l{l}']) & new_grasp_action_cube)
+                new_not_release_cube = ~(self.xVar_map_sym[f'holding l{l}'] & new_release_action_cube)
+                new_constraint_cube &= new_not_grasp_cube & new_not_release_cube \
+                    & self.new_relevant_robot_actions & self.monolithic_relevant_box_preds 
                 
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= self.tVar_map_sym['robot'] & self.kVal_cube \
                             & constraint_cube & self.xVar_map_sym[box_pred]
+                        self.new_transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= self.tVar_map_sym['robot'] & self.kVal_cube \
+                            & new_constraint_cube & self.xVar_map_sym[box_pred]
                 
     def add_human_frame_axiom(self):
         """
@@ -1362,18 +1463,23 @@ class FrankaWorldDynamicRatioTurnBased():
                 # if l in self.restricted_human_locs:
                 if (l in self.restricted_human_locs) or (b not in self.human_boxes):
                     haction_cube = self.tVar_map_sym['human'] & self.xVar_map_sym[box_pred] & self.kVal_cube
+                    new_haction_cube = haction_cube
                 else:
                     haction_cube = self.tVar_map_sym['human'] \
                         & self.xVar_map_sym[box_pred] & (self.monolithic_hnoop | self.hmove_not_b[b]) & self.kVal_cube
+                    new_haction_cube = self.tVar_map_sym['human'] \
+                        & self.xVar_map_sym[box_pred] &  (self.action_map_sym['hmove noop'] | self.new_hmove_not_b[b]) & self.kVal_cube
                     constraint_cube = self.manager.addOne()
                     for restricted_loc in self.restricted_human_locs:
                         constraint_cube &= ~self.xVar_map_sym[f'b{b} l{restricted_loc}']
                     haction_cube &= constraint_cube & self.monolithic_relevant_box_preds
+                    new_haction_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
                 # box remmains in the same location if human does not move it
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= haction_cube
+                        self.new_transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= new_haction_cube
 
     
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
@@ -1962,6 +2068,76 @@ class FrankaWorldDynamicRatioTurnBased():
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     return preimage if init_val < math.inf else None
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+    
+
+    def new_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
+        """
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+
+        # print the initial winning states
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not retuen cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), robot_action=False)
+        
+        # intialize the iteration counter
+        layer = 0
+        # valid_human_action_mask = (self.cube_to_add(self.action_map['hmove noop'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l1'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l2'], self.rVars))
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.new_env_action_cube_list)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+
+            # prime the vars
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_transition_relation.values()))
+
+            # add the action costs associated with the robot actions   
+            preimage = preimage + self.new_weight
+            # print("*****************************Current Preimage:*****************************")
+            # self.new_convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=verbose)
+            
+            # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
+            robot_states = preimage.restrict(self.tVar_map_sym['robot'])
+            next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
+            
+            # take max over Env player states; but first map the invalid human actions and robot action from these stares to -inf
+            human_states = preimage.restrict(self.tVar_map_sym['human'])
+            preimage_for_max = valid_human_action_mask.ite(human_states, self.manager.minusInfinity()) 
+            next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+
+            next_winning_states = self.tVar[0].ite(next_winning_states_robot, next_winning_states_env)
+            
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False, verbose=verbose)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    return preimage if init_val < math.inf else None
+                else:
+                    print(f"No Winning Strategy Exists!! The State value is {math.inf}")
                 return None
 
             # update the counter
