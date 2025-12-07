@@ -1625,6 +1625,94 @@ class FrankaWorldDynamicRatioTurnBased():
 
         
         return states_action_pairs
+    
+    
+    def new_convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:
+        """
+         Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
+         If you want to print the robot action as well, set robot_action to True. 
+         If you want to print the human action as well, set human_action to True.
+        """
+        relevant_vars = []
+        if state_flag:
+            relevant_vars.extend(self.latches)
+        if action:
+            relevant_vars.extend(self.rVars)
+        
+        headers = []
+        if verbose and action:
+            headers = ['state', 'action', 'value']
+        elif verbose and not action:
+            headers = ['state', 'value']
+
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+        start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+
+        # create turn abstraction cube
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.rVars)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.rVars)
+        
+        # create existential abstraction cubes
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.rVars) 
+        # because ADD is not iterable and cannot be added to a list directly
+        bConf_exist_cube = dict({})
+        for bidx in range(self.boxes):
+            if self.boxes == 1:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.rVars)
+            else:
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.rVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+        
+        # print the states
+        states_action_pairs = []
+        states_bookkeeping = [] 
+        for cube, val in cubes:
+            state = None
+            tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            kConf_cube_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            bCube_str = []
+            for e in bConf_exist_cube.values():
+                bCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            try:
+                box_states = ", ".join(self.bVars_map[bidx].inv[e] for bidx, e in enumerate(bCube_str))
+            except KeyError:
+                continue
+            
+            try:
+                state = (self.tVar_map.inv[tConf_cube_str], self.kVar_map.inv[kConf_cube_str], self.pVar_map.inv[rConf_cube_str], box_states)
+                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], self.kVar_map.inv[kConf_cube_str], self.pVar_map.inv[rConf_cube_str], box_states), val), None])
+            except KeyError:
+                continue
+            
+            # print the robot and human actions as well
+            action_list = []
+            if action:
+                rCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
+                try:
+                    action_str = self.action_map_sym.inv[self.cube_to_add(rCube_str, self.rVars)]
+                    action_list.append(action_str)
+                except KeyError:
+                    continue
+           
+            if action:
+                # action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
+                action = ",".join(action_list)
+            
+            # if you made it till here then print stuff or store them
+            if action:
+                states_bookkeeping.append((state, action, val))
+            else:
+                states_bookkeeping.append((state, val))
+        
+        if verbose and table_header:
+            print(tabulate(states_bookkeeping, headers=headers))
+        elif verbose and not table_header:
+            print(tabulate(states_bookkeeping))
+
+        
+        return states_action_pairs
 
 
     def convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, robot_action: bool = False, verbose: bool = False) -> List[List[Tuple[Tuple[str, str, int], str]]]:
@@ -1931,15 +2019,14 @@ class FrankaWorldDynamicRatioTurnBased():
          A function to rollout a give strategy
         """
         curr_state = self.init_latch
-        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
-        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+        # oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
+        # iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
-            if verbose:
-                print("Current State:")
-                curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, robot_action=False)
-                assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
-                "For rollout, it should be a single intial state."
+            curr_state_exp: List[str] = self.new_convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=verbose)
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+            "For rollout, it should be a single intial state."
             
             # first get the optimum state value
             try:
@@ -1948,18 +2035,20 @@ class FrankaWorldDynamicRatioTurnBased():
                 opt_sval: int = 0
 
             # get the action to be taken at the current state
-            if curr_state_exp[0][0][0][0] == 'robot':
-                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-            elif curr_state_exp[0][0][0][0] == 'human':
-                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
-            else:
-                print("Unknown turn variable value. Cannot proceed with rollout!!")
-                return
+            # if curr_state_exp[0][0][0][0] == 'robot':
+            #     act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
+            # elif curr_state_exp[0][0][0][0] == 'human':
+            #     act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
+            # else:
+            #     print("Unknown turn variable value. Cannot proceed with rollout!!")
+            #     return
+            act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:
-                act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
-                    else self.eAction_map.inv[act_cube_string]
+                # act_name = self.rAction_map.inv[act_cube_string] if curr_state_exp[0][0][0][0] == 'robot' \
+                #     else self.eAction_map.inv[act_cube_string]
+                act_name = self.action_map.inv[act_cube_string]
             except KeyError:
                 print("No robot action found!!")
                 return
@@ -2150,13 +2239,19 @@ class FrankaWorldDynamicRatioTurnBased():
     def test_pre_image_restricted_human_moves(self):
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k0'] #& self.xVar_map_sym['b1 l3']
         # goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['in-transfer l2'] & self.xVar_map_sym['b0 l0']
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['ready l3'] & self.xVar_map_sym['b0 l1'] & self.xVar_map_sym['b1 l2'] & self.kVar_map_sym['k1']
+        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k1']
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
         preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-        print('Preimage: ', preimage)
+        print("************************Using Old TR*******************************")
+        print('Preimage (Old TR): ', preimage)
         self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False, verbose=True)
+
+        # print("************************Using New TR*******************************")
+        # new_preimage = From.vectorCompose(self.prime_latches, list(self.new_transition_relation.values()))
+        # print('Preimage (New TR): ', new_preimage)
+        # self.new_convert_cube_to_state_ADD(new_preimage, action=True, verbose=True)
 
 
 
