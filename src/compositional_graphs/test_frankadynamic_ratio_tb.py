@@ -66,15 +66,11 @@ class FrankaWorldDynamicRatioTurnBased():
         self.prime_tVar_map_sym = bidict({'robot': self.cube_to_add(self.tVar_map['robot'], self.prime_tVar),
                                           'human': self.cube_to_add(self.tVar_map['human'], self.prime_tVar)})
         
-        self.oVars: List[ADD] = self.create_output_vars()
-        self.create_rAction_map()
-        self.rAction_map_sym = bidict({k: self.cube_to_add(v, self.oVars) for k, v in self.rAction_map.items()})
-
         # now that the maps are initialized we create init and goal states
         self.init_latch: ADD = self.set_init_latch() 
         self.goal_latch: ADD = self.set_goal_latch()
 
-        # monolithic transition relation for the robot actions
+        # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
 
         # create env move related vars and maps
@@ -109,7 +105,7 @@ class FrankaWorldDynamicRatioTurnBased():
     @human_boxes.setter
     def human_boxes(self, hboxes: List[int]):
         assert set(hboxes).issubset(set(range(self.boxes))), "[Error] Human boxes should be a subset of all boxes."
-        self._human_boxes = boxes  
+        self._human_boxes = hboxes  
 
     @human_locs.setter
     def human_locs(self, hlocs: List[int]):
@@ -212,8 +208,8 @@ class FrankaWorldDynamicRatioTurnBased():
          Create a copy of prime variables for the ratio latches.
         """
         varsize = self.manager.size()
-        rVars_prime: List[ADD] = [self.manager.addVar(k + varsize, 'pk' + str(k)) for k in range(len(self.kVars))]
-        return rVars_prime
+        kVars_prime: List[ADD] = [self.manager.addVar(k + varsize, 'pk' + str(k)) for k in range(len(self.kVars))]
+        return kVars_prime
     
     def create_loc_empty_constraint(self):
         """
@@ -335,11 +331,12 @@ class FrankaWorldDynamicRatioTurnBased():
         self.prime_bVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_bVars]
         # create relevant env and robot actions; boxes
         self.monolithic_hnoop = reduce(lambda x, y: x | y, [act for act_str, act in self.eAction_map_sym.items() if act_str.startswith('hmove noop')])
-        self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
+        # self.relevant_env_actions: ADD = reduce(lambda x, y: x | y, self.eAction_map_sym.values())
         self.relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.rAction_map_sym.values())
-        self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
+        # self.new_relevant_robot_actions: ADD = reduce(lambda x, y: x | y, self.action_map_sym.values())
+        # self.relevant_env_actions_per_box = defaultdict(lambda: self.manager.addZero())
         self.relevant_box_preds_sym = defaultdict(lambda: self.manager.addZero())
-        self.create_relevant_env_actions_per_box()
+        # self.create_relevant_env_actions_per_box()
         self.create_relevant_box_predicates()
         self.monolithic_relevant_box_preds: ADD = reduce(lambda x, y: x & y, self.relevant_box_preds_sym.values())
         self.monolithic_valid_state_robot_actions: ADD = self.manager.addZero()
@@ -512,14 +509,14 @@ class FrankaWorldDynamicRatioTurnBased():
         return bConf_cube
     
 
-    def create_relevant_env_actions_per_box(self):
-        """
-         A tiny method to create relevant env actions for the human moves for each box.
-        """
-        for b in self.human_boxes:
-            for act_str, act_add in self.eAction_map_sym.items():
-                if f'b{b}' in act_str:
-                    self.relevant_env_actions_per_box[b] |= act_add
+    # def create_relevant_env_actions_per_box(self):
+    #     """
+    #      A tiny method to create relevant env actions for the human moves for each box.
+    #     """
+    #     for b in self.human_boxes:
+    #         for act_str, act_add in self.eAction_map_sym.items():
+    #             if f'b{b}' in act_str:
+    #                 self.relevant_env_actions_per_box[b] |= act_add
 
 
     def create_relevant_box_predicates(self):
@@ -1779,6 +1776,36 @@ class FrankaWorldDynamicRatioTurnBased():
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
                 print(f"Robot Action: {act_name}")
+    
+
+    def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD]):
+        """
+        Eliminates variables by taking the minimum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in variables_to_abstract:
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.min(neg_cofactor) 
+            
+        return result_add
+    
+
+    def symbolic_max_abstract(self, add_function, variables_to_abstract: List[ADD]) -> ADD:
+        """
+        Eliminates variables by taking the maximum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in variables_to_abstract:
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.max(neg_cofactor) 
+            
+        return result_add
             
 
 
