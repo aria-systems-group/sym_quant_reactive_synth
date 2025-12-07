@@ -35,6 +35,8 @@ def Regret_DFA_Game_Main():
     human_locs = range(1, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
+    # box numbering starts with 0.
+    human_boxes = [1]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
@@ -45,6 +47,7 @@ def Regret_DFA_Game_Main():
                                                 ratio=ratio, init=init,
                                                 goal=goal, formula=formula, 
                                                 restricted_human_locs=human_locs,
+                                                restricted_human_boxes=human_boxes,
                                                 ltlf_flag=ltlf_flag, budget=budget,
                                                 enable_reordering=enable_reordering)
     
@@ -127,7 +130,8 @@ def DFA_Game_Main():
     # goal = [['b0 l1']]
     goal = []
 
-    human_locs = range(1, locs + 1)
+    human_locs = range(2, locs + 1)
+    human_boxes = [1]
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
 
@@ -139,6 +143,7 @@ def DFA_Game_Main():
                                           ratio=ratio, init=init,
                                           goal=goal, formula=formula, 
                                           restricted_human_locs=human_locs,
+                                          restricted_human_boxes=human_boxes,
                                           ltlf_flag=ltlf_flag,
                                           enable_reordering=enable_reordering)
     
@@ -194,37 +199,43 @@ def DFA_Game_Main():
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     if strategy is not None:
-        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True, cooperative_game=cooperative_game)
 
 
 
 def Game_Main():
     # setting things up
-    boxes = 1
-    locs = 2
+    boxes = 5
+    locs = 8
     ratio = 1
 
-    cooperative_game = True
-    enable_reordering = False
+    cooperative_game = False
+    enable_reordering = True
 
+    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7', 'b4 l4']
     # init = ['ready l2', 'b0 l2', 'b1 l3']
-    init = ['ready l2', 'b0 l2']
+    # init = ['ready l1', 'b0 l2']
     goal = [['b0 l1']]
 
-    human_locs = range(1, locs + 1)
-    # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
+    # human_locs = range(2, locs + 1)
+    human_locs = range(5, locs + 1)
+    # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10]
     # human_locs = [3]
+    # human_boxes = range(boxes)
+    human_boxes = [2, 3]
 
     
     game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
                                                 ratio=ratio, init=init,
                                                 goal=goal, enable_reordering=enable_reordering,
-                                                restricted_human_locs=human_locs)
+                                                restricted_human_locs=human_locs,
+                                                restricted_human_boxes=human_boxes)
     
     # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
     #                                         ratio=ratio, init=init,
     #                                         goal=goal, enable_reordering=enable_reordering,
-    #                                         restricted_human_locs=human_locs)
+    #                                         restricted_human_locs=human_locs, 
+    #                                         restricted_human_boxes=human_boxes)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -232,19 +243,16 @@ def Game_Main():
     for k, v in game.xVar_map.items():
         print(f"{k} : {v}")
     
-    print('****************rAction Map:****************')
-    for k, v in game.rAction_map.items():
+    print('****************Action Map:****************')
+    for k, v in game.action_map.items():
         print(f"{k} : {v}")
 
-    print('****************eAction Map:****************')
-    for k, v in game.eAction_map.items():
-        print(f"{k} : {v}")
 
     print("*****************Ratio Map:*****************")
     for k, v in game.kVar_map.items():
         print(f"{k} : {v}")
 
-
+    # print Game Info - # number of explicit states
     game.get_number_of_states(verbose=True)
 
 
@@ -259,13 +267,14 @@ def Game_Main():
     game.create_transition_relation()
     toc = time.time()
     print(f"Time to create transition relation: {toc - tic} seconds")
-    game.assert_one_s_prime_s_relation(dd_full_trans_rel=game.monolithic_valid_state_robot_actions_prime_state)
-    sys.exit(-1)
+    # game.assert_one_s_prime_s_relation(dd_full_trans_rel=game.monolithic_valid_state_robot_actions_prime_state)
 
-    # dfa_game.test_pre_image()
+    # game.test_pre_image_restricted_human_moves()
+    # sys.exit(-1)
 
     tic = time.time()
-    strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
+    strategy = game.new_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -276,10 +285,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    # Game_Main()
+    Game_Main()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main()
