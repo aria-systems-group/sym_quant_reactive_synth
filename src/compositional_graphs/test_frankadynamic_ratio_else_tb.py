@@ -84,7 +84,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         sys_states = (self.ratio + 1)*(2*self.locs + self.boxes + 1)*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
         env_states = (self.ratio + 1)*((self.boxes + self.locs))*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
         if verbose:
-            print(f'Number of States in Game: \n Sys States: {sys_states} \n Env States: {env_states} \n Total States: {sys_states + env_states}')
+            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
         return sys_states, env_states
     
 

@@ -2093,7 +2093,20 @@ class FrankaWorldDynamicRatioTurnBased():
             result_add = pos_cofactor.max(neg_cofactor) 
             
         return result_add
-            
+    
+
+    def create_sys_env_transition_relations(self):
+        """
+         A method to create separate transition relations for the system (robot) and environment (human) actions.
+        """
+        
+        # post-process to get TR for robot and Human actions separately
+        self.new_sys_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.new_env_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        for tr_key, tr_dd in self.new_transition_relation.items():
+            self.new_sys_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['robot']
+            self.new_env_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['human']
+
 
 
     def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
@@ -2235,23 +2248,107 @@ class FrankaWorldDynamicRatioTurnBased():
             # swap the winning states
             curr_winning_states = next_winning_states
 
+    def compute_min_max_preimage(self, preimage: ADD, valid_human_action_mask: ADD) -> ADD:
+        robot_states = preimage.restrict(self.tVar_map_sym['robot'])
+        next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
+        
+        # take max over Env player states; but first map the invalid human actions and robot action from these stares to -inf
+        human_states = preimage.restrict(self.tVar_map_sym['human'])
+        preimage_for_max = valid_human_action_mask.ite(human_states, self.manager.minusInfinity()) 
+        next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+
+        next_winning_states = self.tVar[0].ite(next_winning_states_robot, next_winning_states_env)
+        return next_winning_states
+
+
+    def new_solve_optimization(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
+        """
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = curr_winning_states.min(goal)
+
+        # print the initial winning states
+        # if verbose:
+        #     print("Initial Winning States:")
+        #     # by default generate cubes does not retuen cubes that point to 0 leaf. 
+        #     # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+        #     self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), robot_action=False)
+        
+        self.create_sys_env_transition_relations()
+        # intialize the iteration counter
+        layer = 0
+        # valid_human_action_mask = (self.cube_to_add(self.action_map['hmove noop'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l1'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l2'], self.rVars))
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.new_env_action_cube_list)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # preimage computation over Sys states
+            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+            preimage1 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_sys_transition_relation.values()))
+            preimage2 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_env_transition_relation.values()))
+
+            # add the action costs associated with the robot actions   
+            preimage1 += self.new_weight
+            preimage2 += self.new_weight
+
+            next_winning_states1 = self.compute_min_max_preimage(preimage=preimage1, valid_human_action_mask=valid_human_action_mask)
+            next_winning_states2 = self.compute_min_max_preimage(preimage=preimage2, valid_human_action_mask=valid_human_action_mask)
+            next_winning_states = next_winning_states1.min(next_winning_states2)
+
+            # at Sys states take min over the two preimages
+            # next_winning_states_sys = next_winning_states1.restrict(self.tVar_map_sym['robot']).min(next_winning_states2.restrict(self.tVar_map_sym['robot']))
+            # at Env states take max over the two preimages
+            # next_winning_states_env = next_winning_states1.restrict(self.tVar_map_sym['human']).max(next_winning_states2.restrict(self.tVar_map_sym['human']))
+            # next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.new_convert_cube_to_state_ADD(next_winning_states, action=False, verbose=verbose)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
+                    init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    preimage = preimage1.min(preimage2)
+                    return preimage if init_val < math.inf else None
+                else:
+                    print(f"No Winning Strategy Exists!! The State value is {math.inf}")
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+
     
     def test_pre_image_restricted_human_moves(self):
+        self.create_sys_env_transition_relations()
         # goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k0'] #& self.xVar_map_sym['b1 l3']
         # goal_cube = self.tVar_map_sym['human'] & self.kVar_map_sym['k0'] & self.xVar_map_sym['in-transfer l2'] & self.xVar_map_sym['b0 l0']
-        goal_cube = self.tVar_map_sym['robot'] & self.xVar_map_sym['to-obj b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k1']
+        goal_cube = self.tVar_map_sym['human'] & self.xVar_map_sym['in-transit b0'] & self.xVar_map_sym['b0 l1'] #& self.kVar_map_sym['k1']
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
-        preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        preimage = From.vectorCompose(self.prime_latches, list(self.new_transition_relation.values()))
         print("************************Using Old TR*******************************")
         print('Preimage (Old TR): ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=True, robot_action=False, verbose=True)
+        self.new_convert_cube_to_state_ADD(preimage, action=True, verbose=True)
 
-        # print("************************Using New TR*******************************")
-        # new_preimage = From.vectorCompose(self.prime_latches, list(self.new_transition_relation.values()))
-        # print('Preimage (New TR): ', new_preimage)
-        # self.new_convert_cube_to_state_ADD(new_preimage, action=True, verbose=True)
+        print("************************Using New TR*******************************")
+        new_preimage = From.vectorCompose(self.prime_latches, list(self.new_sys_transition_relation.values()))
+        print('Preimage (New TR): ', new_preimage)
+        self.new_convert_cube_to_state_ADD(new_preimage, action=True, verbose=True)
+        print("Done Computing Preimage")
 
 
 
