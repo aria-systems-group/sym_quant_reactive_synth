@@ -255,12 +255,11 @@ def Game_Main():
     # print Game Info - # number of explicit states
     game.get_number_of_states(verbose=True)
 
-
     # print Game Info
     print("*****************Printing DFA Game Info*****************")
     print("Total num of latches: ", len(game.latches))
     print("Total num of prime latches: ", len(game.prime_latches))
-    print("Total boolean vars: ", len(game.latches) + len(game.prime_latches))
+    print("Total boolean vars: ", len(game.latches) + len(game.prime_latches) + len(game.rVars))
 
     # create the game's transition relation
     tic = time.time()
@@ -274,8 +273,7 @@ def Game_Main():
 
     tic = time.time()
     # strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
-    # strategy = game.new_solve(verbose=False, cooperative_game=cooperative_game)
-    strategy = game.new_solve_optimization(verbose=False, cooperative_game=cooperative_game)
+    strategy = game.solve_optimization(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
