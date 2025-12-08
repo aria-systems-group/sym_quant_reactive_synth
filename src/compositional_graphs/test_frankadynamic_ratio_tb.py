@@ -650,8 +650,8 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # add robot frame axioms
         self.add_robot_frame_axioms()
-        # if self.boxes > 1:
-        #     self.add_robot_s_sprime_frame_axioms()
+        if self.boxes > 1:
+            self.add_robot_s_sprime_frame_axioms()
 
         # keep only the relvant states and actions
         self.postprocess_monolithic_valid_state_robot_actions_prime_state()
@@ -720,7 +720,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['holding l' + str(loc)] & self.prime_xVar_map_sym[f'b{b} l0']
-                # self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
+                self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
 
 
     def create_release_actions(self) -> None:
@@ -765,7 +765,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['ready l' + str(loc)] & self.prime_xVar_map_sym[next_box_pred]
-                # self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())    
+                self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())    
 
     def create_transit_actions(self) -> None:
         """
@@ -805,7 +805,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     
                     # create s a_s s' transitions
                     prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit l{from_loc} b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
-                    # self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
 
 
     def create_transfer_actions(self) -> None:
@@ -852,7 +852,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     
                     # create s a_s s' transitions
                     prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}'] & self.prime_xVar_map_sym[curr_box_pred]
-                    # self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
+                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
     
 
     def create_human_move_transfer(self) -> None:
