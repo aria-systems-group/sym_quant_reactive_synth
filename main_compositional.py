@@ -274,7 +274,8 @@ def Game_Main():
 
     tic = time.time()
     # strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
-    strategy = game.new_solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy = game.new_solve(verbose=False, cooperative_game=cooperative_game)
+    strategy = game.new_solve_optimization(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

@@ -106,14 +106,14 @@ class FrankaWorldDynamicRatioTurnBased():
         # self.env_action_cube_list: List[ADD] = [self.cube_to_add(e, self.iVars) for e in self.eAction_map.values()]
 
         self.new_env_action_cube_list = []
-        self.new_robot_action_cube_list = []
+        self.new_sys_action_cube_list = []
         for act_str, act_dd in self.action_map_sym.items():
             if act_str.startswith('hmove'):
                 if act_str.startswith('hmove noop') and len(act_str.split(' ')) > 2:
                     continue
                 self.new_env_action_cube_list.append(act_dd)
             else:
-                self.new_robot_action_cube_list.append(act_dd)
+                self.new_sys_action_cube_list.append(act_dd)
         
 
         self.miscellanoues_helper_stuff()
@@ -2017,8 +2017,6 @@ class FrankaWorldDynamicRatioTurnBased():
          A function to rollout a give strategy
         """
         curr_state = self.init_latch
-        # oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
-        # iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
@@ -2033,13 +2031,6 @@ class FrankaWorldDynamicRatioTurnBased():
                 opt_sval: int = 0
 
             # get the action to be taken at the current state
-            # if curr_state_exp[0][0][0][0] == 'robot':
-            #     act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-            # elif curr_state_exp[0][0][0][0] == 'human':
-            #     act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
-            # else:
-            #     print("Unknown turn variable value. Cannot proceed with rollout!!")
-            #     return
             act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
 
@@ -2281,29 +2272,29 @@ class FrankaWorldDynamicRatioTurnBased():
         self.create_sys_env_transition_relations()
         # intialize the iteration counter
         layer = 0
-        # valid_human_action_mask = (self.cube_to_add(self.action_map['hmove noop'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l1'], self.rVars) | self.cube_to_add(self.action_map['hmove b0 l2'], self.rVars))
-        valid_human_action_mask = reduce(lambda x, y: x | y, self.new_env_action_cube_list)
+        valid_env_action_mask = reduce(lambda x, y: x | y, self.new_env_action_cube_list)
+        valid_sys_action_mask = reduce(lambda x, y: x | y, self.new_sys_action_cube_list)
 
         while True:
             print(f"**************************Layer: {layer}**************************")
             # preimage computation over Sys states
             curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-            preimage1 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_sys_transition_relation.values()))
-            preimage2 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_env_transition_relation.values()))
+            # preimage1 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_sys_transition_relation.values()))
+            # curr_winning_states_primed_env = curr_winning_states_primed.restrict(self.tVar_map_sym['human'])
+            pre_sys = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_sys_transition_relation.values()))
+            # preimage2 = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_env_transition_relation.values()))
+            # curr_winning_states_primed_sys = curr_winning_states_primed.restrict(self.tVar_map_sym['robot'])
+            pre_env = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.new_env_transition_relation.values()))
 
             # add the action costs associated with the robot actions   
-            preimage1 += self.new_weight
-            preimage2 += self.new_weight
+            pre_sys += self.new_weight
+            pre_env += self.new_weight
 
-            next_winning_states1 = self.compute_min_max_preimage(preimage=preimage1, valid_human_action_mask=valid_human_action_mask)
-            next_winning_states2 = self.compute_min_max_preimage(preimage=preimage2, valid_human_action_mask=valid_human_action_mask)
-            next_winning_states = next_winning_states1.min(next_winning_states2)
-
-            # at Sys states take min over the two preimages
-            # next_winning_states_sys = next_winning_states1.restrict(self.tVar_map_sym['robot']).min(next_winning_states2.restrict(self.tVar_map_sym['robot']))
-            # at Env states take max over the two preimages
-            # next_winning_states_env = next_winning_states1.restrict(self.tVar_map_sym['human']).max(next_winning_states2.restrict(self.tVar_map_sym['human']))
-            # next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+            # pre_sys_masked = valid_sys_action_mask.ite(pre_sys, self.manager.plusInfinity())
+            next_winning_states_sys = self.symbolic_min_abstract(pre_sys, self.rVars)
+            pre_env_masked = valid_env_action_mask.ite(pre_env, self.manager.minusInfinity())
+            next_winning_states_env = self.symbolic_max_abstract(pre_env_masked, self.rVars)
+            next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
 
             next_winning_states = next_winning_states.min(goal)
 
@@ -2318,7 +2309,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
-                    preimage = preimage1.min(preimage2)
+                    # preimage = preimage1.min(preimage2)
+                    preimage = pre_sys.min(pre_env)
                     return preimage if init_val < math.inf else None
                 else:
                     print(f"No Winning Strategy Exists!! The State value is {math.inf}")
