@@ -206,12 +206,12 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
 
     def create_dfa_transition_relation(self):
         self.dfa_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}
+        self.dfa_transition_relation_accp_sink = {var.bddPattern().__str__(): self.manager.addZero() for var in self.qVars}  # accpting states transitions are skipped in this TR
         for curr, nxt in self.dfa._graph.edges():
             # get the boolean formula for the corresponding edge 
             dfa_state_cube = self.qVar_map_sym[curr] 
             dfa_state_prime_str: str = self.qVar_map[nxt]
-            edge_sym = self.get_edge_boolean_formula(curr_state=curr,
-                                                      nxt_state=nxt)
+            edge_sym = self.get_edge_boolean_formula(curr_state=curr, nxt_state=nxt)
             
             if not isinstance(edge_sym, ADD):
                 edge = self.dfa._graph[curr][nxt][0]['guard_formula']
@@ -224,6 +224,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
             for sidx, s in enumerate(dfa_state_prime_str):
                 if s == '1':
                     self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
+                    if not ((curr in self.goal) and (nxt in self.goal)):
+                        self.dfa_transition_relation_accp_sink[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
         
 
 

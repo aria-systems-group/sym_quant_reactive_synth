@@ -458,7 +458,7 @@ class FrankaWorldDynamicRatioTurnBased():
         sys_states = (self.ratio + 1)*(2*self.locs + self.boxes + 1)*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
         env_states = (self.ratio + 1)*((self.boxes*(self.locs + 1) + self.locs*(self.locs - 1)))*(math.factorial(self.locs + 1) // math.factorial(self.locs + 1 - self.boxes))
         if verbose:
-            print(f'Number of States in Game: \n Sys States: {sys_states} \n Env States: {env_states} \n Total States: {sys_states + env_states}')
+            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
         return sys_states, env_states
 
 
@@ -1214,7 +1214,7 @@ class FrankaWorldDynamicRatioTurnBased():
         test = add_state_action_prime_state.existAbstract(action_cube)
 
         # print it
-        self.convert_cube_to_state_ADD(test, state_flag=True, verbose=True)
+        # self.convert_cube_to_state_ADD(test, state_flag=True, verbose=True)
 
 
 
@@ -1356,6 +1356,7 @@ class FrankaWorldDynamicRatioTurnBased():
         states_bookkeeping = [] 
         for cube, val in cubes:
             state = None
+            action_str = None
             tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
             rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
             kConf_cube_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
@@ -1374,22 +1375,16 @@ class FrankaWorldDynamicRatioTurnBased():
             except KeyError:
                 continue
             
-            # print the robot and human actions as well
-            action_list = []
             if action:
                 rCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
                 try:
                     action_str = self.action_map_sym.inv[self.cube_to_add(rCube_str, self.rVars)]
-                    action_list.append(action_str)
                 except KeyError:
                     continue
-           
-            if action:
-                action = ",".join(action_list)
             
             # if you made it till here then print stuff or store them
             if action:
-                states_bookkeeping.append((state, action, val))
+                states_bookkeeping.append((state, action_str, val))
             else:
                 states_bookkeeping.append((state, val))
         
@@ -1783,6 +1778,23 @@ class FrankaWorldDynamicRatioTurnBased():
             self.env_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['human']
     
 
+    def compute_preimage(self, curr_winning_states: ADD) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+        preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        return preimage
+    
+
+    def compute_preimage_optimized(self, curr_winning_states: ADD) -> Tuple[ADD, ADD]:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+        pre_sys = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.sys_transition_relation.values()))
+        pre_env = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.env_transition_relation.values()))
+
+        return pre_sys, pre_env
+    
+
     def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
@@ -1806,10 +1818,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-
-            # prime the vars
-            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-            preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+            preimage: ADD = self.compute_preimage(curr_winning_states)
 
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
@@ -1864,7 +1873,7 @@ class FrankaWorldDynamicRatioTurnBased():
         return next_winning_states
 
 
-    def solve_optimization(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    def solve_optimized(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -1881,10 +1890,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            # preimage computation over Sys states
-            curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-            pre_sys = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.sys_transition_relation.values()))
-            pre_env = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.env_transition_relation.values()))
+            pre_sys, pre_env = self.compute_preimage_optimized(curr_winning_states)
 
             # add the action costs associated with the robot actions   
             pre_sys += self.weight

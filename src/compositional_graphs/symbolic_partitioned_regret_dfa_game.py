@@ -241,7 +241,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             uConf_cube = self.uVar_map_sym[f'u{u}']
             for state_cost in valid_state_costs:
                 transition_cube = uConf_cube & self.states_per_cost[state_cost]
-                # transition_cube_no_state = uConf_cube & self.states_per_cost[state_cost]
                 
                 prime_u_val = u + state_cost if (u + state_cost) <= self.budget else self.budget + 1 
                 uConf_prime_cube_str = self.uVar_map[f'u{prime_u_val}']

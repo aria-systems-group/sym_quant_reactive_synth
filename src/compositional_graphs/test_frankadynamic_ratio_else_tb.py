@@ -484,70 +484,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str])
 
 
-    # def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
-    #     """
-    #     A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
-    #       to reach the goal state.
-    #     """
-    #     # initialize goal state with 0 state value and add it to the winning region
-    #     goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-    #     curr_winning_states =  self.manager.plusInfinity()
-    #     curr_winning_states = curr_winning_states.min(goal)
-
-    #     # print the initial winning states
-    #     if verbose:
-    #         print("Initial Winning States:")
-    #         # by default generate cubes does not return cubes that point to 0 leaf. 
-    #         # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
-    #         self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), robot_action=False)
-        
-    #     # intialize the iteration counter
-    #     layer = 0
-
-    #     while True:
-    #         print(f"**************************Layer: {layer}**************************")
-
-    #         # prime the vars
-    #         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-    #         preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-
-    #         # add the action costs associated with the robot actions   
-    #         preimage = preimage + self.weight
-    #         # print("Current Preimage:")
-    #         # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-    #         if cooperative_game:
-    #             Upre: ADD = self.symbolic_min_abstract(preimage, variables_to_abstract=self.iVars)
-    #         else:
-    #             Upre: ADD = self.symbolic_max_abstract(preimage, variables_to_abstract=self.iVars)
-
-    #         Cpre: ADD = self.symbolic_min_abstract(Upre, variables_to_abstract=self.oVars)
-    #         next_winning_states = Cpre.min(goal)
-
-    #         # adding debugging step
-    #         if verbose:
-    #             print("Current Winning States:")
-    #             self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
-            
-    #         if curr_winning_states.compare(next_winning_states, 2):
-    #             print("**************************Reached fixpoint**************************")
-    #             if self.init_latch & curr_winning_states != self.manager.plusInfinity():
-    #                 if self.init_latch & curr_winning_states == self.manager.addZero():
-    #                     print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
-    #                     init_val: int = 0
-    #                 else:
-    #                     init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
-    #                 print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-    #                 self.comp_winning_states = curr_winning_states
-    #                 return preimage if init_val < math.inf else None
-    #             return None
-
-    #         # update the counter
-    #         layer += 1
-
-    #         # swap the winning states
-    #         curr_winning_states = next_winning_states
-
-
     def preimage_test(self, From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
         From = From.swapVariables(latches, prime_latches)
         return From.vectorCompose(prime_latches, ts_action)
@@ -563,7 +499,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         # From = goal_cube
         preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, robot_action=False, verbose=True)
+        self.convert_cube_to_state_ADD(preimage, human_action=False, action=False, verbose=True)
 
 
 if __name__ == "__main__":
