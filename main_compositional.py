@@ -152,19 +152,14 @@ def DFA_Game_Main():
     print('****************xVars Map:****************')
     for k, v in dfa_game.xVar_map.items():
         print(f"{k} : {v}")
-    
-    print('****************rAction Map:****************')
-    for k, v in dfa_game.rAction_map.items():
-        print(f"{k} : {v}")
 
-    print('****************eAction Map:****************')
-    for k, v in dfa_game.eAction_map.items():
+    print('****************Action Map:****************')
+    for k, v in dfa_game.action_map.items():
         print(f"{k} : {v}")
 
     print("*****************Ratio Map:*****************")
     for k, v in dfa_game.kVar_map.items():
         print(f"{k} : {v}")
-
 
     # print the number of explicit states
     sys_states, env_states = dfa_game.get_number_of_states(verbose=True)
@@ -179,9 +174,10 @@ def DFA_Game_Main():
     print("*****************Printing DFA Game Info*****************")
     print(f"Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
     print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
-    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
-
+    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars) + len(dfa_game.rVars))
+    print("********************************************************")
     print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
+    print("********************************************************")
 
     # create the game's transition relation
     tic = time.time()
@@ -194,7 +190,8 @@ def DFA_Game_Main():
     # dfa_game.test_pre_image()
 
     tic = time.time()
-    strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    strategy = dfa_game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -273,7 +270,7 @@ def Game_Main():
 
     tic = time.time()
     # strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
-    strategy = game.solve_optimization(verbose=False, cooperative_game=cooperative_game)
+    strategy = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

@@ -63,6 +63,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
         # call it 2nd time here to ovveride the base method - is this the best way?
+        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch
         self.goal_latch: ADD = self.set_goal_latch()
 
         # now we create the TR for the dfa
@@ -450,70 +451,85 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
 
         return preimage
+    
 
-
-
-    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
-        """
-        A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
-          for the Sys player (robot) to reach the goal state.
-        """
-        # initialize goal state with 0 state value and add it to the winning region
-        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
-
-        # print the initial winning states
-        if verbose:
-            print("Initial Winning States:")
-            # by default generate cubes does not return cubes that point to 0 leaf. 
-            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
-            # setting state flag to False as ever Game state with an accepting DFA state is a winning state. 
-            # So if state flag was true, it would have printed the entire game 
-            self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), state_flag=False, dfa_flag=True, robot_action=False)
+    def compute_preimage_optimized(self, curr_winning_states: ADD) -> Tuple[ADD, ADD]:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
-        # intialize the iteration counter
-        layer = 0
+        # first evolve over the DFA
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
-        while True:
-            print(f"**************************Layer: {layer}**************************")
-            preimage: ADD = self.compute_preimage(curr_winning_states)
+        # then evolve over the game
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches, self.prime_latches)
+        pre_sys = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.sys_transition_relation.values()))
+        pre_env = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.env_transition_relation.values()))
+        return pre_sys, pre_env
 
-            # add the action costs associated with the robot actions   
-            preimage = preimage + self.weight
-            # print("Current Preimage:")
-            # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
-            if cooperative_game:
-                Upre: ADD = self.symbolic_min_abstract(preimage, variables_to_abstract=self.iVars)
-            else:
-                Upre: ADD = self.symbolic_max_abstract(preimage, variables_to_abstract=self.iVars)
+
+
+    # def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    #     """
+    #     A method that implements the value iteration algorithm For DFA Game. This method compute the optimal cost winning strategy
+    #       for the Sys player (robot) to reach the goal state.
+    #     """
+    #     # initialize goal state with 0 state value and add it to the winning region
+    #     goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+    #     curr_winning_states =  self.manager.plusInfinity()
+    #     curr_winning_states = curr_winning_states.min(goal)
+
+    #     # print the initial winning states
+    #     if verbose:
+    #         print("Initial Winning States:")
+    #         # by default generate cubes does not return cubes that point to 0 leaf. 
+    #         # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+    #         # setting state flag to False as ever Game state with an accepting DFA state is a winning state. 
+    #         # So if state flag was true, it would have printed the entire game 
+    #         self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), state_flag=False, dfa_flag=True, action=False)
+        
+    #     # intialize the iteration counter
+    #     layer = 0
+
+    #     while True:
+    #         print(f"**************************Layer: {layer}**************************")
+    #         preimage: ADD = self.compute_preimage(curr_winning_states)
+
+    #         # add the action costs associated with the robot actions   
+    #         preimage = preimage + self.weight
+    #         # print("Current Preimage:")
+    #         # self.convert_cube_to_state_ADD(preimage, state_flag=True, robot_action=False, human_action=False)
+    #         if cooperative_game:
+    #             Upre: ADD = self.symbolic_min_abstract(preimage, variables_to_abstract=self.iVars)
+    #         else:
+    #             Upre: ADD = self.symbolic_max_abstract(preimage, variables_to_abstract=self.iVars)
             
-            Cpre: ADD = self.symbolic_min_abstract(Upre, variables_to_abstract=self.oVars)
-            next_winning_states = Cpre.min(goal)
+    #         Cpre: ADD = self.symbolic_min_abstract(Upre, variables_to_abstract=self.oVars)
+    #         next_winning_states = Cpre.min(goal)
 
-            # adding debugging step
-            if verbose:
-                print("Current Winning States:")
-                self.convert_cube_to_state_ADD(next_winning_states, robot_action=False)
+    #         # adding debugging step
+    #         if verbose:
+    #             print("Current Winning States:")
+    #             self.convert_cube_to_state_ADD(next_winning_states, action=False, verbose=verbose)
             
-            if curr_winning_states.compare(next_winning_states, 2):
-                print("**************************Reached fixpoint**************************")
-                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
-                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
-                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
-                        init_val: int = 0
-                    else:
-                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
-                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
-                    self.comp_winning_states = curr_winning_states
-                    return preimage if init_val < math.inf else None
-                return None
+    #         if curr_winning_states.compare(next_winning_states, 2):
+    #             print("**************************Reached fixpoint**************************")
+    #             if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+    #                 if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+    #                     print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+    #                     init_val: int = 0
+    #                 else:
+    #                     init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+    #                 print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+    #                 self.comp_winning_states = curr_winning_states
+    #                 return preimage if init_val < math.inf else None
+    #             return None
 
-            # update the counter
-            layer += 1
+    #         # update the counter
+    #         layer += 1
 
-            # swap the winning states
-            curr_winning_states = next_winning_states
+    #         # swap the winning states
+    #         curr_winning_states = next_winning_states
         
     
 
