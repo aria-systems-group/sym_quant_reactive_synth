@@ -22,7 +22,7 @@ def Regret_DFA_Game_Main():
     ratio = 1
     budget = 4
 
-    cooperative_game = True
+    cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
 
@@ -58,12 +58,8 @@ def Regret_DFA_Game_Main():
     for k, v in dfa_game.xVar_map.items():
         print(f"{k} : {v}")
     
-    print('****************rAction Map:****************')
-    for k, v in dfa_game.rAction_map.items():
-        print(f"{k} : {v}")
-
-    print('****************eAction Map:****************')
-    for k, v in dfa_game.eAction_map.items():
+    print('****************Action Map:****************')
+    for k, v in dfa_game.action_map.items():
         print(f"{k} : {v}")
 
     print("*****************Ratio Map:*****************")
@@ -94,7 +90,7 @@ def Regret_DFA_Game_Main():
     print("*****************Printing DFA Game Info*****************")
     print("Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
     print("Total num of prime latches: ", len(dfa_game.prime_latches) + len(dfa_game.prime_qVars))
-    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars))
+    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.prime_latches) + len(dfa_game.qVars) + len(dfa_game.prime_qVars) + len(dfa_game.rVars))
 
     print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
     print(f"Total num of explicit states in Graph of Utility DFA Game: {budget * dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
@@ -103,6 +99,11 @@ def Regret_DFA_Game_Main():
     tic = time.time()
     dfa_game.create_transition_relation()
     toc = time.time()
+    print("|xVars|: ", len(dfa_game.xVars))
+    print("|rAct|: ", len(dfa_game.rVars))
+    print("|kVars|: ", len(dfa_game.kVars))
+    print("|uVars|: ", len(dfa_game.uVars))
+    print("|brVars|: ", len(dfa_game.brVars) )
     print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
 
@@ -281,10 +282,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    Game_Main()
+    # Game_Main()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    # Regret_DFA_Game_Main()
+    Regret_DFA_Game_Main()

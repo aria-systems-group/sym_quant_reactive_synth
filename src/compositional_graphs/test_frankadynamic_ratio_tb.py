@@ -77,6 +77,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.human_action: List[str] = ['hmove']
         self.action_map = bidict({})
         self.relevant_robot_actions = None
+        self.relevant_robot_actions_sym: ADD = defaultdict(lambda: self.manager.addZero()) 
         self.create_action_map()
         self.action_map_sym = bidict({k: self.cube_to_add(v, self.rVars) for k, v in self.action_map.items()})
         self.rVars_cube = reduce(lambda x, y: x & y, self.rVars)
@@ -381,6 +382,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     act_str = f'{ract} b{b}'
                     rbit_str = f"{b:0{len(self.rVars)}b}"
                     self.action_map[act_str] = rbit_str
+                    self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
             elif ract == 'transfer':
                 for l in range(1, self.locs + 1):
@@ -388,12 +390,15 @@ class FrankaWorldDynamicRatioTurnBased():
                     # -1 offset the loc 0 str
                     rbit_str = f"{self.boxes + l -1:0{len(self.rVars)}b}"
                     self.action_map[act_str] = rbit_str
+                    self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs:0{len(self.rVars)}b}"
         self.action_map['grasp'] = rbit_str
+        self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs + 1:0{len(self.rVars)}b}"
         self.action_map['release'] = rbit_str
+        self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
 
         # human actions
