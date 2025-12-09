@@ -1059,7 +1059,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
-            # if verbose:
             curr_state_exp: List[str] = self.gou_convert_cube_to_state_ADD(curr_state_sym,
                                                                             state_flag=True,
                                                                             robot_action=False,

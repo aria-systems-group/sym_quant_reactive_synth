@@ -1498,6 +1498,7 @@ class FrankaWorldDynamicRatioTurnBased():
         
         if verbose:
             print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state']))
+        
         return states_action_pairs, prime_states_action_pairs
 
 
