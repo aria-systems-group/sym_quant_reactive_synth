@@ -320,9 +320,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def gou_convert_cube_to_state_ADD(self,
                                       dd: ADD, state_flag: bool = True,
-                                      dfa_flag: bool = True, robot_action: bool = False,
-                                      human_action: bool = False, verbose: bool = False,
-                                      table_header: bool = True, print_val: bool = True) -> None:
+                                      dfa_flag: bool = True, action: bool = False,
+                                      verbose: bool = False, table_header: bool = True, print_val: bool = True) -> None:
         """
          Convert a cube to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -334,38 +333,35 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.latches) # includes pVars and bVars
         if dfa_flag:
             relevant_vars.extend(self.dfa_latches) # includes qVars
-        if robot_action:
-            relevant_vars.extend(self.oVars) # robot action vars (oVars)
-        if human_action:
-            relevant_vars.extend(self.iVars) # env action vars (iVars)
-        
+        if action:
+            relevant_vars.extend(self.rVars) # action vars (rVars)
+
         headers = []
         if verbose:
             headers.extend(['state'])
-            if robot_action:
+            if action:
                 headers.append('action')
             if print_val:
                 headers.append('value')
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
-        # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
-        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
-        start_ivar_idx, end_ivar_idx = self.manager.addVariables().index(self.iVars[0]), self.manager.addVariables().index(self.iVars[-1])
+        # the next vars are l' vars - we ignore them for now. The next ones are action vars
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.oVars + self.iVars)
-        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.oVars + self.iVars)
-        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.oVars + self.iVars)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.oVars + self.iVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.rVars)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.rVars)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.rVars)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.rVars)
         # create existential abstraction cubes
-        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars) 
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.rVars) 
         # because ADD is not iterable and cannot be added to a list directly
         bConf_exist_cube = dict({})
         for bidx in range(self.boxes):
             if self.boxes == 1:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars)
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.rVars)
             else:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.rVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
         
         # print the states
         states_action_pairs = []
@@ -401,28 +397,19 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
             
             # print the robot and human actions as well
-            if robot_action:
+            if action:
                 oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
                 try:
-                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                    action_str = self.action_map_sym.inv[self.cube_to_add(oCube_str, self.rVars)]
                 except KeyError:
                     continue
-            if human_action:
-                iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
-                try:
-                    eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
-                except KeyError:
-                    continue
-            if robot_action or human_action:    
-                action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
-                # print(f"    -- Actions: ({action})")
             
-            if robot_action:
+            if action:
                 if print_val:
-                    states_bookkeeping.append((state, rAction_str, val))
-                # states_bookkeeping.append((state, rAction_str, val))
+                    states_bookkeeping.append((state, action_str, val))
+                # states_bookkeeping.append((state, action_str, val))
                 else:
-                    states_bookkeeping.append((state, rAction_str))
+                    states_bookkeeping.append((state, action_str))
             else:
                 if print_val:
                     states_bookkeeping.append((state, val))
@@ -439,9 +426,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def gobr_convert_cube_to_state_ADD(self,
                                        dd: ADD, state_flag: bool = True,
-                                       dfa_flag: bool = True, robot_action: bool = False,
-                                       human_action: bool = False, verbose: bool = False,
-                                       table_header: bool = True, print_val: bool = True) -> None:
+                                       dfa_flag: bool = True, action: bool = False,
+                                       verbose: bool = False, table_header: bool = True, print_val: bool = True) -> None:
         """
         Convert Graph of Best-Response state-action cubes to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -453,15 +439,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             relevant_vars.extend(self.latches) # includes pVars and bVars
         if dfa_flag:
             relevant_vars.extend(self.dfa_latches) # includes qVars
-        if robot_action:
-            relevant_vars.extend(self.oVars) # robot action vars (oVars)
-        if human_action:
-            relevant_vars.extend(self.iVars) # env action vars (iVars)
+        if action:
+            relevant_vars.extend(self.rVars) # action vars (rVars)
         
         headers = []
         if verbose:
             headers.extend(['state'])
-            if robot_action:
+            if action:
                 headers.append('action')
             if print_val:
                 headers.append('value')
@@ -469,30 +453,30 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
         # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
-        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
-        start_ivar_idx, end_ivar_idx = self.manager.addVariables().index(self.iVars[0]), self.manager.addVariables().index(self.iVars[-1])
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars)
-        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars)
-        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.brVars + self.oVars + self.iVars)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.brVars + self.oVars + self.iVars)
-        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.uVars + self.oVars + self.iVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.brVars + self.rVars)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.brVars + self.rVars)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.brVars + self.rVars)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.brVars + self.rVars)
+        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.uVars + self.rVars)
         # create existential abstraction cubes
-        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.brVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars) 
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.brVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.rVars) 
         # because ADD is not iterable and cannot be added to a list directly
         bConf_exist_cube = dict({})
         for bidx in range(self.boxes):
             if self.boxes == 1:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars)
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.rVars)
             else:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.rVars) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
         
         # print the states
         states_action_pairs = []
         states_bookkeeping = []
         for cube, val in cubes:
             state = None
+            action_str = None
             tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
             rConf_cube_str = cube.existAbstract(rConf_exist_cube).bddPattern().cubeString().replace('-', '')
             kConf_cube_str = cube.existAbstract(kConf_exist_cube).bddPattern().cubeString().replace('-', '')
@@ -523,24 +507,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
             
             # print the robot and human actions as well
-            if robot_action:
+            if action:
                 oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
                 try:
-                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                    action_str = self.action_map_sym.inv[self.cube_to_add(oCube_str, self.rVars)]
                 except KeyError:
                     continue
-            if human_action:
-                iCube_str = cube.bddPattern().cubeString()[start_ivar_idx:end_ivar_idx + 1].replace('-', '')
-                try:
-                    eAction_str = self.eAction_map_sym.inv[self.cube_to_add(iCube_str, self.iVars)]
-                except KeyError:
-                    continue
-            if robot_action or human_action:    
-                action = ", ".join(filter(None, [rAction_str if robot_action else None, eAction_str if human_action else None]))
-                # print(f"    -- Actions: ({action})")
             
-            if robot_action or human_action:
-                states_bookkeeping.append((state, action, val))
+            if action:
+                states_bookkeeping.append((state, action_str, val))
             else:
                 states_bookkeeping.append((state, val))
         
@@ -552,7 +527,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return states_action_pairs
 
 
-    def gou_convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = True, verbose: bool = False) -> None:
+    def gou_convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, action: bool = True, verbose: bool = False) -> None:
         """
         Convert a cube to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -568,37 +543,37 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         if dfa_flag:
             relevant_vars.extend(self.qVars) # includes qVars
             relevant_vars.extend(self.prime_qVars) # includes prime qVars
-        if robot_action:
-            relevant_vars.extend(self.oVars) # robot action vars (oVars)
+        if action:
+            relevant_vars.extend(self.rVars) # action vars (rVars)
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
-        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
 
         # create abstraction cubes
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
-        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
-        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.oVars + self.iVars + self.gou_game_prime_latches)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.rVars + self.gou_game_prime_latches)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.rVars + self.gou_game_prime_latches)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.rVars + self.gou_game_prime_latches)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.rVars + self.gou_game_prime_latches)
         # create existential abstraction cubes - rConf
-        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + self.gou_game_prime_latches) 
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.rVars + self.gou_game_prime_latches) 
 
         # create prime abstraction cubes
-        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
-        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
-        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
-        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.oVars + self.iVars + self.gou_game_latches)
+        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.rVars + self.gou_game_latches)
+        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.rVars + self.gou_game_latches)
+        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.rVars + self.gou_game_latches)
+        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.rVars + self.gou_game_latches)
 
         # create PRIME existential abstraction cube - rConf 
-        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + self.gou_game_latches)
+        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.rVars + self.gou_game_latches)
 
         # because ADD is not iterable and cannot be added to a list directly
         bConf_exist_cube = dict({})
         prime_bConf_exist_cube = dict({})
         for bidx in range(self.boxes):
             if self.boxes == 1:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches)
-                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches)
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.rVars + self.gou_game_prime_latches)
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.rVars + self.gou_game_latches)
             else:
                 bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gou_game_prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
                 prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gou_game_latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
@@ -645,10 +620,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
 
              # print the robot and human actions as well
-            if robot_action:
+            if action:
                 oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
                 try:
-                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                    action_str = self.action_map_sym.inv[self.cube_to_add(oCube_str, self.rVars)]
                 except KeyError:
                     continue
             
@@ -671,8 +646,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
             
             # if you made it till here then print stuff or store them
-            # print(state, f'--({rAction_str})-->', prime_state, sep="      ")
-            state_action_prime_pairs.append((state, rAction_str, prime_state, val))
+            state_action_prime_pairs.append((state, action_str, prime_state, val))
         
         if verbose:
             print(tabulate(state_action_prime_pairs, headers=['state', 'robot action', 'prime state', 'value']))
@@ -680,7 +654,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return states_action_pairs
     
 
-    def gobr_convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, robot_action: bool = False, verbose: bool = False) -> None:
+    def gobr_convert_full_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, action: bool = False, verbose: bool = False) -> None:
         """
         Convert Graph of Best-Response full-state-robot-action cubes to a state representation. Set the respective flags to True to print respective information. 
          By default DFA and Game state flags are set to True.
@@ -696,41 +670,41 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         if dfa_flag:
             relevant_vars.extend(self.qVars) # includes qVars
             relevant_vars.extend(self.prime_qVars) # includes prime qVars
-        if robot_action:
-            relevant_vars.extend(self.oVars) # robot action vars (oVars)
+        if action:
+            relevant_vars.extend(self.rVars) # action vars (rVars)
 
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         
-        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.oVars[0]), self.manager.addVariables().index(self.oVars[-1])
+        start_ovar_idx, end_ovar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
 
         # create abstraction cubes
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
-        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
-        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
-        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.uVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.xVars + self.qVars + self.uVars + self.brVars + self.rVars + self.gobr_game_prime_latches)
+        kConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.xVars[len(self.kVars):] + self.qVars + self.uVars + self.brVars + self.rVars + self.gobr_game_prime_latches)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.uVars + self.brVars + self.rVars + self.gobr_game_prime_latches)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.brVars + self.rVars + self.gobr_game_prime_latches)
+        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.xVars + self.qVars + self.uVars + self.rVars + self.gobr_game_prime_latches)
         # create existential abstraction cubes - rConf
-        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.brVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.oVars + self.iVars + self.gobr_game_prime_latches) 
+        rConf_exist_cube = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.qVars + self.brVars + self.uVars + self.xVars[len(self.kVars)+len(self.pVars):] + self.rVars + self.gobr_game_prime_latches) 
 
         # create prime abstraction cubes
-        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches)
-        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches)
-        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches)
-        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches)
-        prime_brConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.prime_uVars + self.oVars + self.iVars + self.gobr_game_latches)
+        prime_tConf_exist_cube = reduce(lambda a, b: a & b, self.prime_xVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.rVars + self.gobr_game_latches)
+        prime_kConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_xVars[len(self.prime_kVars):] + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.rVars + self.gobr_game_latches)
+        prime_qConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_uVars + self.prime_brVars + self.rVars + self.gobr_game_latches)
+        prime_uConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.prime_brVars + self.rVars + self.gobr_game_latches)
+        prime_brConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_xVars + self.prime_qVars + self.prime_uVars + self.rVars + self.gobr_game_latches)
         # create PRIME existential abstraction cube - rConf 
-        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.oVars + self.iVars + self.gobr_game_latches)
+        prime_rConf_exist_cube = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.prime_xVars[len(self.prime_kVars)+len(self.prime_pVars):] + self.rVars + self.gobr_game_latches)
 
         # because ADD is not iterable and cannot be added to a list directly
         bConf_exist_cube = dict({})
         prime_bConf_exist_cube = dict({})
         for bidx in range(self.boxes):
             if self.boxes == 1:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches)
-                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches)
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.rVars + self.gobr_game_prime_latches)
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.rVars + self.gobr_game_latches)
             else:
-                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.oVars + self.iVars + self.gobr_game_prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
-                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.oVars + self.iVars + self.gobr_game_latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
+                bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.tVar + self.kVars + self.pVars + self.qVars + self.uVars + self.brVars + self.rVars + self.gobr_game_prime_latches) & reduce(lambda x, y: x & y, self.bVars_cubes[:bidx] + self.bVars_cubes[bidx+1:])
+                prime_bConf_exist_cube[bidx] = reduce(lambda a, b: a & b, self.prime_tVar + self.prime_kVars + self.prime_pVars + self.prime_qVars + self.prime_uVars + self.prime_brVars + self.rVars + self.gobr_game_latches) & reduce(lambda x, y: x & y, self.prime_bVars_cubes[:bidx] + self.prime_bVars_cubes[bidx+1:])
         
         # print the states
         states_action_pairs = [] 
@@ -775,10 +749,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
 
              # print the robot and human actions as well
-            if robot_action:
+            if action:
                 oCube_str = cube.bddPattern().cubeString()[start_ovar_idx:end_ovar_idx + 1].replace('-', '')
                 try:
-                    rAction_str = self.rAction_map_sym.inv[self.cube_to_add(oCube_str, self.oVars)]
+                    action_str = self.action_map_sym.inv[self.cube_to_add(oCube_str, self.rVars)]
                 except KeyError:
                     continue
             
@@ -801,8 +775,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 continue
             
             # if you made it till here then print stuff or store them
-            if robot_action:
-                state_action_prime_pairs.append((state, rAction_str, prime_state, val))
+            if action:
+                state_action_prime_pairs.append((state, action_str, prime_state, val))
             else:
                 state_action_prime_pairs.append((state, '', prime_state, val))
         
@@ -923,7 +897,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             if verbose:
                 print("Current Winning States:")
                 frontier_sVal = frontier_nodes_01_add#.times(next_states)
-                self.gou_convert_cube_to_state_ADD(frontier_sVal, robot_action=False, verbose=True)
+                self.gou_convert_cube_to_state_ADD(frontier_sVal, action=False, verbose=True)
 
             # swap the winning states
             opt_state_val = frontier_next_states
@@ -935,7 +909,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def gou_solve(self, verbose: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
-        self.graph_of_utility_tr = list(self.transition_relation.values()) #.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         
         goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
@@ -955,7 +929,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # adding debugging step
             if verbose:
                 print("Current Winning States:")
-                self.gou_convert_cube_to_state_ADD(next_winning_states, robot_action=False, verbose=True, print_val=True)
+                self.gou_convert_cube_to_state_ADD(next_winning_states, action=False, verbose=True, print_val=True)
             
             # if curr_winning_states.compare(next_winning_states, 2):
             if next_winning_states.compare(curr_winning_states, 2):
@@ -1054,14 +1028,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
          A function to rollout a strategy on the graph of utility game.
         """
-        curr_state_sym = self.init_latch & self.dfa_handle.init_latch
-        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
-        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+        curr_state_sym = self.init_latch
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             curr_state_exp: List[str] = self.gou_convert_cube_to_state_ADD(curr_state_sym,
                                                                             state_flag=True,
-                                                                            robot_action=False,
+                                                                            action=False,
                                                                             verbose=False,
                                                                             table_header=False,
                                                                             print_val=False)
@@ -1079,19 +1052,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
 
             turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
-
-            # get the action to be taken at the current state
-            if turn == 'robot':
-                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-            else:
-                act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
-            
+            act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:
-                act_name = self.rAction_map.inv[act_cube_string] if turn == 'robot' else self.eAction_map.inv[act_cube_string]
+                act_name = self.action_map.inv[act_cube_string]
             except KeyError:
-                print("No robot action found!!")
+                print("No action found!!")
                 return
            
             curr_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
@@ -1121,14 +1088,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
          A function to rollout a strategy on the graph of utility game.
         """
         curr_state_sym = self.init_latch & self.dfa_handle.init_latch & self.brVar_map_sym[math.inf]
-        oVars_bdd: List[BDD] = [var.bddPattern() for var in self.oVars]
-        iVars_bdd: List[BDD] = [var.bddPattern() for var in self.iVars]
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
         prime_brVars_bdd: List[BDD] = [var.bddPattern() for var in self.prime_brVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
                                                                             state_flag=True,
-                                                                            robot_action=False,
+                                                                            action=False,
                                                                             verbose=False,
                                                                             table_header=False,
                                                                             print_val=False)
@@ -1149,27 +1115,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             turn = 'robot' if curr_state_exp[0][0][0][0][0][0] == 'robot' else'human'
 
             # for state with optimal state value of 0, the restruct operation returns zero ADD.
-            # Thus, we find a valid action (any) from the monolithic ADD that containts set of all valid state actions
-            if strategy.restrict(curr_state_sym).compare(self.manager.addZero(), 2):
-                if turn == 'robot':
-                    act_cube: BDD = self.monolithic_valid_sabr_prime_br_trns.restrict(curr_state_sym).bddInterval(1, 1).pickOneMinterm(oVars_bdd)
-                else:
-                    # as monolithic_valid_full_gou_trns contains ONLY valid state-robot actions, for human states, we choose hnoop
-                    act_cube: BDD = self.eAction_map_sym['hmove noop'].bddPattern()
-
-            else:
-                # get the action to be taken at the current state
-                if turn == 'robot':
-                    act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(oVars_bdd)
-                else:
-                    act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(iVars_bdd)
-            
+            act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:
-                act_name = self.rAction_map.inv[act_cube_string] if turn == 'robot' else self.eAction_map.inv[act_cube_string]
+                act_name = self.action_map.inv[act_cube_string]
             except KeyError:
-                print("No robot action found!!")
+                print("No action found!!")
                 return
            
             # get the next state in the GoU game
@@ -1424,9 +1376,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             if verbose:
                 print("Current Winning States:")
                 print("State with regret value zero")
-                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(0, 0).toADD(), robot_action=False, human_action=False, verbose=True)
+                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(0, 0).toADD(), action=False, verbose=True)
                 print("State with regret values  positive and within budget")
-                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), robot_action=False, human_action=False, verbose=True)
+                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), action=False, verbose=True)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
@@ -1509,7 +1461,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # final preimage
         preimage_full = dfa_game_preimage & utls_preimage
         print('Preimage (GOU GAME): ', preimage_full)
-        self.gou_convert_cube_to_state_ADD(preimage_full, human_action=False, robot_action=False, verbose=True)
+        self.gou_convert_cube_to_state_ADD(preimage_full, action=False, verbose=True)
 
         assert old_dfa_game_preimage.compare(preimage_full, 2), "[Error]: Preimage computation mismatch between old and new way of computing preimage in GOU game."
 
@@ -1540,7 +1492,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # then evolve over the game
         goal_cube = goal_cube.swapVariables(self.brVars, self.prime_brVars) # as the method below does not swap the br vars
         preimage_su = self.compute_preimage(goal_cube)
-        self.gou_convert_cube_to_state_ADD(preimage_su, human_action=False, robot_action=False, verbose=True)
+        self.gou_convert_cube_to_state_ADD(preimage_su, action=False, verbose=True)
         robot_states = preimage_su & self.tVar_map_sym['robot']
         humans_states = preimage_su & self.tVar_map_sym['human']
         preimage_full_2 = self.manager.addZero()
@@ -1556,7 +1508,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         print('Preimage over GoBR TR: ', print_cube)
         # self.gobr_convert_full_cube_to_state_ADD(print_cube, robot_action=False, verbose=True)
         # print('DFA Game Preimage: ', dfa_game_preimage)
-        self.gobr_convert_cube_to_state_ADD(print_cube, human_action=False, robot_action=False, verbose=True)
+        self.gobr_convert_cube_to_state_ADD(print_cube, action=False, verbose=True)
 
         # here use the monolithic valid full GoBR TR to compute preimage of BR
         print("**********************************************************")
@@ -1573,6 +1525,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             tmp_preimage |= new_preimage_full.cofactor(self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars))
         
         print('Preimage over GoBR TR (no prime vars): \n', tmp_preimage)
-        self.gobr_convert_cube_to_state_ADD(tmp_preimage, human_action=False, robot_action=False, verbose=True)
+        self.gobr_convert_cube_to_state_ADD(tmp_preimage, action=False, verbose=True)
         # assert preimage_full.compare(new_preimage_full, 2), "[Error]: Preimage computation mismatch between old and new way of computing preimage in GoBR game."
         print("**********************************************************")
