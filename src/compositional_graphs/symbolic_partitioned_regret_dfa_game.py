@@ -844,27 +844,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage_subr: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars + self.prime_brVars, self.graph_of_br_tr)
 
         return preimage_subr
-
-
-    # def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD] = None) -> ADD:
-    #     """
-    #     Eliminates variables by taking the minimum of the cofactor branches.
-    #     """
-    #     result_add = add_function
-    #     if variables_to_abstract is None:
-    #         variables_to_abstract = self.oVars + self.iVars 
-
-    #     for var_add in variables_to_abstract:
-    #         # get cofactor where var is true
-    #         pos_cofactor = result_add.cofactor(var_add)
-            
-    #         # get cofactor where var is false
-    #         neg_cofactor = result_add.cofactor((~var_add))
-            
-    #         # take the min of both branches
-    #         result_add = pos_cofactor.min(neg_cofactor) 
-            
-    #     return result_add
     
 
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
@@ -927,7 +906,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         init_val: int = list((self.dfa_handle.init_latch & self.init_latch & opt_state_val).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.cVals = opt_state_val
-                    return frontier_preimage if init_val < math.inf else None
                 return None
             
             # any cube who's value is 0 did not change its opt. state value.

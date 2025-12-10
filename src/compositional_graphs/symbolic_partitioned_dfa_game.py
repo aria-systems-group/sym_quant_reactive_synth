@@ -383,7 +383,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         return curr_game_state_sym, act_name
 
 
-    def roll_out_strategy(self, strategy: ADD, verbose: bool = False, cooperative_game: bool = False) -> None:
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False) -> None:
         """
          A function to rollout a given strategy
         """
@@ -405,7 +405,6 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             
             # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
-            
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:

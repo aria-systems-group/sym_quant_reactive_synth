@@ -382,7 +382,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     act_str = f'{ract} b{b}'
                     rbit_str = f"{b:0{len(self.rVars)}b}"
                     self.action_map[act_str] = rbit_str
-                    self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
+                    self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
             elif ract == 'transfer':
                 for l in range(1, self.locs + 1):
@@ -390,15 +390,15 @@ class FrankaWorldDynamicRatioTurnBased():
                     # -1 offset the loc 0 str
                     rbit_str = f"{self.boxes + l -1:0{len(self.rVars)}b}"
                     self.action_map[act_str] = rbit_str
-                    self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
+                    self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs:0{len(self.rVars)}b}"
         self.action_map['grasp'] = rbit_str
-        self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs + 1:0{len(self.rVars)}b}"
         self.action_map['release'] = rbit_str
-        self.relevant_robot_actions_sym[ract] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
 
         # human actions
@@ -1867,11 +1867,15 @@ class FrankaWorldDynamicRatioTurnBased():
 
     
     def compute_min_max_preimage(self, preimage: ADD, valid_human_action_mask: ADD) -> ADD:
-        robot_states = preimage.restrict(self.tVar_map_sym['robot'])
+        # robot_states = preimage.restrict(self.tVar_map_sym['robot'])
+        # robot_states = preimage & self.tVar_map_sym['robot']
+        robot_states = preimage.cofactor(self.tVar_map_sym['robot'])
         next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
         
         # take max over Env player states; but first map the invalid human actions and robot action from these stares to -inf
-        human_states = preimage.restrict(self.tVar_map_sym['human'])
+        # human_states = preimage.restrict(self.tVar_map_sym['human'])
+        # human_states = preimage & self.tVar_map_sym['human']
+        human_states = preimage.cofactor(self.tVar_map_sym['human'])
         preimage_for_max = valid_human_action_mask.ite(human_states, self.manager.minusInfinity()) 
         next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
 
