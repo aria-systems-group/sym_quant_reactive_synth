@@ -786,6 +786,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return states_action_pairs
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
+        """
+         Preimage comptuation over the Graph of Utility transition relation.
+        """
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
@@ -798,6 +801,35 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
 
         return preimage
+
+    def compute_preimage_optimized(self, curr_winning_states: ADD) -> Tuple[ADD, ADD]:
+        """
+         Optimized preimage comptuation over the Graph of Utility transition relation.
+        """
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+
+        # first evolve over the DFA
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+
+        # then evolve over the game
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
+        pre_sys = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.sys_gou_transition_relation)
+        pre_env = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.env_gou_transition_relation)
+
+        return pre_sys, pre_env
+    
+    def create_gou_sys_env_transition_relations(self):
+        """
+         A method to create separate transition relations for the system (robot) and environment (human) actions.
+        """
+        # post-process to get TR for robot and Human actions separately
+        self.sys_gou_transition_relation = []
+        self.env_gou_transition_relation = []
+        for tr_dd in self.graph_of_utility_tr:
+            self.sys_gou_transition_relation.append(tr_dd & self.tVar_map_sym['robot'])
+            self.env_gou_transition_relation.append(tr_dd & self.tVar_map_sym['human'])
 
     
     def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
@@ -853,10 +885,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return final_goal_add
 
 
-    def TVI_gou_solver(self, verbose: bool = False) -> Optional[ADD]:
+    def TVI_gou_solve(self, verbose: bool = False, optimized: bool = False) -> None:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+        if optimized:
+            self.create_gou_sys_env_transition_relations()
         
         goal = self.create_goal_nodes_with_utility_values(verbose=False)
         curr_states =  self.manager.plusInfinity()
@@ -870,10 +904,17 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-
-            frontier_preimage: ADD = self.compute_preimage(frontier_curr_states)
-            frontier_preimage = frontier_preimage.min(opt_state_val)
-            frontier_next_states = self.symbolic_min_abstract(frontier_preimage, variables_to_abstract=self.rVars)
+            if optimized:
+                pre_sys, pre_env = self.compute_preimage_optimized(frontier_curr_states)
+                pre_sys = pre_sys.min(opt_state_val)
+                pre_env = pre_env.min(opt_state_val)
+                next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
+                next_winning_states_env = self.symbolic_min_abstract(pre_env, variables_to_abstract=self.rVars)
+                frontier_next_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+            else:
+                frontier_preimage: ADD = self.compute_preimage(frontier_curr_states)
+                frontier_preimage = frontier_preimage.min(opt_state_val)
+                frontier_next_states = self.symbolic_min_abstract(frontier_preimage, variables_to_abstract=self.rVars)
             frontier_next_states = frontier_next_states.min(goal)
 
             if opt_state_val.compare(frontier_next_states, 2):
@@ -906,11 +947,24 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # update the counter
             layer += 1
     
+    def create_sys_env_transition_relations(self):
+        """
+         A method to create separate transition relations for the system (robot) and environment (human) actions.
+        """
+        # post-process to get TR for robot and Human actions separately
+        self.sys_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.env_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        for tr_key, tr_dd in self.transition_relation.items():
+            self.sys_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['robot']
+            self.env_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['human']
+    
 
-    def gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+    def gou_solve(self, verbose: bool = False, optimized: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+        if optimized:
+            self.create_gou_sys_env_transition_relations()
         
         goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
         curr_winning_states =  self.manager.plusInfinity()
@@ -921,9 +975,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            preimage: ADD = self.compute_preimage(curr_winning_states)
-
-            next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
+            if optimized:
+                pre_sys, pre_env = self.compute_preimage_optimized(curr_winning_states)
+                next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
+                next_winning_states_env = self.symbolic_min_abstract(pre_env, variables_to_abstract=self.rVars)
+                next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+            else:
+                preimage: ADD = self.compute_preimage(curr_winning_states)
+                next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
+            
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
@@ -942,6 +1002,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.cVals = curr_winning_states
+                    if optimized:
+                        preimage = pre_sys.min(pre_env)
                     return preimage if init_val < math.inf else None
                 return None
 
@@ -1154,10 +1216,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False)
-        # strategy = self.TVI_gou_solver(verbose=False, cooperative_game=True)
+        strategy_1 = self.gou_solve(verbose=False, optimized=False)
+        # self.TVI_gou_solve(verbose=False, optimized=False)
         toc = time.time()
-        print(f"Time to synthesize strategy: {toc - tic} seconds")
+        print(f"Time to synthesize GOU values: {toc - tic} seconds")
 
         # if strategy is not None:
         #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
