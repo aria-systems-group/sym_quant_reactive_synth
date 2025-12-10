@@ -925,26 +925,20 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # update the counter
             layer += 1
     
-    def create_sys_env_transition_relations(self):
-        """
-         A method to create separate transition relations for the system (robot) and environment (human) actions.
-        """
-        # post-process to get TR for robot and Human actions separately
-        self.sys_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
-        self.env_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
-        for tr_key, tr_dd in self.transition_relation.items():
-            self.sys_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['robot']
-            self.env_transition_relation[tr_key] = tr_dd & self.tVar_map_sym['human']
-    
 
-    def gou_solve(self, verbose: bool = False, optimized: bool = False) -> Optional[ADD]:
+    def gou_solve(self, verbose: bool = False, optimized: bool = False, test: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         if optimized:
             self.create_gou_sys_env_transition_relations()
+        if test:
+            self.graph_of_br_tr = list(self.transition_relation.values())
+            self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+            self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
         
         goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        # print("Goal States with Utility values:", goal)
         curr_winning_states =  self.manager.plusInfinity()
         curr_winning_states = curr_winning_states.min(goal)
         
@@ -958,6 +952,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
                 next_winning_states_env = self.symbolic_min_abstract(pre_env, variables_to_abstract=self.rVars)
                 next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+            elif test:
+                preimage = self.compute_regret_preimage(curr_winning_states)
+                next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             else:
                 preimage: ADD = self.compute_preimage(curr_winning_states)
                 next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
@@ -1194,7 +1191,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy_1 = self.gou_solve(verbose=False, optimized=False)
+        strategy = self.gou_solve(verbose=False, optimized=False)
         # self.TVI_gou_solve(verbose=False, optimized=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
@@ -1330,12 +1327,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             self.vector_of_br[br] = self.monolithich_br.bddInterval(br, br).toADD()
 
         if verbose:
-            l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
+            # l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
             # t = self.monolithich_br.bddInterval(l, h).toADD()
             # self.gou_convert_cube_to_state_ADD(t, action=True, verbose=True)
             self.gou_convert_cube_to_state_ADD(self.monolithich_br, action=True, verbose=True)
     
-    def create_goal_nodes_with_regret_values(self) -> ADD:
+    def create_goal_nodes_with_regret_values(self) -> Tuple[ADD, Set[float]]:
         """
          Create Graph of Best-Response nodes with regret values.
         """
@@ -1352,28 +1349,29 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         min_utility_br: ADD = uVars_add.min(brVars_add)
         print("Done taking the min between br and utility values!")
 
-        reg_vals: ADD = uVars_add.minus(min_utility_br)
+        reg_vals_add: ADD = uVars_add.minus(min_utility_br)
         # process reg values - all invalid uvArs conf. map to +inf
         valid_uVars_add = reduce(lambda x, y: x | y, self.uVar_map_sym.values())
         valid_brVars_add = reduce(lambda x, y: x | y, self.brVar_map_sym.values())
-        reg_vals = valid_uVars_add.ite(reg_vals, self.manager.plusInfinity())
+        reg_vals_add = valid_uVars_add.ite(reg_vals_add, self.manager.plusInfinity())
 
         # If uVars is buget + 1, then it is a sink states and hence also maps to +inf regret value
-        reg_vals = self.uVar_map_sym[f'u{self.budget + 1}'].ite(self.manager.plusInfinity(), reg_vals)
+        reg_vals_add = self.uVar_map_sym[f'u{self.budget + 1}'].ite(self.manager.plusInfinity(), reg_vals_add)
         
         # invalid br vals also map to +inf regret value
-        reg_vals = valid_brVars_add.ite(reg_vals, self.manager.plusInfinity())
+        reg_vals_add = valid_brVars_add.ite(reg_vals_add, self.manager.plusInfinity())
+        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()}
         # print(reg_vals)
         print("Processed the Regret Values!")
 
-        goal_add: ADD = self.goal_latch.ite(reg_vals, self.manager.plusInfinity())
+        goal_add: ADD = self.goal_latch.ite(reg_vals_add, self.manager.plusInfinity())
         # now restrict it to the set of valid box conf.
         goal_add = self.monolithic_relevant_box_preds.ite(goal_add, self.manager.plusInfinity())
         print("Initialized the goal states with regret values!")
-        return goal_add
+        return goal_add, sorted(rVals)
 
 
-    def regret_solver(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    def regret_solver(self, verbose: bool = False, optimized: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm For computing regret minimizing strategies. 
         """
@@ -1381,7 +1379,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
         self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
         # initialize goal state with respective regret values
-        goal = self.create_goal_nodes_with_regret_values()
+        goal, sorted_reg_vals = self.create_goal_nodes_with_regret_values()
         curr_winning_states = goal
 
         # intialize the iteration counter
@@ -1391,24 +1389,17 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+            if optimized:
+                preimage = self.manager.plusInfinity()
+                # preprocess the preimage to split into "buckets" of ADD with same values
+                for reg_val in sorted_reg_vals:
+                    curr_winning_states_reg_val = curr_winning_states.bddInterval(reg_val, reg_val).toADD()
+                    preimage_reg_val = self.compute_regret_preimage(curr_winning_states_reg_val)
+                    preimage = preimage_reg_val.ite(self.manager.addConst(reg_val), preimage)
 
-            # go over all the env actions and preserve the maximum one
-            # MaxUpre = []
-            # for env_tr_dd in self.env_action_cube_list:
-            #     MaxUpre.append(preimage.cofactor(env_tr_dd))
+            else:
+                preimage: ADD = self.compute_regret_preimage(curr_winning_states)
             
-            # if cooperative_game:
-            #     Upre = reduce(lambda x, y: x.min(y), MaxUpre)
-            # else:
-            #     Upre = reduce(lambda x, y: x.max(y), MaxUpre)
-
-            # # go over all the sys actions and preserve the minimum one
-            # Minpre = []
-            # for robot_tr_dd in self.robot_action_cube_list:
-            #     Minpre.append(Upre.cofactor(robot_tr_dd))
-            
-            # next_winning_states = reduce(lambda x, y: x.min(y), Minpre)
             next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
             next_winning_states = next_winning_states.min(goal)
 
@@ -1416,7 +1407,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             if verbose:
                 print("Current Winning States:")
                 print("State with regret value zero")
-                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(0, 0).toADD(), action=False, verbose=True)
+                self.gobr_convert_cube_to_state_ADD((next_winning_states.bddInterval(0, 0) & ~self.dfa_handle.goal_latch.bddPattern()).toADD(), action=False, verbose=True)
                 print("State with regret values  positive and within budget")
                 self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), action=False, verbose=True)
             
@@ -1439,7 +1430,165 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
             # swap the winning states
             curr_winning_states = next_winning_states
+
+
+    def new_frontier_preimage_computation(self, frontier_curr_states: ADD, opt_state_val: ADD, valid_human_action_mask: ADD) -> ADD:
+        frontier_preimage: ADD = self.compute_regret_preimage(frontier_curr_states)
+        robot_states = frontier_preimage.cofactor(self.tVar_map_sym['robot'])
+        frontier_preimage_robots = robot_states.min(opt_state_val)
+        next_winning_states_sys = self.symbolic_min_abstract(frontier_preimage_robots, self.rVars)
+        
+        # proprocess the opt state value ADD
+        opt_state_val_human = opt_state_val.cofactor(self.tVar_map_sym['human'])
+        # if the human state value is finite keep it else map all inf to -inf
+        inf_human_states = opt_state_val_human.bddInterval(math.inf, math.inf).toADD()
+        opt_state_val_human = inf_human_states.ite(self.manager.minusInfinity(), opt_state_val_human)
+
+        human_states = frontier_preimage.cofactor(self.tVar_map_sym['human'])
+        frontier_preimage_human =  human_states.max(opt_state_val_human)
+        frontier_preimage_human = valid_human_action_mask.ite(frontier_preimage_human, self.manager.minusInfinity())
+        next_winning_states_env = self.symbolic_max_abstract(frontier_preimage_human, self.rVars)
+        frontier_next_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+
+        return frontier_next_states
+
+
+    def TVI_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm For computing regret minimizing strategies. 
+        """
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        # initialize goal state with respective regret values
+        goal, _ = self.create_goal_nodes_with_regret_values()
+        curr_winning_states = goal
+        print("Goal States with Regret Values: ", goal.summary())
+        # keeps track of optimal state values
+        opt_state_val: ADD = goal
+        frontier_curr_states = goal
+
+        # intialize the iteration counter
+        layer = 0
+        regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # frontier_preimage: ADD = self.compute_regret_preimage(frontier_curr_states)
+            # robot_states = frontier_preimage.cofactor(self.tVar_map_sym['robot'])
+            # frontier_preimage_robots = robot_states.min(opt_state_val)
+            # next_winning_states_sys = self.symbolic_min_abstract(frontier_preimage_robots, self.rVars)
+            
+            # # proprocess the opt state value ADD
+            # opt_state_val_human = opt_state_val.cofactor(self.tVar_map_sym['human'])
+            # # if the human state value is finite keep it else map all inf to -inf
+            # inf_human_states = opt_state_val_human.bddInterval(math.inf, math.inf).toADD()
+            # opt_state_val_human = inf_human_states.ite(self.manager.minusInfinity(), opt_state_val_human)
+
+            # human_states = frontier_preimage.cofactor(self.tVar_map_sym['human'])
+            # frontier_preimage_human =  human_states.max(opt_state_val_human)
+            # frontier_preimage_human = valid_human_action_mask.ite(frontier_preimage_human, self.manager.minusInfinity())
+            # next_winning_states_env = self.symbolic_max_abstract(frontier_preimage_human, self.rVars)
+            # frontier_next_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+            frontier_next_states = self.new_frontier_preimage_computation(frontier_curr_states, opt_state_val, valid_human_action_mask)
+
+            # old approach
+            preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+            next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
+            next_winning_states = next_winning_states.min(goal)
+
+            
+            # frontier_next_states = self.compute_min_max_preimage(frontier_preimage, valid_human_action_mask=valid_human_action_mask)
+            frontier_next_states = frontier_next_states.min(goal)
+            
+            if opt_state_val.compare(frontier_next_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if opt_state_val.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
+                    if self.dfa_handle.init_latch & regret_init_latch & opt_state_val == self.manager.addZero():
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.dfa_handle.init_latch & regret_init_latch & opt_state_val).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!! The State value is {init_val}")
+                    self.test_rVals = opt_state_val
+                    # return preimage if init_val < math.inf else None
+                else:
+                    print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
+                return None
+            
+            # any cube who's value is 0 did not change its opt. state value.
+            frontier_nodes = opt_state_val - frontier_next_states
+            frontier_nodes_01_add = frontier_nodes.bddPattern().toADD()
+
+            # adding debugging step
+            if verbose:
+                print("Current Frontier States:")
+                self.gobr_convert_cube_to_state_ADD(frontier_nodes_01_add, action=False, verbose=True)
+            
+            # swap the winning states
+            opt_state_val = frontier_next_states
+            frontier_curr_states = frontier_nodes_01_add.ite(opt_state_val, self.manager.plusInfinity())
+
+            # Old Approach: swap the winning states
+            curr_winning_states = next_winning_states
+
+            # update the counter
+            layer += 1
     
+
+    def new_TVI_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm For computing regret minimizing strategies. 
+        """
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        # initialize goal state with respective regret values
+        goal, _ = self.create_goal_nodes_with_regret_values()
+        # curr_winning_states = goal
+        # print("Goal States with Regret Values: ", goal.summary())
+        # keeps track of optimal state values
+        opt_state_val: ADD = goal
+        # intialize the iteration counter
+        layer = 0
+        regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        while True:
+            # we do back up in the topological order given by the utility vars. We start by backing up the highest utility value first
+            for u in reversed(range(self.budget + 1)):
+                print(f"**************************Working on Utility Group: u{u}**************************")
+                goal_u = self.uVar_map_sym[f'u{u}'].ite(goal, self.manager.plusInfinity())
+                curr_winning_states_u = self.uVar_map_sym[f'u{u + 1}'].ite(opt_state_val, self.manager.plusInfinity())
+                curr_winning_states_u = curr_winning_states_u.min(goal_u)
+                # running local value iteration on the current utility layer
+                while True:
+                    preimage: ADD = self.compute_regret_preimage(curr_winning_states_u)
+                    preimage_mask = (self.uVar_map_sym[f'u{u}'] | self.uVar_map_sym[f'u{u + 1}']).ite(preimage, self.manager.plusInfinity())
+                    # mask preimage to remove lower utility values as we will reason over them later.
+                    next_winning_states = self.compute_min_max_preimage(preimage_mask, valid_human_action_mask=valid_human_action_mask)
+                    next_winning_states = next_winning_states.min(opt_state_val)
+                    if curr_winning_states_u.compare(next_winning_states, 2):
+                        break
+                    curr_winning_states_u = next_winning_states
+                opt_state_val = opt_state_val.min(next_winning_states)
+            
+            # if opt_state_val.compare(frontier_next_states, 2):
+            print("**************************Reached fixpoint**************************")
+            if opt_state_val.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
+                if self.dfa_handle.init_latch & regret_init_latch & opt_state_val == self.manager.addZero():
+                    init_val: int = 0
+                else:
+                    init_val: int = list((self.dfa_handle.init_latch & regret_init_latch & opt_state_val).generate_cubes())[0][1]
+                print(f"A Winning Strategy Exists!! The State value is {init_val}")
+                self.test_rVals = opt_state_val
+                # return preimage if init_val < math.inf else None
+            else:
+                print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
+            return None
+            
+
+
     
     def test_pre_image(self):
         # set thigs up

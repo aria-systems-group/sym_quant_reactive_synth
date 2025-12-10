@@ -17,26 +17,32 @@ from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import Symbol
 
 def Regret_DFA_Game_Main():
     # setting things up
-    boxes = 1
-    locs = 2
+    # boxes = 1
+    # locs = 2
+    # ratio = 1
+    # budget = 10
+
+    boxes = 3
+    locs = 7
     ratio = 1
-    budget = 4
+    budget = 20
 
     cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
 
     # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    # init = ['ready l5', 'b0 l2', 'b1 l3', 'b2 l4']
-    init = ['ready l3', 'b0 l2']
-    # goal = [['b0 l1']]
+    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
+    # init = ['ready l2', 'b0 l2']
     goal = []
 
-    human_locs = range(1, locs + 1)
+    human_locs = range(5, locs + 1)
+    # human_locs = range(1, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
     # box numbering starts with 0.
-    human_boxes = [1]
+    human_boxes = [2]
+    # human_boxes = range(boxes)
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
@@ -70,18 +76,11 @@ def Regret_DFA_Game_Main():
     for k, v in dfa_game.uVar_map.items():
         print(f"{k} : {v}")
     
-    print("|xVars|: ", len(dfa_game.xVars))
-    print("|rAct|: ", len(dfa_game.oVars))
-    print("|eAct|: ", len(dfa_game.iVars))
-    print("|kVars|: ", len(dfa_game.kVars))
-    print("|uVars|: ", len(dfa_game.uVars))
-
-
     # print the number of explicit states
     sys_states, env_states = dfa_game.get_number_of_states(verbose=True)
 
     # print DFA Info
-    print("*****************Printing Game Info*****************")
+    print("*****************DFA Info*****************")
     for k, v in dfa_game.dfa_handle.qVar_map.items():
         print(f"{k} : {v}")
 
@@ -99,6 +98,10 @@ def Regret_DFA_Game_Main():
     tic = time.time()
     dfa_game.create_transition_relation()
     toc = time.time()
+    print("*****************BR Info*****************")
+    for k, v in dfa_game.brVar_map.items():
+        print(f"{k} : {v}")
+
     print("|xVars|: ", len(dfa_game.xVars))
     print("|rAct|: ", len(dfa_game.rVars))
     print("|kVars|: ", len(dfa_game.kVars))
@@ -106,39 +109,48 @@ def Regret_DFA_Game_Main():
     print("|brVars|: ", len(dfa_game.brVars) )
     print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
-
+    # sys.exit(-1)
+    # print("Variable ordering before calling the regret solver: ", dfa_game.manager.bddOrder())
     tic = time.time()
-    strategy = dfa_game.regret_solver(verbose=False)
+    strategy = dfa_game.regret_solver(verbose=False, optimized=False)
     toc = time.time()
-    print(f"Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    # dfa_game.TVI_regret_solver(verbose=False)
+    tic = time.time()
+    dfa_game.new_TVI_regret_solver()
+    # dfa_game.gou_solve(verbose=False, optimized=False, test=True)
+    toc = time.time()
+    assert dfa_game.rVals == dfa_game.test_rVals, "Regret value maps do not match between regret_solver and TVI_regret_solver!"
+    print(f"NEW: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    # print("Variable ordering After calling the regret solver: ", dfa_game.manager.bddOrder())
 
-    if strategy is not None:
-        dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
+    # if strategy is not None:
+    #     dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
 
 
 def DFA_Game_Main():
     # setting things up
-    boxes = 1
-    locs = 2
-    ratio = 1
+    boxes = 2
+    locs = 3
+    ratio = 3
 
     cooperative_game = True
     enable_reordering = False
     ltlf_flag = True
 
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5', 'b4 l6', 'b5 l7']
-    init = ['ready l2', 'b0 l2']
+    init = ['ready l4', 'b0 l2', 'b1 l3']#, 'b2 l9']
     # goal = [['b0 l1']]
     goal = []
 
-    human_locs = range(2, locs + 1)
-    human_boxes = [1]
+    human_locs = range(1, locs + 1)
+    human_boxes = [0]
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
-    # formula = 'F(p01 & p12)'
-    formula = 'F(p01)'
+    formula = 'F(p01 & F(p02))'
+    # formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
                                           ratio=ratio, init=init,
@@ -189,6 +201,7 @@ def DFA_Game_Main():
     # sys.exit(-1)
 
     # dfa_game.test_pre_image()
+    # return
 
     tic = time.time()
     # strategy = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
@@ -197,21 +210,21 @@ def DFA_Game_Main():
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     if strategy is not None:
-        dfa_game.roll_out_strategy(strategy=strategy, verbose=True, cooperative_game=cooperative_game)
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
 
 
 
 def Game_Main():
     # setting things up
-    boxes = 5
+    boxes = 6
     locs = 8
     ratio = 1
 
-    cooperative_game = False
-    enable_reordering = True
+    cooperative_game = True
+    enable_reordering = False
 
-    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7', 'b4 l4']
-    # init = ['ready l2', 'b0 l2', 'b1 l3']
+    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7', 'b4 l4', 'b5 l8']
+    # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l6']
     # init = ['ready l1', 'b0 l2']
     goal = [['b0 l1']]
 
@@ -220,7 +233,18 @@ def Game_Main():
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10]
     # human_locs = [3]
     # human_boxes = range(boxes)
-    human_boxes = [2, 3]
+    human_boxes = [2, 3, 5]
+
+    # Simple set-up
+    boxes = 2
+    locs = 3
+    ratio = 1
+    init = ['ready l4', 'b0 l2', 'b1 l3']
+    goal = [['b0 l1']]
+
+    human_locs = range(1, locs + 1)
+    human_boxes = range(boxes)
+    # human_boxes = [1]
 
     
     game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
