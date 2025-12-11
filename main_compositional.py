@@ -17,32 +17,32 @@ from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import Symbol
 
 def Regret_DFA_Game_Main():
     # setting things up
-    # boxes = 1
-    # locs = 2
+    boxes = 1
+    locs = 5
+    ratio = 1
+    budget = 8
+
+    # boxes = 3
+    # locs = 7
     # ratio = 1
     # budget = 10
-
-    boxes = 3
-    locs = 7
-    ratio = 1
-    budget = 20
 
     cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
 
     # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
-    # init = ['ready l2', 'b0 l2']
+    # init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
+    init = ['ready l2', 'b0 l2']
     goal = []
 
-    human_locs = range(5, locs + 1)
-    # human_locs = range(1, locs + 1)
+    # human_locs = range(5, locs + 1)
+    human_locs = range(1, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
     # box numbering starts with 0.
-    human_boxes = [2]
-    # human_boxes = range(boxes)
+    # human_boxes = [2]
+    human_boxes = range(boxes)
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
@@ -240,7 +240,7 @@ def Game_Main():
     boxes = 2
     locs = 3
     ratio = 1
-    init = ['ready l4', 'b0 l2', 'b1 l3']
+    init = ['ready l3', 'b0 l2', 'b1 l3']
     goal = [['b0 l1']]
 
     human_locs = range(1, locs + 1)
@@ -248,17 +248,17 @@ def Game_Main():
     # human_boxes = [1]
 
     
-    game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-                                                ratio=ratio, init=init,
-                                                goal=goal, enable_reordering=enable_reordering,
-                                                restricted_human_locs=human_locs,
-                                                restricted_human_boxes=human_boxes)
+    # game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+    #                                             ratio=ratio, init=init,
+    #                                             goal=goal, enable_reordering=enable_reordering,
+    #                                             restricted_human_locs=human_locs,
+    #                                             restricted_human_boxes=human_boxes)
     
-    # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-    #                                         ratio=ratio, init=init,
-    #                                         goal=goal, enable_reordering=enable_reordering,
-    #                                         restricted_human_locs=human_locs, 
-    #                                         restricted_human_boxes=human_boxes)
+    game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+                                            ratio=ratio, init=init,
+                                            goal=goal, enable_reordering=enable_reordering,
+                                            restricted_human_locs=human_locs, 
+                                            restricted_human_boxes=human_boxes)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -307,10 +307,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    # Game_Main()
+    Game_Main()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main()
