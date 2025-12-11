@@ -327,7 +327,8 @@ class FrankaWorldDynamicRatioTurnBased():
         self.monolithic_valid_state_robot_actions: ADD = self.manager.addZero()
         self.monolithic_valid_state_robot_actions_prime_state: ADD = self.manager.addZero()
         self.monolithic_valid_state_human_actions_prime_state: ADD = self.manager.addZero()
-        self.monolithic_state_action_prime_state = None
+        # set of all value state-action-next_state triples for Sys and Env players
+        self.monolithic_state_action_prime_state: ADD = None
         
         # state invariance constraint - end-effector empty cube - used in transit and grasp actions
         self.ee_empty_cube: ADD = self.create_ee_empty_cube()
@@ -612,6 +613,10 @@ class FrankaWorldDynamicRatioTurnBased():
         
         self.monolithic_valid_state_robot_actions_prime_state &= rConstraint_cube
         self.monolithic_valid_state_human_actions_prime_state &= (self.action_map_sym['hmove noop']).ite(self.prime_kVar_map_sym['k0'], self.manager.addOne())
+        # remove invalid box configurations form the current states 
+        self.monolithic_valid_state_human_actions_prime_state &= self.monolithic_relevant_box_preds
+        # remove invalid box configurations form the next states
+        self.monolithic_valid_state_human_actions_prime_state &= self.monolithic_relevant_box_preds.swapVariables(self.latches, self.prime_latches)
 
         # put the robot and human edges together
         self.monolithic_state_action_prime_state = self.tVar_map_sym['robot'].ite(self.monolithic_valid_state_robot_actions_prime_state, self.monolithic_valid_state_human_actions_prime_state)
@@ -1107,8 +1112,6 @@ class FrankaWorldDynamicRatioTurnBased():
                             constraint_cube = self.locs_empty_constraints[f'l{human_to_loc}']
                             for restricted_loc in self.restricted_human_locs:
                                 constraint_cube &= ~self.xVar_map_sym[f'b{hb} l{restricted_loc}']
-                            # hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
-
                             hmove_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
                             ##### INVALID MOVE CASE #####
