@@ -117,7 +117,8 @@ def Regret_DFA_Game_Main():
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
     # dfa_game.TVI_regret_solver(verbose=False)
     tic = time.time()
-    dfa_game.new_TVI_regret_solver()
+    # dfa_game.TVI_utility_regret_solver()
+    dfa_game.TVI_br_regret_solver()
     # dfa_game.gou_solve(verbose=False, optimized=False, test=True)
     toc = time.time()
     assert dfa_game.rVals == dfa_game.test_rVals, "Regret value maps do not match between regret_solver and TVI_regret_solver!"

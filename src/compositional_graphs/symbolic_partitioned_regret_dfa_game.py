@@ -1528,6 +1528,60 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             else:
                 print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
             return None
+    
+
+    def TVI_br_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+        """
+         A method that implements the value iteration algorithm For computing regret minimizing strategies. 
+         Here we implement topological value iteration (TVI). The ordering over states in the Graph of Best-response is
+         given by the Best-response variables.
+
+         In GoBR, the best-alternate response values also induce a ordering over states.
+         We thus start from the lowest best-response value and work our way up to the highest best-response value.
+        """
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        # initialize goal state with respective regret values
+        goal, _ = self.create_goal_nodes_with_regret_values()
+        self.test_rVals = None
+        # keeps track of optimal state values
+        opt_state_val: ADD = goal
+        # intialize the iteration counter
+        regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        while True:
+            # we do back up in the topological order given by the utility vars. We start by backing up the highest utility value first
+            for br in self.brVals:
+                print(f"**************************Working on BR Group: {br}**************************")
+                # goal_br = self.brVar_map_sym[br].ite(goal, self.manager.plusInfinity())
+                curr_winning_states_br = self.brVar_map_sym[br].ite(opt_state_val, self.manager.plusInfinity())
+                
+                # running local value iteration on the current utility layer
+                while True:
+                    preimage: ADD = self.compute_regret_preimage(curr_winning_states_br)
+                    # mask preimage to remove lower utility values as we will reason over them later.
+                    next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
+                    next_winning_states = next_winning_states.min(opt_state_val)
+                    if curr_winning_states_br.compare(next_winning_states, 2):
+                        break
+                    curr_winning_states_br = next_winning_states
+                opt_state_val = opt_state_val.min(next_winning_states)
+            
+            # if opt_state_val.compare(frontier_next_states, 2):
+            print("**************************Reached fixpoint**************************")
+            if opt_state_val.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
+                if self.dfa_handle.init_latch & regret_init_latch & opt_state_val == self.manager.addZero():
+                    init_val: int = 0
+                else:
+                    init_val: int = list((self.dfa_handle.init_latch & regret_init_latch & opt_state_val).generate_cubes())[0][1]
+                print(f"A Winning Strategy Exists!! The State value is {init_val}")
+                self.test_rVals = opt_state_val
+                # return preimage if init_val < math.inf else None
+            else:
+                print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
+            return None
             
 
 
