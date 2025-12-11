@@ -1475,22 +1475,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            # frontier_preimage: ADD = self.compute_regret_preimage(frontier_curr_states)
-            # robot_states = frontier_preimage.cofactor(self.tVar_map_sym['robot'])
-            # frontier_preimage_robots = robot_states.min(opt_state_val)
-            # next_winning_states_sys = self.symbolic_min_abstract(frontier_preimage_robots, self.rVars)
-            
-            # # proprocess the opt state value ADD
-            # opt_state_val_human = opt_state_val.cofactor(self.tVar_map_sym['human'])
-            # # if the human state value is finite keep it else map all inf to -inf
-            # inf_human_states = opt_state_val_human.bddInterval(math.inf, math.inf).toADD()
-            # opt_state_val_human = inf_human_states.ite(self.manager.minusInfinity(), opt_state_val_human)
-
-            # human_states = frontier_preimage.cofactor(self.tVar_map_sym['human'])
-            # frontier_preimage_human =  human_states.max(opt_state_val_human)
-            # frontier_preimage_human = valid_human_action_mask.ite(frontier_preimage_human, self.manager.minusInfinity())
-            # next_winning_states_env = self.symbolic_max_abstract(frontier_preimage_human, self.rVars)
-            # frontier_next_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
             frontier_next_states = self.new_frontier_preimage_computation(frontier_curr_states, opt_state_val, valid_human_action_mask)
 
             # old approach
@@ -1535,6 +1519,37 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # update the counter
             layer += 1
     
+    def preprocess_gobr_tr(self):
+        self.gobr_from_to_relevant_transition_relation = defaultdict(dict) 
+        for from_u in range(self.budget + 1): 
+            from_u_sym = self.uVar_map_sym[f'u{from_u}']
+            for cost in range(0, 2):
+                to_u = from_u + cost
+                # first find the concerned states
+                for sidx, s in enumerate(self.uVar_map[f'u{to_u}']):
+                    concerned_states = self.manager.addOne()
+                    if s == '1':
+                        concerned_states &= (self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()]) & from_u_sym
+            
+                # now remove the unconcerned states from the transition relation
+                gobr_relevant_transition_relation = []
+                for tr_dd in self.graph_of_br_tr:
+                    gobr_relevant_transition_relation.append(tr_dd & concerned_states)
+                self.gobr_from_to_relevant_transition_relation[from_u][to_u] = gobr_relevant_transition_relation
+    
+
+    def compute_regret_preimage_over_relevant_tr(self, curr_winning_states: ADD, relevant_tr: List[ADD]) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+                    
+        # first evolve over the DFA
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+
+        # then evolve over the DFA game state (s, u)
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars + self.brVars, self.prime_latches + self.prime_uVars + self.prime_brVars)
+        preimage_subr: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars + self.prime_brVars, relevant_tr)
+        return preimage_subr
+
 
     def new_TVI_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
         """
@@ -1545,12 +1560,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
         # initialize goal state with respective regret values
         goal, _ = self.create_goal_nodes_with_regret_values()
+        tic = time.time()
+        self.preprocess_gobr_tr()
+        toc = time.time()
+        print(f"Time to preprocess GoBR TR: {toc - tic} seconds")
+        self.test_rVals = None
         # curr_winning_states = goal
-        # print("Goal States with Regret Values: ", goal.summary())
         # keeps track of optimal state values
         opt_state_val: ADD = goal
         # intialize the iteration counter
-        layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
 
@@ -1561,12 +1579,19 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 goal_u = self.uVar_map_sym[f'u{u}'].ite(goal, self.manager.plusInfinity())
                 curr_winning_states_u = self.uVar_map_sym[f'u{u + 1}'].ite(opt_state_val, self.manager.plusInfinity())
                 curr_winning_states_u = curr_winning_states_u.min(goal_u)
+                # get the appropriate transition relation
+                graph_of_br_tr_from_to_u = self.gobr_from_to_relevant_transition_relation[u][u]
+                graph_of_br_tr_from_to_u_p1 = self.gobr_from_to_relevant_transition_relation[u][u + 1]
+                relevant_tr = []
+                for e1, e2 in zip(graph_of_br_tr_from_to_u, graph_of_br_tr_from_to_u_p1):
+                    relevant_tr.append(e1 | e2)
+                
                 # running local value iteration on the current utility layer
                 while True:
-                    preimage: ADD = self.compute_regret_preimage(curr_winning_states_u)
-                    preimage_mask = (self.uVar_map_sym[f'u{u}'] | self.uVar_map_sym[f'u{u + 1}']).ite(preimage, self.manager.plusInfinity())
+                    # preimage: ADD = self.compute_regret_preimage(curr_winning_states_u)
+                    preimage = self.compute_regret_preimage_over_relevant_tr(curr_winning_states_u, relevant_tr)
                     # mask preimage to remove lower utility values as we will reason over them later.
-                    next_winning_states = self.compute_min_max_preimage(preimage_mask, valid_human_action_mask=valid_human_action_mask)
+                    next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
                     next_winning_states = next_winning_states.min(opt_state_val)
                     if curr_winning_states_u.compare(next_winning_states, 2):
                         break
