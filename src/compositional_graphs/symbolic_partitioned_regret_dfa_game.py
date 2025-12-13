@@ -56,7 +56,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # store ADD(s-as-s')-1 transition relation for graph of utility
         self.monolithic_valid_full_gou_trns: ADD = self.manager.addZero()
         self.monolithic_valid_full_gobr_trns: ADD = self.manager.addZero()
-        self.monolithic_valid_sabr_prime_br_trns: ADD = self.manager.addZero()
+        # self.monolithic_valid_sabr_prime_br_trns: ADD = self.manager.addZero()
         # variables for storing optimal cooperative state values and regret optimal state values
         self.cVals = None
         self.rVals = None
@@ -132,7 +132,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         Ovveride the base method. In Graph of Utility, the initial state also includes the utility variable set to 0.
 
-        We need to assert that the init state should be full defined, i.e., we need to every box's conf. else the init state is a set of states. 
+        We assert that the init state should be fully defined, i.e., we need every box's conf. else the init state is a set of states. 
          This causes issue when checking for init state value after VI algorithm terminates.
         """
         assert len(self.init) == self.boxes + 1, "[Error]: The init state should be fully defined for Regret Synthesis code else the Synthesis code will not work correctly."
@@ -256,6 +256,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
+        self.monolithic_valid_full_gou_trns |= self.uVar_map_sym[f'u{self.budget + 1}'] & self.monolithic_valid_full_dfa_game_trns & self.uVar_map_sym[f'u{self.budget + 1}'].swapVariables(self.uVars, self.prime_uVars)
     
 
     def create_best_alternate_response_transition_relation(self):
@@ -277,7 +278,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     # bookkeeping
                     # create (s,q,u,br) ---- a_s ---> (s',q', u', br') monolithic ADD which we will use later for alternate best-response computation
                     self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
-                    self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
+                    # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
                 else:
                     state_act_pairs = self.manager.addZero()
                     for i in self.brVals:
@@ -292,7 +293,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                             self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
 
                     self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-                    self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+                    # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
                     break
         
             # add that from human states, the best-alternate response remains the same
@@ -303,8 +304,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= human_transition_cube
             
             # for human transitions, the best-alternate response remains the same
-            self.monolithic_valid_full_gobr_trns |= human_transition_cube & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-            self.monolithic_valid_sabr_prime_br_trns |= human_transition_cube & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+            self.monolithic_valid_full_gobr_trns |= human_transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+            # self.monolithic_valid_sabr_prime_br_trns |= human_transition_cube & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
     
 
     def get_states_with_one_outgoing_transition_gou(self) -> BDD:
@@ -932,10 +933,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
         if optimized:
             self.create_gou_sys_env_transition_relations()
-        if test:
-            self.graph_of_br_tr = list(self.transition_relation.values())
-            self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
-            self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        # if test:
+        #     self.graph_of_br_tr = list(self.transition_relation.values())
+        #     self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        #     self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
         
         goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
         # print("Goal States with Utility values:", goal)
@@ -952,9 +953,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
                 next_winning_states_env = self.symbolic_min_abstract(pre_env, variables_to_abstract=self.rVars)
                 next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
-            elif test:
-                preimage = self.compute_regret_preimage(curr_winning_states)
-                next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
+            # elif test:
+            #     preimage = self.compute_regret_preimage(curr_winning_states)
+            #     next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             else:
                 preimage: ADD = self.compute_preimage(curr_winning_states)
                 next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
@@ -998,7 +999,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         prime_brVars_bdd = kwargs['prime_brVars_bdd']
         
         if turn == 'robot':
-            next_br = (self.monolithic_valid_sabr_prime_br_trns.restrict(curr_state_sym & curr_action_sym).bddInterval(1, 1).pickOneMinterm(prime_brVars_bdd)).toADD()
+            next_br = (self.monolithic_valid_full_gobr_trns.restrict(curr_state_sym & curr_action_sym).bddInterval(1, 1).pickOneMinterm(prime_brVars_bdd)).toADD()
             return next_br.swapVariables(self.prime_brVars, self.brVars)
         else:
             return self.brVar_map_sym[curr_br_state_val]
@@ -1208,7 +1209,33 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_all_br_vars_maps()
         
         # create br Transition Relation
+        # print("[DBEUG]: Variable Order BEFORE creating monolithic full_gobr_trns ADD:", self.manager.bddOrder(), sep='\n')
+        # print("[DBEUG]: Max Memory BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DBEUG]: Max Live Nodes BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
+        tic = time.time()
         self.create_best_alternate_response_transition_relation()
+        toc = time.time()
+        print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
+        # print("[DBEUG]: Variable Order AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DBEUG]: Max Memory AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DBEUG]: Max Live Nodes AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
+
+        # compute reachbale states
+        # tic = time.time()
+        self.gobr_care_set: ADD = self.compute_gobr_reachabale_states(verbose=True)
+        # toc = time.time()
+        # print(f"Time to compute GoBR reachable states: {toc - tic} seconds")
+        # let try deleting stuff
+        # del self.monolithic_valid_full_gobr_trns
+        # del self.monolithic_valid_full_dfa_game_trns
+        # del self.monolithic_valid_full_gou_trns
+        # del self.monolithic_valid_state_robot_actions
+        # del self.monolithic_state_action_prime_state
+        # del self.monolithic_valid_state_robot_actions_prime_state
+        # del self.monolithic_valid_state_human_actions_prime_state
+        # import gc
+        # gc.collect()
+        
 
         # test BR TR for sanity checking
         # self.test_pre_image()
@@ -1314,7 +1341,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
-        # post-processingbrst-response to only preserve the lwer states action pair value
+        # post-processing best-response to only preserve the lwer states action pair value
         # unions of all predecessors
         pre_states: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
         self.monolithich_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
@@ -1371,7 +1398,37 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return goal_add, sorted(rVals)
 
 
-    def regret_solver(self, verbose: bool = False, optimized: bool = False) -> Union[ADD, None]:
+    def debug_reachables_states(self):
+        t = self.rVals.bddInterval(0, 0).toADD() & self.gobr_care_set
+        self.gobr_convert_cube_to_state_ADD(t, action=False, verbose=True)
+    
+    def compare_regre_vals(self, reachable_dd: ADD, org_dd: ADD):
+        """
+        A method to compare two regret value ADDs. 
+
+         Reachable_dd is the ADD that containts rVals when using the reachable states, and
+         org_dd is the original ADD with rVals witnout using the reachable state space mask.
+        """
+        # first we find the states with rVals between 0 and budget
+        reachable_regret_vals = (reachable_dd.bddInterval(0, self.brVals[-2]))
+        org_dd_regret_vals = (org_dd.bddInterval(0, self.brVals[-2]))
+
+        states_not_in_reachable = org_dd_regret_vals & ~reachable_regret_vals
+        states_common = org_dd_regret_vals & reachable_regret_vals
+        states_common_reachable_rVals = states_common.toADD().ite(reachable_dd, self.manager.plusInfinity())
+        states_common_org_rVals = states_common.toADD().ite(org_dd, self.manager.plusInfinity())
+
+        if states_common_org_rVals == states_common_reachable_rVals:
+            print("Regret values match for all reachable states!")
+        else:
+            print("Regret values do not match for all reachable states!")
+            print("States with mismatched regret values:")
+            mismatch_states = (states_common_org_rVals - states_common_reachable_rVals)
+            self.gobr_convert_cube_to_state_ADD(mismatch_states, action=False, verbose=True)
+        
+
+
+    def regret_solver(self, verbose: bool = False, optimized: bool = False, only_reachable_state: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm For computing regret minimizing strategies. 
         """
@@ -1396,7 +1453,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     curr_winning_states_reg_val = curr_winning_states.bddInterval(reg_val, reg_val).toADD()
                     preimage_reg_val = self.compute_regret_preimage(curr_winning_states_reg_val)
                     preimage = preimage_reg_val.ite(self.manager.addConst(reg_val), preimage)
-
+            elif only_reachable_state:
+                curr_winning_states_care_set = self.gobr_care_set.ite(curr_winning_states, self.manager.plusInfinity())
+                preimage: ADD = self.compute_regret_preimage(curr_winning_states_care_set)
             else:
                 preimage: ADD = self.compute_regret_preimage(curr_winning_states)
             
@@ -1408,7 +1467,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 print("Current Winning States:")
                 print("State with regret value zero")
                 self.gobr_convert_cube_to_state_ADD((next_winning_states.bddInterval(0, 0) & ~self.dfa_handle.goal_latch.bddPattern()).toADD(), action=False, verbose=True)
-                print("State with regret values  positive and within budget")
+                print("State with regret values positive and within budget")
                 self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), action=False, verbose=True)
             
             if curr_winning_states.compare(next_winning_states, 2):
@@ -1420,7 +1479,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         init_val: int = list((self.dfa_handle.init_latch & regret_init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
-                    return preimage if init_val < math.inf else None
+                    return preimage, self.rVals if init_val < math.inf else None
                 else:
                     print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
                 return None
@@ -1449,6 +1508,53 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 for tr_dd in self.graph_of_br_tr:
                     gobr_relevant_transition_relation.append(tr_dd & concerned_states)
                 self.gobr_from_to_relevant_transition_relation[from_u][to_u] = gobr_relevant_transition_relation
+    
+    def compute_gobr_reachabale_states(self, verbose: bool = False, print_states: bool = False) -> ADD:
+        """
+         A method to compute the set of reachable states in the Graph of Best-response.
+        """
+        gobr_game_latches_cube = reduce(lambda a, b: a & b, self.gobr_game_latches)
+        action_cube = reduce(lambda a, b: a & b, self.rVars)
+        
+        gobr_game_latches_cube_bdd = gobr_game_latches_cube.bddPattern()
+        action_cube_bdd = action_cube.bddPattern()
+        curr_state_action_cube_bdd: BDD = gobr_game_latches_cube_bdd & action_cube_bdd
+        gobr_game_latches_bdd: BDD = [var.bddPattern() for var in self.gobr_game_latches]
+        gobr_game_prime_latches_bdd: BDD = [var.bddPattern() for var in self.gobr_game_prime_latches]
+        open_list = []
+        closed = self.manager.bddZero()
+
+        # maintain a common layering number
+        layer_num = 0
+        open_list.append((self.init_latch & self.brVar_map_sym[math.inf]).bddPattern())
+
+        # convert the monolithic ADD into a BDD for faster operations
+        bdd_monolithic_valid_full_gobr_trns: BDD = self.monolithic_valid_full_gobr_trns.bddPattern()
+        if verbose:
+            print("********************Starting GoBR Reachability Computation********************")
+        
+        # perform BFS like exploration
+        while True:
+            # remove all states that have been explored
+            open_list[layer_num] = open_list[layer_num] & ~closed
+            if not open_list[layer_num].isZero():
+                if verbose:
+                    print(f"********************Layer: {layer_num}**************************")
+                    if print_states:
+                        self.gobr_convert_cube_to_state_ADD(open_list[layer_num].toADD(), action=False, verbose=True)
+                # Add states to be expanded next to already expanded states
+                closed |= open_list[layer_num]
+            
+                # preimage: ADD = self.compute_regret_preimage(reachable_states)
+                image_prime: BDD = bdd_monolithic_valid_full_gobr_trns.andAbstract(open_list[layer_num], curr_state_action_cube_bdd)
+                image: BDD = image_prime.swapVariables(gobr_game_prime_latches_bdd, gobr_game_latches_bdd)
+                open_list.append(image)
+
+                layer_num += 1
+            else:
+                if verbose:
+                    print("********************Done Computing GoBR Reachable State********************")
+                return closed.toADD()
     
 
     def compute_regret_preimage_over_relevant_tr(self, curr_winning_states: ADD, relevant_tr: List[ADD]) -> ADD:
@@ -1507,7 +1613,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 while True:
                     # preimage: ADD = self.compute_regret_preimage(curr_winning_states_u)
                     preimage = self.compute_regret_preimage_over_relevant_tr(curr_winning_states_u, relevant_tr)
-                    # mask preimage to remove lower utility values as we will reason over them later.
                     next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
                     next_winning_states = next_winning_states.min(opt_state_val)
                     if curr_winning_states_u.compare(next_winning_states, 2):
@@ -1515,7 +1620,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     curr_winning_states_u = next_winning_states
                 opt_state_val = opt_state_val.min(next_winning_states)
             
-            # if opt_state_val.compare(frontier_next_states, 2):
             print("**************************Reached fixpoint**************************")
             if opt_state_val.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
                 if self.dfa_handle.init_latch & regret_init_latch & opt_state_val == self.manager.addZero():
@@ -1555,7 +1659,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             # we do back up in the topological order given by the utility vars. We start by backing up the highest utility value first
             for br in self.brVals:
                 print(f"**************************Working on BR Group: {br}**************************")
-                # goal_br = self.brVar_map_sym[br].ite(goal, self.manager.plusInfinity())
                 curr_winning_states_br = self.brVar_map_sym[br].ite(opt_state_val, self.manager.plusInfinity())
                 
                 # running local value iteration on the current utility layer
@@ -1569,7 +1672,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     curr_winning_states_br = next_winning_states
                 opt_state_val = opt_state_val.min(next_winning_states)
             
-            # if opt_state_val.compare(frontier_next_states, 2):
             print("**************************Reached fixpoint**************************")
             if opt_state_val.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
                 if self.dfa_handle.init_latch & regret_init_latch & opt_state_val == self.manager.addZero():
@@ -1702,7 +1804,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         new_preimage_su = self.compute_preimage(goal_cube)
 
         # TODO: Should this & or should it be restrict?
-        new_preimage_full = new_preimage_su & self.monolithic_valid_sabr_prime_br_trns
+        # new_preimage_full = new_preimage_su & self.monolithic_valid_sabr_prime_br_trns
         print('Preimage over GoBR TR: \n', new_preimage_full)
         # remove dependency on prime br vars
         tmp_preimage = self.manager.addZero()

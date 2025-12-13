@@ -36,7 +36,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
         self.init = init
         self.goal = goal
-        self.manager: Cudd = Cudd()
+        self.manager: Cudd = Cudd(maxMem=16000000000)
         # Predicate to Str maps - needed for lookup of the states corresponding to cubesstring
         self.pVar_map = bidict({})
         self.kVar_map = bidict({})
@@ -327,7 +327,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.monolithic_valid_state_robot_actions: ADD = self.manager.addZero()
         self.monolithic_valid_state_robot_actions_prime_state: ADD = self.manager.addZero()
         self.monolithic_valid_state_human_actions_prime_state: ADD = self.manager.addZero()
-        # set of all value state-action-next_state triples for Sys and Env players
+        # set of all valid state-action-next_state triples for Sys and Env players
         self.monolithic_state_action_prime_state: ADD = None
         
         # state invariance constraint - end-effector empty cube - used in transit and grasp actions
@@ -687,7 +687,7 @@ class FrankaWorldDynamicRatioTurnBased():
         
         # print s a_s s' transition function that we created for sanity checking
         # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_human_actions_prime_state, action=True, verbose=True)
-        self.count_actions_per_state()
+        # self.count_actions_per_state()
         
 
     def create_grasp_actions(self) -> None:
@@ -887,7 +887,6 @@ class FrankaWorldDynamicRatioTurnBased():
                     invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transfer l{from_loc} l{to_loc}']
 
-                    # for human_box in range(self.boxes):
                     for human_box in self.human_boxes:
                         for human_to_loc in self.human_locs:
                             ##### VALID MOVE CASE #####
@@ -958,7 +957,6 @@ class FrankaWorldDynamicRatioTurnBased():
                     invalid_hmove_cube = self.manager.addZero()
                     rConf_cube = self.xVar_map_sym[f'in-transit l{from_loc} b{b}']
 
-                    # for human_box in range(self.boxes):
                     for human_box in self.human_boxes:
                         for human_to_loc in self.human_locs:
                             ##### VALID MOVE CASE #####
@@ -1025,7 +1023,6 @@ class FrankaWorldDynamicRatioTurnBased():
         parent_hmove_cube = self.manager.addZero()
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-            # for hb in range(self.boxes):
             for hb in self.human_boxes:
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
@@ -1095,7 +1092,6 @@ class FrankaWorldDynamicRatioTurnBased():
         turn_bit: ADD = self.tVar_map_sym['human']
         for k in range(self.ratio + 1):
             kVal_cube: ADD = self.kVar_map_sym[f'k{k}']
-            # for hb in range(self.boxes):
             for hb in self.human_boxes:
                 # boxes can be "grounded" at any location (except for 0 and else := |locs| + 1 location)
                 for from_loc in range(1, self.locs + 1):
@@ -1858,8 +1854,8 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
+        # curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = self.manager.plusInfinity().min(goal)
 
         # print the initial winning states
         if verbose:
@@ -1940,8 +1936,8 @@ class FrankaWorldDynamicRatioTurnBased():
         """
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
+        # curr_winning_states =  self.manager.plusInfinity()
+        curr_winning_states = self.manager.plusInfinity().min(goal)
         
         self.create_sys_env_transition_relations()
         # intialize the iteration counter

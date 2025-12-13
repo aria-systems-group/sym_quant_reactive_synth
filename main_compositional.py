@@ -17,31 +17,31 @@ from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import Symbol
 
 def Regret_DFA_Game_Main():
     # setting things up
-    boxes = 1
-    locs = 5
-    ratio = 1
-    budget = 8
-
-    # boxes = 3
-    # locs = 7
+    # boxes = 2
+    # locs = 3
     # ratio = 1
-    # budget = 10
+    # budget = 4
+
+    boxes = 3
+    locs = 7
+    ratio = 1
+    budget = 10
 
     cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
 
     # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
-    # init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
-    init = ['ready l2', 'b0 l2']
+    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
+    # init = ['ready l3', 'b0 l2', 'b1 l3']
     goal = []
 
-    # human_locs = range(5, locs + 1)
-    human_locs = range(1, locs + 1)
+    human_locs = range(5, locs + 1)
+    # human_locs = range(3, locs + 1)
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
     # box numbering starts with 0.
-    # human_boxes = [2]
+    # human_boxes = [1]
     human_boxes = range(boxes)
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
@@ -101,6 +101,8 @@ def Regret_DFA_Game_Main():
     print("*****************BR Info*****************")
     for k, v in dfa_game.brVar_map.items():
         print(f"{k} : {v}")
+    
+    print(f"Total num of explicit states in Graph of BR DFA Game: {len(dfa_game.brVals) * budget * dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
 
     print("|xVars|: ", len(dfa_game.xVars))
     print("|rAct|: ", len(dfa_game.rVars))
@@ -109,24 +111,38 @@ def Regret_DFA_Game_Main():
     print("|brVars|: ", len(dfa_game.brVars) )
     print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
+    # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gobr_trns)
     # sys.exit(-1)
     # print("Variable ordering before calling the regret solver: ", dfa_game.manager.bddOrder())
     tic = time.time()
-    strategy = dfa_game.regret_solver(verbose=False, optimized=False)
+    strategy, reachable_rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=True)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
-    # dfa_game.TVI_regret_solver(verbose=False)
+
     tic = time.time()
-    # dfa_game.TVI_utility_regret_solver()
-    dfa_game.TVI_br_regret_solver()
-    # dfa_game.gou_solve(verbose=False, optimized=False, test=True)
+    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
     toc = time.time()
-    assert dfa_game.rVals == dfa_game.test_rVals, "Regret value maps do not match between regret_solver and TVI_regret_solver!"
-    print(f"NEW: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    
+    # compare the reget values computed using different methods
+    dfa_game.compare_regre_vals(reachable_dd=reachable_rVals, org_dd=rVals)
+    # tic = time.time()
+    # strategy = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=True)
+    # toc = time.time()
+    # print(f"With Reachable Sates: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    # dfa_game.TVI_regret_solver(verbose=False)
+    # tic = time.time()
+    # dfa_game.TVI_utility_regret_solver()
+    # dfa_game.TVI_br_regret_solver()
+    # dfa_game.gou_solve(verbose=False, optimized=False, test=True)
+    # toc = time.time()
+    # assert dfa_game.rVals == dfa_game.test_rVals, "Regret value maps do not match between regret_solver and TVI_regret_solver!"
+    # print(f"NEW: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
     # print("Variable ordering After calling the regret solver: ", dfa_game.manager.bddOrder())
 
     # if strategy is not None:
     #     dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
+    
+    # dfa_game.debug_reachables_states()
 
 
 def DFA_Game_Main():
@@ -307,10 +323,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    Game_Main()
+    # Game_Main()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    # Regret_DFA_Game_Main()
+    Regret_DFA_Game_Main()

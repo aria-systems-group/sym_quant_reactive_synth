@@ -149,8 +149,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     
     def create_transition_relation(self):
         """
-         Call the base method's create transition relation for the Game Construction. 
-          We alreay 
+         Call the base method's create transition relation for the Game Construction.  
         """
         # game TR
         super().create_transition_relation()
@@ -161,11 +160,12 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
 
         # take the product of the DFA tr and the game tr
-        self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
+        # self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
+        self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
         # print("Done creating product transition relation")
 
         # print Sys transitions for sanity checking
-        # self.convert_full_cube_to_state_ADD(test, robot_action=True, verbose=True)
+        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_full_dfa_game_trns, action=True, verbose=True)
 
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:

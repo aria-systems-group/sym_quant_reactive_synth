@@ -230,7 +230,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 invalid_hmove_cube = self.manager.addZero()
                 rConf_cube = self.xVar_map_sym[f'in-transit b{b}']
 
-                # for human_box in range(self.boxes):
                 for human_box in self.human_boxes:
                     for human_to_loc in self.human_locs:
                         ##### VALID MOVE CASE #####
@@ -300,7 +299,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 invalid_hmove_cube = self.manager.addZero()
                 rConf_cube = self.xVar_map_sym[f'in-transfer l{to_loc}']
 
-                # for human_box in range(self.boxes):
                 for human_box in self.human_boxes:
                     for human_to_loc in self.human_locs:
                         ##### VALID MOVE CASE #####
