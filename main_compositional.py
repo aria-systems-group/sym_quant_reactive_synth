@@ -233,14 +233,14 @@ def DFA_Game_Main():
 
 def Game_Main():
     # setting things up
-    boxes = 6
+    boxes = 4
     locs = 8
     ratio = 1
 
-    cooperative_game = True
-    enable_reordering = False
+    cooperative_game = False
+    enable_reordering = True
 
-    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7', 'b4 l4', 'b5 l8']
+    init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7']#, 'b4 l4', 'b5 l8']
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l6']
     # init = ['ready l1', 'b0 l2']
     goal = [['b0 l1']]
@@ -250,7 +250,7 @@ def Game_Main():
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10]
     # human_locs = [3]
     # human_boxes = range(boxes)
-    human_boxes = [2, 3, 5]
+    human_boxes = [2, 3]#, 5]
 
     # Simple set-up
     boxes = 2
@@ -259,22 +259,29 @@ def Game_Main():
     init = ['ready l3', 'b0 l2', 'b1 l3']
     goal = [['b0 l1']]
 
-    human_locs = range(1, locs + 1)
+    # Even more simple set-up
+    # boxes = 1
+    # locs = 2
+    # ratio = 1
+    # init = ['ready l2', 'b0 l2']
+    # goal = [['b0 l1']]
+
+    human_locs = range(2, locs + 1)
     human_boxes = range(boxes)
-    # human_boxes = [1]
+    human_boxes = [1]
 
     
-    # game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-    #                                             ratio=ratio, init=init,
-    #                                             goal=goal, enable_reordering=enable_reordering,
-    #                                             restricted_human_locs=human_locs,
-    #                                             restricted_human_boxes=human_boxes)
+    game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+                                                ratio=ratio, init=init,
+                                                goal=goal, enable_reordering=enable_reordering,
+                                                restricted_human_locs=human_locs,
+                                                restricted_human_boxes=human_boxes)
     
-    game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-                                            ratio=ratio, init=init,
-                                            goal=goal, enable_reordering=enable_reordering,
-                                            restricted_human_locs=human_locs, 
-                                            restricted_human_boxes=human_boxes)
+    # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+    #                                         ratio=ratio, init=init,
+    #                                         goal=goal, enable_reordering=enable_reordering,
+    #                                         restricted_human_locs=human_locs, 
+    #                                         restricted_human_boxes=human_boxes)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -311,8 +318,8 @@ def Game_Main():
     # sys.exit(-1)
 
     tic = time.time()
-    # strategy = game.solve(verbose=False, cooperative_game=cooperative_game)
-    strategy = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    strategy = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=True)
+    # strategy = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -323,10 +330,10 @@ def Game_Main():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    # Game_Main()
+    Game_Main()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main()
