@@ -330,7 +330,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
                             
                             # create s a_s s' transitions - human
-                            prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{self.locs + 1}'] & self.prime_kVar_map_sym['k0']
+                            prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{self.locs + 1}'] & self.prime_kVar_map_sym[f'k{k + 1}']
                             self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
                         else:
                             invalid_hmove_cube |= hmove_cube

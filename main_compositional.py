@@ -15,6 +15,20 @@ from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyna
 from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import SymbolicPartitionedRegretDFAGame
 
 
+def _test_opt_state_vals_are_equal(manager: Cudd, reachable_opt_sVals: ADD, opt_sVals: ADD) -> bool:
+    # check that the reachable states are the same as the original states
+    diff_add = reachable_opt_sVals - opt_sVals
+    if reachable_opt_sVals.compare(opt_sVals, 2):
+        print("******************The reachable states are the same as the original states!******************")
+        return True
+    elif diff_add.findMin() == manager.addZero() and diff_add.findMax() == manager.plusInfinity():
+        print("******************The reachable states are the same as the original states!******************")
+        return True
+    else:
+        print("******************The reachable states are different from the original states!******************")
+        return False
+
+
 def Regret_DFA_Game_Main():
     # setting things up
     # boxes = 2
@@ -253,11 +267,11 @@ def Game_Main():
     human_boxes = [2, 3]#, 5]
 
     # Simple set-up
-    boxes = 2
-    locs = 3
-    ratio = 1
-    init = ['ready l3', 'b0 l2', 'b1 l3']
-    goal = [['b0 l1']]
+    # boxes = 2
+    # locs = 3
+    # ratio = 1
+    # init = ['ready l3', 'b0 l2', 'b1 l3']
+    # goal = [['b0 l1']]
 
     # Even more simple set-up
     # boxes = 1
@@ -266,9 +280,9 @@ def Game_Main():
     # init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
 
-    human_locs = range(2, locs + 1)
-    human_boxes = range(boxes)
-    human_boxes = [1]
+    # human_locs = range(2, locs + 1)
+    # human_boxes = range(boxes)
+    # human_boxes = [1]
 
     
     game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
@@ -302,7 +316,7 @@ def Game_Main():
     game.get_number_of_states(verbose=True)
 
     # print Game Info
-    print("*****************Printing DFA Game Info*****************")
+    print("******************Printing DFA Game Info*****************")
     print("Total num of latches: ", len(game.latches))
     print("Total num of prime latches: ", len(game.prime_latches))
     print("Total boolean vars: ", len(game.latches) + len(game.prime_latches) + len(game.rVars))
@@ -318,10 +332,18 @@ def Game_Main():
     # sys.exit(-1)
 
     tic = time.time()
-    strategy = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=True)
+    strategy, test_opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=False)
+    # strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=False)
     # strategy = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    # check that the reachable states are the same as the original states
+    # if strategy is not None:
+    #     vals_same: bool = _test_opt_state_vals_are_equal(manager=game.manager, reachable_opt_sVals=test_opt_sVals, opt_sVals=opt_sVals)
+
+    #     if not vals_same:
+    #         sys.exit(-1)
 
     if strategy is not None:
         game.roll_out_strategy(strategy=strategy, verbose=True)
