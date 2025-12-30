@@ -734,7 +734,9 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
 
         if self.only_reachable_states:
-            self.care_states = self.compute_reachable_states(verbose=False, print_states=False)
+            self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_state_action_prime_state,
+                                                             latches=self.latches, prime_latches=self.prime_latches,
+                                                             act_vars=self.rVars, verbose=False, print_states=False)
         
         # print s a_s s' transition function that we created for sanity checking
         # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_human_actions_prime_state, action=True, verbose=True)
@@ -1871,18 +1873,22 @@ class FrankaWorldDynamicRatioTurnBased():
         return result_add
 
     
-    def compute_reachable_states(self, verbose: bool = False, print_states: bool = False) -> ADD:
+    def compute_reachable_states(self,
+                                 monolithic_trans_dd: ADD,
+                                 latches: List[ADD], prime_latches: List[ADD],
+                                 act_vars: List[ADD], verbose: bool = False,
+                                 print_states: bool = False) -> ADD:
         """
          A method to compute the set of reachable states in the Graph.
         """
-        latches_cube = reduce(lambda a, b: a & b, self.latches)
-        action_cube = reduce(lambda a, b: a & b, self.rVars)
+        latches_cube = reduce(lambda a, b: a & b, latches)
+        action_cube = reduce(lambda a, b: a & b, act_vars)
         
         latches_cube_bdd = latches_cube.bddPattern()
         action_cube_bdd = action_cube.bddPattern()
         curr_state_action_cube_bdd: BDD = latches_cube_bdd & action_cube_bdd
-        gobr_game_latches_bdd: BDD = [var.bddPattern() for var in self.latches]
-        gobr_game_prime_latches_bdd: BDD = [var.bddPattern() for var in self.prime_latches]
+        game_latches_list_bdd: BDD = [var.bddPattern() for var in latches]
+        game_prime_latches_list_bdd: BDD = [var.bddPattern() for var in prime_latches]
         open_list = []
         closed = self.manager.bddZero()
 
@@ -1891,7 +1897,7 @@ class FrankaWorldDynamicRatioTurnBased():
         open_list.append(self.init_latch.bddPattern())
 
         # convert the monolithic ADD into a BDD for faster operations
-        bdd_monolithic_valid_full_gobr_trns: BDD = self.monolithic_state_action_prime_state.bddPattern()
+        bdd_monolithic_valid_full_gobr_trns: BDD = monolithic_trans_dd.bddPattern()
         if verbose:
             print("********************Starting Game Reachability Computation********************")
         
@@ -1909,7 +1915,7 @@ class FrankaWorldDynamicRatioTurnBased():
             
                 # preimage: ADD = self.compute_regret_preimage(reachable_states)
                 image_prime: BDD = bdd_monolithic_valid_full_gobr_trns.andAbstract(open_list[layer_num], curr_state_action_cube_bdd)
-                image: BDD = image_prime.swapVariables(gobr_game_prime_latches_bdd, gobr_game_latches_bdd)
+                image: BDD = image_prime.swapVariables(game_prime_latches_list_bdd, game_latches_list_bdd)
                 open_list.append(image)
 
                 layer_num += 1
