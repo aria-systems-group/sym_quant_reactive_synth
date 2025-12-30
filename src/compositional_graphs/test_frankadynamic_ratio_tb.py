@@ -25,12 +25,19 @@ from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
 
 class FrankaWorldDynamicRatioTurnBased():
 
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], enable_reordering: bool = False):
+    def __init__(self,
+                 boxes: int, locs: int,
+                 ratio: int, init: tuple,
+                 goal: tuple, restricted_human_locs: List[int],
+                 restricted_human_boxes: List[int],
+                 enable_reordering: bool = False,
+                 only_reachable_states: bool = False):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
         self.human_locs: List[int] = restricted_human_locs
         self.human_boxes: List[int] = restricted_human_boxes
+        self.only_reachable_states = only_reachable_states
         self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
         self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
@@ -726,7 +733,8 @@ class FrankaWorldDynamicRatioTurnBased():
         # keep only the valid robot states and actions in the transition relation
         self.post_process_transition_relation()
 
-        self.care_states = self.compute_reachabale_states(verbose=False, print_states=False)
+        if self.only_reachable_states:
+            self.care_states = self.compute_reachable_states(verbose=False, print_states=False)
         
         # print s a_s s' transition function that we created for sanity checking
         # self.convert_full_cube_to_state_ADD(self.monolithic_valid_state_human_actions_prime_state, action=True, verbose=True)
@@ -876,7 +884,7 @@ class FrankaWorldDynamicRatioTurnBased():
          Effects-:
             3. The robot's location has changed: ~(holding l) predicate is true at next state
         """
-        turn_bit = self.tVar_map_sym['robot'] 
+        turn_bit = self.tVar_map_sym['robot']
         for b in range(self.boxes):
             curr_box_pred = f'b{b} l0'
             bConf_cube = self.xVar_map_sym[curr_box_pred]
@@ -1863,7 +1871,7 @@ class FrankaWorldDynamicRatioTurnBased():
         return result_add
 
     
-    def compute_reachabale_states(self, verbose: bool = False, print_states: bool = False) -> ADD:
+    def compute_reachable_states(self, verbose: bool = False, print_states: bool = False) -> ADD:
         """
          A method to compute the set of reachable states in the Graph.
         """
@@ -1944,11 +1952,12 @@ class FrankaWorldDynamicRatioTurnBased():
         """
          A method to post-process the transition relation after all action rules and frame axioms have been added. HEre we restrict the TR to the set of state that are reachable in the game.
         """
-        for tr_key, tr_dd in self.transition_relation.items():
+        print("******************Post-processing the transition relation to only include reachable states******************")
+        for tr_key in self.transition_relation.keys():
             self.transition_relation[tr_key] &= self.care_states
     
 
-    def solve(self, verbose: bool = False, cooperative_game: bool = False, only_reachable_state: bool = False) -> Union[ADD, None]:
+    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -1956,7 +1965,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
-        if only_reachable_state:
+        if self.only_reachable_states:
             self.post_process_transition_relation_reachable()
 
         # print the initial winning states
@@ -2002,10 +2011,14 @@ class FrankaWorldDynamicRatioTurnBased():
                         init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
-                    return preimage if init_val < math.inf else None
+                    # return preimage if init_val < math.inf else None
+                    if init_val < math.inf:
+                        return preimage, curr_winning_states
+                    else:
+                        return None, None
                 else:
                     print(f"No Winning Strategy Exists!! The State value is {math.inf}")
-                return None
+                return None, None
 
             # update the counter
             layer += 1
@@ -2039,6 +2052,8 @@ class FrankaWorldDynamicRatioTurnBased():
         # initialize goal state with 0 state value and add it to the winnign regiom
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
+        if self.only_reachable_states:
+            self.post_process_transition_relation_reachable()
         
         self.create_sys_env_transition_relations()
         # intialize the iteration counter
@@ -2081,10 +2096,14 @@ class FrankaWorldDynamicRatioTurnBased():
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     preimage = pre_sys.min(pre_env)
-                    return preimage if init_val < math.inf else None
+                    # return preimage if init_val < math.inf else None
+                    if init_val < math.inf:
+                        return preimage, curr_winning_states
+                    else:
+                        return None, None
                 else:
                     print(f"No Winning Strategy Exists!! The State value is {math.inf}")
-                return None
+                return None, None
 
             # update the counter
             layer += 1

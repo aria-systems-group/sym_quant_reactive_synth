@@ -5,6 +5,7 @@ import sys
 import time
 import math
 
+from typing import Union
 from cudd import Cudd, ADD
 
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
@@ -15,17 +16,22 @@ from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyna
 from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import SymbolicPartitionedRegretDFAGame
 
 
-def _test_opt_state_vals_are_equal(manager: Cudd, reachable_opt_sVals: ADD, opt_sVals: ADD) -> bool:
+def _test_opt_state_vals_are_equal(game: Union[FrankaWorldDynamicRatioTurnBased, FrankaWorldDynamicRatioTurnBasedElse, SymbolicPartitionedRegretDFAGame],
+                                   reachable_opt_sVals: ADD,
+                                   opt_sVals: ADD,
+                                   debug: bool = False) -> bool:
     # check that the reachable states are the same as the original states
     diff_add = reachable_opt_sVals - opt_sVals
     if reachable_opt_sVals.compare(opt_sVals, 2):
         print("******************The reachable states are the same as the original states!******************")
         return True
-    elif diff_add.findMin() == manager.addZero() and diff_add.findMax() == manager.plusInfinity():
+    elif diff_add.findMin() == game.manager.addZero() and diff_add.findMax() == game.manager.plusInfinity():
         print("******************The reachable states are the same as the original states!******************")
         return True
     else:
         print("******************The reachable states are different from the original states!******************")
+        if debug:
+            game.convert_cube_to_state_ADD(diff_add, action=False, verbose=True)
         return False
 
 
@@ -253,6 +259,7 @@ def Game_Main():
 
     cooperative_game = False
     enable_reordering = True
+    only_reachable_states = True
 
     init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7']#, 'b4 l4', 'b5 l8']
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l6']
@@ -289,7 +296,8 @@ def Game_Main():
                                                 ratio=ratio, init=init,
                                                 goal=goal, enable_reordering=enable_reordering,
                                                 restricted_human_locs=human_locs,
-                                                restricted_human_boxes=human_boxes)
+                                                restricted_human_boxes=human_boxes,
+                                                only_reachable_states=only_reachable_states)
     
     # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
     #                                         ratio=ratio, init=init,
@@ -332,15 +340,17 @@ def Game_Main():
     # sys.exit(-1)
 
     tic = time.time()
-    strategy, test_opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=False)
-    # strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game, only_reachable_state=False)
-    # strategy = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, reach_opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    # strategy, reach_opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     # check that the reachable states are the same as the original states
     # if strategy is not None:
-    #     vals_same: bool = _test_opt_state_vals_are_equal(manager=game.manager, reachable_opt_sVals=test_opt_sVals, opt_sVals=opt_sVals)
+    #     vals_same: bool = _test_opt_state_vals_are_equal(game=game, reachable_opt_sVals=reach_opt_sVals, opt_sVals=opt_sVals, debug=False)
 
     #     if not vals_same:
     #         sys.exit(-1)
