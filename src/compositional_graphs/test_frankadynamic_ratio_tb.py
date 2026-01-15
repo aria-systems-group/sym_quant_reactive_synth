@@ -122,6 +122,7 @@ class FrankaWorldDynamicRatioTurnBased():
     @human_boxes.setter
     def human_boxes(self, hboxes: List[int]):
         assert set(hboxes).issubset(set(range(self.boxes))), "[Error] Human boxes should be a subset of all boxes."
+        assert len(hboxes) > 0 , "[Error] Human boxes cannot be empty. If you need enforce no human movement set ratio vars to 0."
         self._human_boxes = hboxes  
 
     @human_locs.setter
@@ -1921,7 +1922,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 layer_num += 1
             else:
                 if verbose:
-                    print("********************Done Computing Game Reachable State********************")
+                    print("********************Done Computing Game Reachable States********************")
                 return closed.toADD()
     
 

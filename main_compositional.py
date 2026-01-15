@@ -43,13 +43,14 @@ def Regret_DFA_Game_Main():
     # budget = 4
 
     boxes = 3
-    locs = 7
+    locs = 8
     ratio = 1
-    budget = 10
+    budget = 25
 
     cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
+    only_reachable_states = True
 
     # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
@@ -61,8 +62,26 @@ def Regret_DFA_Game_Main():
     # human_locs =  [3, 4, 5, 6, 7, 8, 9, 10] #range(1, locs + 1)
     # human_locs = [3]
     # box numbering starts with 0.
-    # human_boxes = [1]
-    human_boxes = range(boxes)
+    human_boxes = [2]
+    # human_boxes = range(boxes)
+
+    # Simple set-up
+    # boxes = 2
+    # locs = 3
+    # ratio = 1
+    # budget = 10
+    # init = ['ready l3', 'b0 l2', 'b1 l3']
+
+    # Even more simple set-up
+    # boxes = 1
+    # locs = 2
+    # ratio = 0
+    # budget = 6
+    # init = ['ready l2', 'b0 l2']
+
+    # human_locs = range(2, locs + 1)
+    # human_boxes = range(boxes)
+    # human_boxes = [0]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
@@ -75,7 +94,8 @@ def Regret_DFA_Game_Main():
                                                 restricted_human_locs=human_locs,
                                                 restricted_human_boxes=human_boxes,
                                                 ltlf_flag=ltlf_flag, budget=budget,
-                                                enable_reordering=enable_reordering)
+                                                enable_reordering=enable_reordering,
+                                                only_reachable_states=only_reachable_states)
     
 
     # print Game Info
@@ -128,23 +148,30 @@ def Regret_DFA_Game_Main():
     print("|rAct|: ", len(dfa_game.rVars))
     print("|kVars|: ", len(dfa_game.kVars))
     print("|uVars|: ", len(dfa_game.uVars))
-    print("|brVars|: ", len(dfa_game.brVars) )
+    print("|brVars|: ", len(dfa_game.brVars))
+
+    print("Total boolean vars in GoBR: ", len(dfa_game.gobr_game_latches) + len(dfa_game.gobr_game_prime_latches) + len(dfa_game.rVars))
+
     print(f"Time to create transition relation: {toc - tic} seconds")
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gou_trns)
     # dfa_game.assert_one_s_prime_s_relation(dd_full_trans_rel=dfa_game.monolithic_valid_full_gobr_trns)
     # sys.exit(-1)
     # print("Variable ordering before calling the regret solver: ", dfa_game.manager.bddOrder())
     tic = time.time()
-    strategy, reachable_rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=True)
-    toc = time.time()
-    print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
-
-    tic = time.time()
     strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
     toc = time.time()
+    print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+    
+    # tic = time.time()
+    # # to avoid caching related issues
+    # dfa_game.gobr_care_set = dfa_game.compute_gobr_reachable_states(verbose=False, print_states=False)
+    # print("********************Done Computing GoBR Reachable States********************")
+    # strategy, reachable_rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=only_reachable_states)
+    # toc = time.time()
+    # print(f"NEW: Time to synthesize Regret-Minimizing strategy with reachability states: {toc - tic} seconds")
     
     # compare the reget values computed using different methods
-    dfa_game.compare_regre_vals(reachable_dd=reachable_rVals, org_dd=rVals)
+    # dfa_game.compare_regret_vals(reachable_dd=reachable_rVals, org_dd=rVals)
     # tic = time.time()
     # strategy = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=True)
     # toc = time.time()
@@ -159,8 +186,8 @@ def Regret_DFA_Game_Main():
     # print(f"NEW: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
     # print("Variable ordering After calling the regret solver: ", dfa_game.manager.bddOrder())
 
-    # if strategy is not None:
-    #     dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
+    if strategy is not None:
+        dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
     
     # dfa_game.debug_reachables_states()
 
@@ -171,10 +198,10 @@ def DFA_Game_Main():
     locs = 3
     ratio = 3
 
-    cooperative_game = True
+    cooperative_game = False
     enable_reordering = False
     only_reachable_states = False
-    ltlf_flag = True
+    ltlf_flag = False
 
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5', 'b4 l6', 'b5 l7']
     init = ['ready l4', 'b0 l2', 'b1 l3']#, 'b2 l9']
@@ -191,22 +218,22 @@ def DFA_Game_Main():
     # formula = 'F(p01)'
 
     # Simple set-up
-    boxes = 2
-    locs = 3
-    ratio = 1
-    init = ['ready l3', 'b0 l2', 'b1 l3']
-    formula = 'F(p01 & F(p03))'
+    # boxes = 2
+    # locs = 3
+    # ratio = 1
+    # init = ['ready l3', 'b0 l2', 'b1 l3']
 
     # Even more simple set-up
-    # boxes = 1
-    # locs = 2
-    # ratio = 1
-    # init = ['ready l2', 'b0 l2']
+    boxes = 1
+    locs = 2
+    ratio = 1
+    init = ['ready l3', 'b0 l2']
     # goal = [['b0 l1']]
 
     human_locs = range(1, locs + 1)
     human_boxes = range(boxes)
     # human_boxes = [1]
+    formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
                                           ratio=ratio, init=init,
@@ -321,22 +348,23 @@ def Game_Main():
     # goal = [['b0 l1']]
 
     human_locs = range(2, locs + 1)
-    human_boxes = range(boxes)
-    # human_boxes = [1]
+    # human_boxes = range(boxes)
+    human_boxes = [0]
 
     
-    game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-                                                ratio=ratio, init=init,
-                                                goal=goal, enable_reordering=enable_reordering,
-                                                restricted_human_locs=human_locs,
-                                                restricted_human_boxes=human_boxes,
-                                                only_reachable_states=only_reachable_states)
+    # game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+    #                                             ratio=ratio, init=init,
+    #                                             goal=goal, enable_reordering=enable_reordering,
+    #                                             restricted_human_locs=human_locs,
+    #                                             restricted_human_boxes=human_boxes,
+    #                                             only_reachable_states=only_reachable_states)
     
-    # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-    #                                         ratio=ratio, init=init,
-    #                                         goal=goal, enable_reordering=enable_reordering,
-    #                                         restricted_human_locs=human_locs, 
-    #                                         restricted_human_boxes=human_boxes)
+    game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+                                            ratio=ratio, init=init,
+                                            goal=goal, enable_reordering=enable_reordering,
+                                            restricted_human_locs=human_locs, 
+                                            restricted_human_boxes=human_boxes,
+                                            only_reachable_states=only_reachable_states)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -406,7 +434,7 @@ if __name__ == "__main__":
     # Game_Main()
     
     # dfa game synthesis main function call
-    DFA_Game_Main()
+    # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    # Regret_DFA_Game_Main()
+    Regret_DFA_Game_Main()
