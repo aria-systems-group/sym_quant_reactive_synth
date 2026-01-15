@@ -33,7 +33,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                  restricted_human_locs: List[int],
                  restricted_human_boxes: List[int],
                  ltlf_flag: bool = True,
-                 enable_reordering: bool = False):
+                 enable_reordering: bool = False,
+                 only_reachable_states: bool = False):
         """
          Initialize the SymbolicPartitionedDFAGame with the given parameters and create DFA latches and maps.
 
@@ -46,6 +47,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
              restricted_human_locs (List[int]): List of restricted human locations.
              ltlf_flag (bool): Flag indicating whether the formula is LTLf (True) or LTL (False).
              formula (str): The LTL/LTLf formula specifying the objective of the game.
+             only_reachable_states (bool): Flag to consider only reachable states in the game.
         """
         self.formula: str = formula
         self.qVars: List[ADD] = []
@@ -56,13 +58,14 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_handle: Union[SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot] = None
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
+        self.dfa_game_only_reachable_states: bool = only_reachable_states
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering=False)
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering=False, only_reachable_states=False)
 
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
-        # call it 2nd time here to ovveride the base method - is this the best way?
+        # call it 2nd time here to override the base method - is this the best way?
         self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch
         self.goal_latch: ADD = self.set_goal_latch()
 
@@ -74,7 +77,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.monolithic_valid_full_dfa_game_trns: ADD = None
 
         # by default variable reordering is disabled for DFA games - to check for computation time without this optimization
-        # however, switching variable ordering make the code faster for sure.
+        # however, switching variable ordering makes the code faster.
         if enable_reordering:
             self.manager.autodynEnable()
     
@@ -149,8 +152,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     
     def create_transition_relation(self):
         """
-         Call the base method's create transition relation for the Game Construction. 
-          We alreay 
+         Call the base method's create transition relation for the Game Construction.  
         """
         # game TR
         super().create_transition_relation()
@@ -161,11 +163,20 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
 
         # take the product of the DFA tr and the game tr
-        self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
+        # self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
+        self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
         # print("Done creating product transition relation")
 
+        if self.dfa_game_only_reachable_states:
+            # set this falg to true as we the synthesis code use this varibales to preprocess the TR to only reasosn about reachable states
+            self.only_reachable_states = True
+            self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_valid_full_dfa_game_trns,
+                                                             latches=self.latches + self.qVars,
+                                                             prime_latches=self.prime_latches + self.prime_qVars,
+                                                             act_vars=self.rVars, verbose=False, print_states=False)
+
         # print Sys transitions for sanity checking
-        # self.convert_full_cube_to_state_ADD(test, robot_action=True, verbose=True)
+        # self.convert_full_cube_to_state_ADD(self.monolithic_valid_full_dfa_game_trns, action=True, verbose=True)
 
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:

@@ -19,14 +19,14 @@ class SymbolicPartitionedDFA():
     """
     Base Class: 
       A class where we constuct a Symbolic DFA in partitioned form, i.e., we have a set of boolean variables (latches)
-      and another set of boolane vairable (prime latches). The latches correspond to the current state in the DFA. 
+      and another set of boolean variable (prime latches). The latches correspond to the current state in the DFA. 
       The prime latches are used during strategy synthesis.
      
-      This class is  different from SymbolicDFA in the sense that I am create two copies of the current state variables. 
-      SymbolicDFA create two copis for curr and next state. The PartitionedDFA and ADDPartitionedDFA only create latches
+      This class is  different from SymbolicDFA in the sense that I create two copies of the current state variables. 
+      SymbolicDFA create two copies for curr and next state. The PartitionedDFA and ADDPartitionedDFA only create latches
       and not prime latches.
 
-      The intherited class overrides the create_dfa_transition_relation() method to construct the transition relation
+      The inherited classes override the create_dfa_transition_relation() method to construct the transition relation
       in partitioned form.
     """
 
@@ -82,7 +82,7 @@ class SymbolicPartitionedDFA():
 
     def create_prime_latches(self):
         """
-         We create prime latches for the DFA states. Note that we do not create mapping for prime latches as they are not needed.
+         We create prime latches for the DFA states.
         """
         varsize = self.manager.size()
         self.prime_qVars: List[ADD] = [self.manager.addVar(k + varsize, 'pq' + str(k)) for k in range(len(self.qVars))]
