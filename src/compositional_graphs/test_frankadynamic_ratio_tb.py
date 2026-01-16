@@ -712,12 +712,11 @@ class FrankaWorldDynamicRatioTurnBased():
         # next we create the transfer actions
         self.create_transfer_actions()
 
-        # add robot frame axioms
+        # finally, we add frame axioms for all boxes that enforce state invariance constraint
         self.add_robot_frame_axioms()
         if self.boxes > 1:
             self.add_robot_s_sprime_frame_axioms()
         
-        # finally, we add frame axioms for all boxes that enforce state invariance constraint
         self.create_human_move_transit()
         self.create_human_move_transfer()
         self.create_human_move_action_grasp()
@@ -883,7 +882,7 @@ class FrankaWorldDynamicRatioTurnBased():
          Preconditions:
             1. The robot is at location l and is holding box b - (holding l) (b l0) predicates are true at current state
          Effects+:
-            2. The robot is at location l': (holding l') (b l0) predicates are true at next state
+            2. The robot is at location l': (in-transfer l l') (b l0) predicates are true at next state
          Effects-:
             3. The robot's location has changed: ~(holding l) predicate is true at next state
         """

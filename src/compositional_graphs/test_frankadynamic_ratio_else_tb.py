@@ -513,7 +513,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         # From = goal_cube
         preimage = self.preimage_test(From=goal_cube, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('Preimage: ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, action=False, verbose=True)
+        self.convert_cube_to_state_ADD(preimage, action=False, verbose=True)
 
 
 if __name__ == "__main__":
