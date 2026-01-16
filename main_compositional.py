@@ -11,6 +11,8 @@ from cudd import Cudd, ADD
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
 from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
+from src.compositional_graphs.frankadynamic_ratio_tb_noprime import FrankaWorldDynamicRatioTurnBasedNoPrime
+from src.compositional_graphs.frankadynamic_ratio_else_tb_noprime import FrankaWorldDynamicRatioTurnBasedElseNoPrime
 
 # regret script imports
 from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import SymbolicPartitionedRegretDFAGame
@@ -429,12 +431,98 @@ def Game_Main():
 
 
 
+def Game_Main_no_prime():
+    # Even more simple set-up
+    boxes = 3
+    locs = 15
+    ratio = 1
+    init = ['ready l2', 'b0 l2', 'b1 l6', 'b2 l4']
+    goal = [['b0 l1']]
+    human_locs = range(5, locs + 1)
+    human_boxes = range(boxes)
+    human_boxes = [1]
+
+    # Even more simple set-up
+    # boxes = 1
+    # locs = 2
+    # ratio = 1
+    # init = ['ready l2', 'b0 l2']
+    # goal = [['b0 l1']]
+
+    # human_locs = range(1, locs + 1)
+    # # human_boxes = range(boxes)
+    # human_boxes = [0]
+
+    cooperative_game = False
+    enable_reordering = True
+
+    # game = FrankaWorldDynamicRatioTurnBasedNoPrime(boxes=boxes, locs=locs,
+    #                                                ratio=ratio, init=init,
+    #                                                goal=goal, enable_reordering=enable_reordering,
+    #                                                restricted_human_locs=human_locs, 
+    #                                                restricted_human_boxes=human_boxes)
+    
+    game = FrankaWorldDynamicRatioTurnBasedElseNoPrime(boxes=boxes, locs=locs,
+                                                       ratio=ratio, init=init,
+                                                       goal=goal, enable_reordering=enable_reordering,
+                                                       restricted_human_locs=human_locs, 
+                                                       restricted_human_boxes=human_boxes)
+
+    # print Game Info
+    print("*****************Printing Game Info*****************")
+    print('****************xVars Map:****************')
+    for k, v in game.xVar_map.items():
+        print(f"{k} : {v}")
+    
+    print('****************Action Map:****************')
+    for k, v in game.action_map.items():
+        print(f"{k} : {v}")
+
+
+    print("*****************Ratio Map:*****************")
+    for k, v in game.kVar_map.items():
+        print(f"{k} : {v}")
+
+    # print Game Info - # number of explicit states
+    game.get_number_of_states(verbose=True)
+
+    # print Game Info
+    print("******************Printing DFA Game Info*****************")
+    print("Total num of latches: ", len(game.latches))
+    print("Total boolean vars: ", len(game.latches) + len(game.rVars))
+
+    tic = time.time()
+    game.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+    # game.assert_one_s_prime_s_relation(dd_full_trans_rel=game.monolithic_valid_state_robot_actions_prime_state)
+
+    # game.test_pre_image_restricted_human_moves()
+    # sys.exit(-1)
+
+    # tic = time.time()
+    # strategy, opt_sVals = game.solve(verbose=False)
+    # toc = time.time()
+    # print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    tic = time.time()
+    strategy, opt_sVals = game.old_solve(verbose=False)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    if strategy is not None:
+        game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
+
 if __name__ == "__main__":
     # game synthesis main function call
     # Game_Main()
+    Game_Main_no_prime()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
 
     # Regret dfa game synthesis main function call
-    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main()
