@@ -65,6 +65,10 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.sys_ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.env_ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.ts_transition_fun_list: List[List[ADD]] = []
 
         # create robot and human action vars and maps
         self.rVars: List[ADD] = self.create_action_vars()
@@ -213,6 +217,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     def set_latches(self):
         self.xVars: List[ADD] = self.kVars + self.pVars + [var for box_adds in self.bVars for var in box_adds]
         self.latches: List[ADD] = self.tVar + self.xVars
+        self.latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.latches]
     
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
@@ -1170,6 +1175,16 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
         return preimage
     
+    
+    def compute_preimage_optimized(self, curr_winning_states: ADD) -> ADD:
+        preimage = self.manager.plusInfinity()
+        for tr_action in self.ts_transition_fun_list:
+            action_preimage = curr_winning_states.vectorCompose(self.latches, tr_action)
+            preimage = preimage.min(action_preimage)
+
+        return preimage
+    
+    
 
     def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD]):
         """
@@ -1214,7 +1229,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         return next_winning_states
 
 
-    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    def solve(self, verbose: bool = False, cooperative_game: bool = False, optimized: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -1224,6 +1239,8 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         curr_winning_states = self.manager.plusInfinity().min(goal)
         # if self.only_reachable_states:
         #     self.post_process_transition_relation_reachable()
+        if optimized:
+            self.convert_mono_tr_to_action_tr()
 
         # print the initial winning states
         if verbose:
@@ -1238,7 +1255,10 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            preimage: ADD = self.compute_preimage(curr_winning_states)
+            if optimized:
+                preimage: ADD = self.compute_preimage_optimized(curr_winning_states)
+            else:
+                preimage: ADD = self.compute_preimage(curr_winning_states)
 
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
@@ -1283,8 +1303,73 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
             # swap the winning states
             curr_winning_states = next_winning_states
     
+    
+    def convert_mono_tr_to_action_tr(self):
+        # loop throught the transition relation and separate them based on action
+        for act_dd in self.action_map_sym.values():
+            # loop over the tr and rertain these action
+            act_ls = []
+            act_ls_add = []
+            for tr_bdd in self.transition_relation.values():
+                ts_action_dd = tr_bdd & act_dd
+                act_ls.append(ts_action_dd.bddPattern())
+                act_ls_add.append(ts_action_dd)
+            self.ts_bdd_transition_fun_list.append(act_ls)
+            self.ts_transition_fun_list.append(act_ls_add)
+    
 
-    def old_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    def convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, layer: int, c_max: int, optimized: bool = False) -> Dict[int, BDD]:
+        robot_var_bdd = self.tVar_map_sym['robot'].bddPattern()
+        human_var_bdd = self.tVar_map_sym['human'].bddPattern()
+        if optimized:
+            win_state_bucket_sys: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+            win_state_bucket_env: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        else:
+            win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        
+
+        # convert the winning states into buckets of BDD
+        _max_interval_val = layer * c_max
+        for sval in range(_max_interval_val + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval = monolithic_add.bddInterval(sval, sval)
+
+            if optimized:
+                if not win_sval.isZero():
+                    win_state_bucket_sys[sval] |= win_sval & robot_var_bdd
+                    win_state_bucket_env[sval] |= win_sval & human_var_bdd
+            
+            else:
+                if not win_sval.isZero():
+                    win_state_bucket[sval] |= win_sval
+        
+        if optimized:
+            return win_state_bucket_sys, win_state_bucket_env
+        return win_state_bucket
+
+    
+    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], verbose: bool = False) -> ADD:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for tr_action in self.ts_bdd_transition_fun_list:
+            # we get from the new weightr dictionary
+            for sval, succ_states in win_state_bucket.items():
+                if verbose:
+                    print(succ_states.size())
+                pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, tr_action)
+
+                if not pre_states.isZero():
+                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                    pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        preimage = self.manager.plusInfinity()
+        for sval, add_bucket in pre_buckets.items():
+            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+        
+        return preimage
+    
+
+    def old_solve(self, verbose: bool = False, cooperative_game: bool = False, optimized: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
@@ -1297,53 +1382,35 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         layer = 0
         c_max: int = 1
 
-        # loop throught the transition relation and separate them based on action
-        ts_bdd_transition_fun_list: List[List[BDD]] = []
-
-        for act_str, act_dd in self.action_map_sym.items():
-            # loop over the tr and rertain these action
-            act_ls = []
-            for tr_bdd in self.transition_relation.values():
-                ts_action_bdd = tr_bdd & act_dd
-                act_ls.append(ts_action_bdd.bddPattern())
-            ts_bdd_transition_fun_list.append(act_ls)
+        
+        self.convert_mono_tr_to_action_tr()
         
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
-        latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.latches]
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            win_state_bucket: Dict[BDD] = defaultdict(lambda: self.manager.bddZero())
+            win_state_bucket = self.convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, layer=layer, c_max=c_max, optimized=optimized)
+            if optimized:
+                # for playerbucket in win_state_bucket:
+                preimage_sys = self.iros23_compute_preimage(win_state_bucket=win_state_bucket[0], verbose=True)
+                preimage_env = self.iros23_compute_preimage(win_state_bucket=win_state_bucket[1], verbose=True)
 
-            # convert the winning states into buckets of BDD
-            _max_interval_val = layer * c_max
-            for sval in range(_max_interval_val + 1):
-                # get the states with state value equal to sval and store them in their respective bukcets
-                win_sval = curr_winning_states.bddInterval(sval, sval)
+                # add the action costs associated with the robot actions   
+                preimage_sys += self.weight
+                preimage_env += self.weight
+
+                next_winning_states_sys = self.symbolic_min_abstract(preimage_env, self.rVars)
+                pre_sys_masked = valid_human_action_mask.ite(preimage_sys, self.manager.minusInfinity())
+                next_winning_states_env = self.symbolic_max_abstract(pre_sys_masked, self.rVars)
+                next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
+
+            else:
+                preimage = self.iros23_compute_preimage(win_state_bucket=win_state_bucket, verbose=True)
+
+                # add the action costs associated with the robot actions
+                preimage = preimage + self.weight
                 
-                if not win_sval.isZero():
-                    win_state_bucket[sval] |= win_sval
-            
-            pre_buckets: Dict[ADD] = defaultdict(lambda: self.manager.bddZero())
-
-            for tr_action in ts_bdd_transition_fun_list:
-                # we get from the new weightr dictionary
-                for sval, succ_states in win_state_bucket.items():
-                    pre_states: BDD = succ_states.vectorCompose(latches_bdd, tr_action)
-
-                    if not pre_states.isZero():
-                        assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                        pre_buckets[sval] |= pre_states
-
-            # unions of all predecessors
-            preimage = self.manager.plusInfinity()
-            for sval, add_bucket in pre_buckets.items():
-                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
-                    
-            # add the action costs associated with the robot actions
-            preimage = preimage + self.weight
-            
-            next_winning_states = self.compute_min_max_preimage(preimage=preimage, valid_human_action_mask=valid_human_action_mask)
+                next_winning_states = self.compute_min_max_preimage(preimage=preimage, valid_human_action_mask=valid_human_action_mask)
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
@@ -1363,6 +1430,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     # return preimage if init_val < math.inf else None
+                    preimage = preimage_env.min(preimage_sys) if optimized else preimage
                     if init_val < math.inf:
                         return preimage, curr_winning_states
                     else:

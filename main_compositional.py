@@ -433,28 +433,29 @@ def Game_Main():
 
 def Game_Main_no_prime():
     # Even more simple set-up
-    boxes = 3
-    locs = 15
-    ratio = 1
-    init = ['ready l2', 'b0 l2', 'b1 l6', 'b2 l4']
-    goal = [['b0 l1']]
-    human_locs = range(5, locs + 1)
-    human_boxes = range(boxes)
-    human_boxes = [1]
+    # boxes = 3
+    # locs = 20
+    # ratio = 1
+    # init = ['ready l2', 'b0 l2', 'b1 l6', 'b2 l4']
+    # goal = [['b0 l1']]
+    # human_locs = range(5, locs + 1)
+    # human_boxes = range(boxes)
+    # human_boxes = [1]
 
     # Even more simple set-up
-    # boxes = 1
-    # locs = 2
-    # ratio = 1
+    boxes = 2
+    locs = 50
+    ratio = 1
     # init = ['ready l2', 'b0 l2']
-    # goal = [['b0 l1']]
+    init = ['ready l2', 'b0 l2', 'b1 l3']
+    goal = [['b0 l1']]
 
-    # human_locs = range(1, locs + 1)
-    # # human_boxes = range(boxes)
-    # human_boxes = [0]
+    human_locs = range(1, locs + 1)
+    # human_boxes = range(boxes)
+    human_boxes = [0]
 
     cooperative_game = False
-    enable_reordering = True
+    enable_reordering = False
 
     # game = FrankaWorldDynamicRatioTurnBasedNoPrime(boxes=boxes, locs=locs,
     #                                                ratio=ratio, init=init,
@@ -501,12 +502,12 @@ def Game_Main_no_prime():
     # sys.exit(-1)
 
     # tic = time.time()
-    # strategy, opt_sVals = game.solve(verbose=False)
+    # strategy, opt_sVals = game.solve(verbose=False, optimized=False)
     # toc = time.time()
-    # print(f"Time to synthesize strategy: {toc - tic} seconds")
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     tic = time.time()
-    strategy, opt_sVals = game.old_solve(verbose=False)
+    strategy, opt_sVals = game.old_solve(verbose=False, optimized=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
