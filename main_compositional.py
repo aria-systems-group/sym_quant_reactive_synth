@@ -16,6 +16,7 @@ from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDyna
 # Imports with no prime latches
 from src.compositional_graphs.frankadynamic_ratio_tb_noprime import FrankaWorldDynamicRatioTurnBasedNoPrime
 from src.compositional_graphs.frankadynamic_ratio_else_tb_noprime import FrankaWorldDynamicRatioTurnBasedElseNoPrime
+from src.compositional_graphs.symbolic_partitioned_dfa_game_noprime import SymbolicPartitionedDFAGameNoPrime
 
 # regret script imports
 from src.compositional_graphs.symbolic_partitioned_regret_dfa_game import SymbolicPartitionedRegretDFAGame
@@ -316,6 +317,83 @@ def DFA_Game_Main():
 
 
 
+def DFA_Game_Main_no_prime():
+
+    # Even more simple set-up
+    boxes = 1
+    locs = 20
+    ratio = 1
+    init = ['ready l2', 'b0 l2']
+    goal = []
+
+    human_locs = range(1, locs + 1)
+    # human_boxes = range(boxes)
+    human_boxes = [0]
+    formula = 'F(p01 & F(p02))'
+
+    cooperative_game = True
+    enable_reordering = False
+    ltlf_flag = True
+
+    dfa_game = SymbolicPartitionedDFAGameNoPrime(boxes=boxes, locs=locs,
+                                                 ratio=ratio, init=init,
+                                                 goal=goal, formula=formula,
+                                                 restricted_human_locs=human_locs,
+                                                 restricted_human_boxes=human_boxes,
+                                                 ltlf_flag= ltlf_flag,
+                                                 enable_reordering=enable_reordering)
+    
+    # print Game Info
+    print("*****************Printing Game Info*****************")
+    print('****************xVars Map:****************')
+    for k, v in dfa_game.xVar_map.items():
+        print(f"{k} : {v}")
+
+    print('****************Action Map:****************')
+    for k, v in dfa_game.action_map.items():
+        print(f"{k} : {v}")
+
+    print("*****************Ratio Map:*****************")
+    for k, v in dfa_game.kVar_map.items():
+        print(f"{k} : {v}")
+
+    # print the number of explicit states
+    sys_states, env_states = dfa_game.get_number_of_states(verbose=True)
+
+    # print DFA Info
+    print("*****************Printing Game Info*****************")
+    for k, v in dfa_game.dfa_handle.qVar_map.items():
+        print(f"{k} : {v}")
+    
+
+    # print DFA Game Info
+    print("*****************Printing DFA Game Info*****************")
+    print(f"Total num of latches: ", len(dfa_game.latches) + len(dfa_game.qVars))
+    print("Total boolean vars: ", len(dfa_game.latches) + len(dfa_game.qVars) + len(dfa_game.rVars))
+    print("********************************************************")
+    print(f"Total num of explicit states in DFA Game: {dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
+    print("********************************************************")
+
+    # create the game's transition relation
+    tic = time.time()
+    dfa_game.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # dfa_game.test_pre_image()
+    # return
+
+    tic = time.time()
+    strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, old_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    if strategy is not None:
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
 def Game_Main():
     # setting things up
     boxes = 4
@@ -522,10 +600,11 @@ def Game_Main_no_prime():
 if __name__ == "__main__":
     # game synthesis main function call
     # Game_Main()
-    Game_Main_no_prime()
+    # Game_Main_no_prime()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
+    DFA_Game_Main_no_prime()
 
     # Regret dfa game synthesis main function call
     # Regret_DFA_Game_Main()

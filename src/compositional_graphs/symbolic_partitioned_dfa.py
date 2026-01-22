@@ -368,6 +368,10 @@ class SymbolicPartitionedDFANoPrime():
 
         # intialize transition relation handle
         self.dfa_transition_relation = {}
+        self.dfa_transition_relation_accp_sink = {}
+
+        self.dfa_transition_relation_bdd = {}
+        self.dfa_transition_relation_accp_sink_bdd = {}
 
         # set the initial and goal states in explicit form
         self.set_init_goal_states()
@@ -412,6 +416,13 @@ class SymbolicPartitionedDFANoPrime():
         for q_idx, q in enumerate(self.dfa._graph.nodes()):
             bit_str = f"{offset + q_idx:0{len(self.qVars)}b}"
             self.qVar_map[q] = bit_str
+    
+
+    def convert_dfa_transition_relation_bdd(self):
+        if len(self.dfa_transition_relation.keys()) == 0 or len(self.dfa_transition_relation_accp_sink.keys()) == 0:
+            raise ValueError("DFA Transition Relation is empty. Cannot convert to BDD form. Please run create_dfa_transition_relation() first.")
+        self.dfa_transition_relation_bdd = {k: v.bddPattern() for k, v in self.dfa_transition_relation.items()}
+        self.dfa_transition_relation_accp_sink_bdd = {k: v.bddPattern() for k, v in self.dfa_transition_relation_accp_sink.items()}
     
 
     def create_dfa_transition_relation(self):
@@ -532,6 +543,9 @@ class SymbolicPartitionedDFAFromSpotNoPrime(SymbolicPartitionedDFANoPrime):
                     self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
                     if not ((curr in self.goal) and (nxt in self.goal)):
                         self.dfa_transition_relation_accp_sink[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
+        
+        # create BDD versions of the TR 
+        self.convert_dfa_transition_relation_bdd()
 
 
 class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
@@ -635,4 +649,7 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
                             self.dfa_transition_relation[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
                             if not ((orig_state in self.goal) and (dest_state in self.goal)):
                                 self.dfa_transition_relation_accp_sink[self.qVars[sidx].bddPattern().__str__()] |= dfa_state_cube & edge_sym
+        
+        # create BDD versions of the TR 
+        self.convert_dfa_transition_relation_bdd()
 
