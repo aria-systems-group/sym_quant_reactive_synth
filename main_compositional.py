@@ -8,9 +8,12 @@ import math
 from typing import Union
 from cudd import Cudd, ADD
 
+# Imports with prime latches
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
 from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
+
+# Imports with no prime latches
 from src.compositional_graphs.frankadynamic_ratio_tb_noprime import FrankaWorldDynamicRatioTurnBasedNoPrime
 from src.compositional_graphs.frankadynamic_ratio_else_tb_noprime import FrankaWorldDynamicRatioTurnBasedElseNoPrime
 
@@ -501,12 +504,12 @@ def Game_Main_no_prime():
     # sys.exit(-1)
 
     # tic = time.time()
-    # strategy, opt_sVals = game.solve(verbose=False)
+    # strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game)
     # toc = time.time()
     # print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     tic = time.time()
-    strategy, opt_sVals = game.old_solve(verbose=False)
+    strategy, opt_sVals = game.old_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
