@@ -491,15 +491,15 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation.values()))
         dfa_preimage = self.preimage_test(From=goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
         print('DFA Preimage: ', dfa_preimage)
-        self.convert_cube_to_state_ADD(dfa_preimage, human_action=False, action=False, verbose=True)
+        self.convert_cube_to_state_ADD(dfa_preimage, action=False, verbose=True)
         
         # then evolve over the game
         dfa_game_preimage = self.preimage_test(From=dfa_preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('DFA Game Preimage: ', dfa_game_preimage)
-        self.convert_cube_to_state_ADD(dfa_game_preimage, human_action=False, action=False, verbose=True)
+        self.convert_cube_to_state_ADD(dfa_game_preimage, action=False, verbose=True)
 
         # testing if the swapiing all vars first still gives the same result
         preimage: ADD = self.compute_preimage(goal_cube)
         print('DFA Game Preimage (Swap all Vars first): ', preimage)
-        self.convert_cube_to_state_ADD(preimage, human_action=False, action=False, verbose=True)
+        self.convert_cube_to_state_ADD(preimage, action=False, verbose=True)
         assert preimage.compare(dfa_game_preimage, 2), "Preimage computation mismatch!!"

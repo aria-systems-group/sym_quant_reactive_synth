@@ -22,6 +22,7 @@ from tabulate import tabulate
 
 from cudd import Cudd, ADD, BDD
 
+
 class FrankaWorldDynamicRatioTurnBasedNoPrime():
     def __init__(self,
                  boxes: int, locs: int,
@@ -1469,6 +1470,9 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     def get_next_state_human(self, curr_state: List[str], action: str) -> Tuple[ADD, str] :
         """
          A helper function to get the next state under human action given the current state and human action.
+         As we changed the robot conf. update rules in human move actions, we need to override this function here. 
+         Also, when the human doe not intervene the update rule parse the robot confg. to update it correctly. As the robot conf. 
+         (in-transfer and in-transit) were updated, we update the hmove noop case accordingly as well.  
         """
         turn_var_idx = 0
         human_move_idx = 1
@@ -1478,12 +1482,12 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         if action.startswith('hmove noop'):
             # boxes do not change location but we need to update robot confguration
             if curr_state[rConf_idx].startswith('in-transit'):
-                # the rConf state is of the form in-transit from_loc b_idx
-                to_box = curr_state[rConf_idx].split(' ')[2]
+                # the rConf state is of the form in-transit b_idx
+                to_box = curr_state[rConf_idx].split(' ')[1]
                 curr_state[rConf_idx] = f'to-obj {to_box}'
             elif curr_state[rConf_idx].startswith('in-transfer'):
-                # the rConf state is of the form in-transfer from_loc to_loc
-                to_loc = curr_state[rConf_idx].split(' ')[2]
+                # the rConf state is of the form in-transfer to_loc
+                to_loc = curr_state[rConf_idx].split(' ')[1]
                 curr_state[rConf_idx] = f'holding {to_loc}'
             elif curr_state[rConf_idx].startswith('ready') or curr_state[rConf_idx].startswith('holding'):
                 pass
@@ -1505,13 +1509,11 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
             curr_state[box_idx] = ', '.join(split_str)
             # update robot configuration based on current robot configuration if the human moves a box        
             if curr_state[rConf_idx].startswith('in-transit'):
-                # the rConf state is of the form in-transit from_loc b_idx
-                from_loc = curr_state[rConf_idx].split(' ')[1]
-                curr_state[rConf_idx] = f'ready {from_loc}'
+                # the rConf state is of the form in-transit b_idx
+                curr_state[rConf_idx] = f'ready l{self.locs + 1}' # ready else location
             elif curr_state[rConf_idx].startswith('in-transfer'):
-                # the rConf state is of the form in-transfer from_loc to_loc
-                from_loc = curr_state[rConf_idx].split(' ')[1]
-                curr_state[rConf_idx] = f'holding {from_loc}'
+                # the rConf state is of the form in-transfer to_loc
+                curr_state[rConf_idx] = f'holding l{self.locs + 1}' # holding else location
             elif curr_state[rConf_idx].startswith('ready') or curr_state[rConf_idx].startswith('holding'):
                 pass
             else:
@@ -1527,11 +1529,12 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         split_str = curr_state[box_idx].split(', ')
         return self.tVar_map_sym[curr_state[turn_var_idx]] & self.kVar_map_sym[curr_state[human_move_idx]] & \
               self.xVar_map_sym[curr_state[rConf_idx]] & reduce(lambda a, b: a & b, [self.xVar_map_sym[s] for s in split_str]), action
-
-
+    
     def get_next_state_robot(self, curr_state: List[str], action: str, **kwargs) -> ADD:
         """
-         A helper function to get the next state under robot action given the current state and robot action.
+         A helper function to get the next state under robot action given the current state and robot action. 
+          As we changed the robot conf. update rules in transit and transfer actions,
+          we need to override this function here.
         """
         turn_var_idx = 0
         human_move_idx = 1
@@ -1540,10 +1543,9 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         # if action is transit then, update the robot configuration
         if action.startswith('transit'):
             assert curr_state[rConf_idx].startswith('ready'), "Make sure the robot is ready to transit!!!"
-            from_loc = curr_state[rConf_idx].split(' ')[1]
             b_idx = action.split(' ')[1]
             # from ready you evolve to in-transit
-            curr_state[rConf_idx] = f'in-transit {from_loc} {b_idx}'
+            curr_state[rConf_idx] = f'in-transit {b_idx}'
         
         # if action is grasp then, update the robot configuration and box configuration
         elif action.startswith('grasp'):
@@ -1571,7 +1573,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                         found_box = True
                         break
                 if not found_box:
-                    print("No box found at the location where robot is trying to grasp. Cannot proceed!!")
+                    print("[INVALID ROBOT ACTION]: No box found at the location where robot is trying to grasp. Cannot proceed!!")
                     sys.exit(-1)
                 curr_state[box_idx] = ', '.join(split_str)
             else:
@@ -1596,9 +1598,8 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         # if action is transfer then, update the robot configuration 
         elif action.startswith('transfer'):
             assert curr_state[rConf_idx].startswith('holding'), "Make sure the robot is holding when transfering to another loc!!!"
-            from_loc = curr_state[rConf_idx].split(' ')[1]
             to_loc = action.split(' ')[1]
-            curr_state[rConf_idx] = f'in-transfer {from_loc} {to_loc}'
+            curr_state[rConf_idx] = f'in-transfer {to_loc}'
 
         else:
             print("Unknown action. Cannot compute next state!!")
