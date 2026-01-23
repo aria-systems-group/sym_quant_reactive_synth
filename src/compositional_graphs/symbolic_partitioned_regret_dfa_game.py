@@ -929,7 +929,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             layer += 1
     
 
-    def gou_solve(self, verbose: bool = False, optimized: bool = False, test: bool = False) -> Optional[ADD]:
+    def gou_solve(self, verbose: bool = False, optimized: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
