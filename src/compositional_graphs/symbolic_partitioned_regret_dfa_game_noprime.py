@@ -30,11 +30,13 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                  enable_reordering: bool = False):
         self.budget: int = budget
         self.uVars: List[ADD] = []
+        self.uVars_bdd: List[BDD] = []
         self.brVars: List[ADD] = []
         self.uVar_map: List[ADD] = bidict({}) 
         self.uVar_map_sym: List[ADD] = bidict({}) 
         self.brVar_map: List[ADD] = bidict({}) 
         self.brVar_map_sym: List[ADD] = bidict({})
+        self.gou_ts_bdd_transition_fun_list: List[List[BDD]] = []
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
         super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, restricted_human_boxes, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
@@ -68,6 +70,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         self.kVars: List[ADD] = self.create_ratio_vars()
         self.pVars, self.bVars = self.create_latches()
         self.uVars = self.create_utility_latches()
+        self.uVars_bdd = [u.bddPattern() for u in self.uVars]
         self.create_all_maps()
         self.create_all_sym_maps()
 
@@ -99,7 +102,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         return (self.dfa_handle.goal_latch & ~self.uVar_map_sym[f'u{self.budget + 1}'])
 
     
-    def create_utility_latches(self):
+    def create_utility_latches(self) -> List[ADD]:
         """
          Create utility variables for the Graph of Utility.
         """
@@ -111,7 +114,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         return uVars
     
 
-    def create_br_latches(self):
+    def create_br_latches(self) -> List[ADD]:
         """
          Create best-alterante response (br) variables for the Graph of Utility.
         """
@@ -189,10 +192,10 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
 
         # now create utility transition relation
         self.create_utility_transition_relation()
-    
 
         tic = time.time()
         strategy = self.gou_solve(verbose=False, optimized=False)
+        # strategy = self.iros23_gou_solve(verbose=False)
         # self.TVI_gou_solve(verbose=False, optimized=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
@@ -243,6 +246,28 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         # then evolve over the game
         preimage = dfa_preimage.vectorCompose(self.latches + self.uVars, self.graph_of_utility_tr)
 
+        return preimage
+
+    
+    def iros23_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> ADD:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for tr_action in self.gou_ts_bdd_transition_fun_list:
+            # we get from the new weightr dictionary
+            for sval, succ_states in win_state_bucket.items():
+                # first evolve over the DFA
+                # dfa_preimage: BDD = succ_states.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+                dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+                pre_states: BDD = dfa_preimage.vectorCompose(self.latches_bdd + self.uVars_bdd, tr_action)
+
+                if not pre_states.isZero():
+                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                    pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        preimage = self.manager.plusInfinity()
+        for sval, add_bucket in pre_buckets.items():
+            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+        
         return preimage
     
 
@@ -307,6 +332,86 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                     self.cVals = curr_winning_states
                     if optimized:
                         preimage = pre_sys.min(pre_env)
+                    return preimage if init_val < math.inf else None
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+
+
+    def gou_convert_mono_tr_to_action_tr(self):
+        # loop throught the transition relation and separate them based on action
+        for act_dd in self.action_map_sym.values():
+            # loop over the tr and retain these action
+            act_ls = []
+            for tr_bdd in self.graph_of_utility_tr:
+                ts_action_dd = tr_bdd & act_dd
+                act_ls.append(ts_action_dd.bddPattern())
+            self.gou_ts_bdd_transition_fun_list.append(act_ls)
+    
+
+    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, layer: int, c_max: int) -> Dict[int, BDD]:
+        """
+         Given a monolithic ADD of winning states, convert it into buckets of BDDs based on state values.
+
+         The values the states can take are from 0 to [Budget] with increment of c_max
+        """    
+        win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        
+        # convert the winning states into buckets of BDD
+        for sval in range(0, self.budget + 1, c_max):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval = monolithic_add.bddInterval(sval, sval)
+
+            if not win_sval.isZero():
+                win_state_bucket[sval] |= win_sval
+        
+        return win_state_bucket
+    
+
+    def iros23_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+        # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
+        self.graph_of_utility_tr = list(self.transition_relation.values())
+        self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+
+        # preprocess TR into buckets of BDDs separated based on actions
+        self.gou_convert_mono_tr_to_action_tr()
+        
+        goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        # print("Goal States with Utility values:", goal)
+        curr_winning_states = self.manager.plusInfinity().min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+        c_max: int = 1
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, layer=layer, c_max=c_max)
+            preimage: ADD = self.iros23_gou_compute_preimage(win_state_bucket)
+            next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
+            
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.gou_convert_cube_to_state_ADD(next_winning_states, action=False, verbose=True, print_val=True)
+            
+            # if curr_winning_states.compare(next_winning_states, 2):
+            if next_winning_states.compare(curr_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states != self.manager.plusInfinity():
+                    if (self.dfa_handle.init_latch & self.init_latch) & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Cooperation Strategy Exists!!. The State value is {init_val}")
+                    self.cVals = curr_winning_states
                     return preimage if init_val < math.inf else None
                 return None
 
