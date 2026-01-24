@@ -58,7 +58,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # store ADD(s-as-s')-1 transition relation for graph of utility
         self.monolithic_valid_full_gou_trns: ADD = self.manager.addZero()
         self.monolithic_valid_full_gobr_trns: ADD = self.manager.addZero()
-        # self.monolithic_valid_sabr_prime_br_trns: ADD = self.manager.addZero()
         # variables for storing optimal cooperative state values and regret optimal state values
         self.cVals = None
         self.rVals = None
@@ -251,14 +250,17 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |= transition_cube
                 
                 # create s a_s s' monolithic ADD which we will use later for alternate best-response computation
-                self.monolithic_valid_full_gou_trns |= transition_cube & self.monolithic_valid_full_dfa_game_trns & \
-                      self.uVar_map_sym[f'u{prime_u_val}'].swapVariables(self.uVars, self.prime_uVars)
+                if self.only_reachable_states:
+                    self.monolithic_valid_full_gou_trns |= transition_cube & self.monolithic_valid_full_dfa_game_trns & \
+                        self.uVar_map_sym[f'u{prime_u_val}'].swapVariables(self.uVars, self.prime_uVars)
         
         # add self-loop for the sink state budget + 1
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
-        self.monolithic_valid_full_gou_trns |= self.uVar_map_sym[f'u{self.budget + 1}'] & self.monolithic_valid_full_dfa_game_trns & self.uVar_map_sym[f'u{self.budget + 1}'].swapVariables(self.uVars, self.prime_uVars)
+        
+        if self.only_reachable_states:
+            self.monolithic_valid_full_gou_trns |= self.uVar_map_sym[f'u{self.budget + 1}'] & self.monolithic_valid_full_dfa_game_trns & self.uVar_map_sym[f'u{self.budget + 1}'].swapVariables(self.uVars, self.prime_uVars)
     
 
     def create_best_alternate_response_transition_relation(self):
@@ -278,9 +280,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                             self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
                     
                     # bookkeeping
-                    # create (s,q,u,br) ---- a_s ---> (s',q', u', br') monolithic ADD which we will use later for alternate best-response computation
-                    self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
-                    # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
+                    if self.only_reachable_states:
+                        # create (s,q,u,br) ---- a_s ---> (s',q', u', br') monolithic ADD which we will use later for alternate best-response computation
+                        self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
+                        # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[prime_br].swapVariables(self.brVars, self.prime_brVars)
                 else:
                     state_act_pairs = self.manager.addZero()
                     for i in self.brVals:
@@ -294,9 +297,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         if s == '1':
                             self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
 
-                    self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-                    # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-                    break
+                    if self.only_reachable_states:
+                        self.monolithic_valid_full_gobr_trns |= transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+                        # self.monolithic_valid_sabr_prime_br_trns |= transition_cube & self.monolithic_valid_state_robot_actions & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+                        break
         
             # add that from human states, the best-alternate response remains the same
             human_transition_cube = brConf_cube & self.tVar_map_sym['human']
@@ -306,8 +310,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= human_transition_cube
             
             # for human transitions, the best-alternate response remains the same
-            self.monolithic_valid_full_gobr_trns |= human_transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
-            # self.monolithic_valid_sabr_prime_br_trns |= human_transition_cube & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+            if self.only_reachable_states:
+                self.monolithic_valid_full_gobr_trns |= human_transition_cube & self.monolithic_valid_full_gou_trns & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
+                # self.monolithic_valid_sabr_prime_br_trns |= human_transition_cube & self.brVar_map_sym[br].swapVariables(self.brVars, self.prime_brVars)
     
 
     def get_states_with_one_outgoing_transition_gou(self) -> BDD:
@@ -991,13 +996,14 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         curr_br_state_val = curr_state_exp[0][0][0][-1]
         curr_state_sym = kwargs['curr_state_sym']
-        prime_brVars_bdd = kwargs['prime_brVars_bdd']
         
         if turn == 'robot':
-            next_br = (self.monolithic_valid_full_gobr_trns.restrict(curr_state_sym & curr_action_sym).bddInterval(1, 1).pickOneMinterm(prime_brVars_bdd)).toADD()
-            return next_br.swapVariables(self.prime_brVars, self.brVars)
-        else:
-            return self.brVar_map_sym[curr_br_state_val]
+            cube = list(self.monolithic_br.restrict(curr_state_sym & curr_action_sym).generate_cubes())
+            assert len(cube) == 1, "Make sure there is only one best-alternate response value for the given state-action pair."
+            next_br = cube[0][1]
+            if next_br <= curr_br_state_val:
+                return self.brVar_map_sym[next_br]
+        return self.brVar_map_sym[curr_br_state_val]
     
 
     def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
@@ -1118,7 +1124,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         curr_state_sym = self.init_latch & self.dfa_handle.init_latch & self.brVar_map_sym[math.inf]
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        prime_brVars_bdd: List[BDD] = [var.bddPattern() for var in self.prime_brVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
@@ -1155,7 +1160,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
            
             # get the next state in the GoU game
             curr_gou_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
-            curr_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, prime_brVars_bdd=prime_brVars_bdd, curr_action_sym=act_cube.toADD())
+            curr_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, curr_action_sym=act_cube.toADD())
             curr_game_state_sym = curr_gou_game_state_sym & curr_gobr_br_sym
             
             # check if you evolved over the DFA 
@@ -1231,14 +1236,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
          A function that counts the numbe of actions per state in graph of utility.
         """
-        prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
+        # prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
         action_cube = reduce(lambda a, b: a & b, self.rVars)
         # convert to BDD and then exist abstract
-        state_action_prime_state: BDD = self.monolithic_valid_full_gou_trns.bddPattern()
-        state_action_prime_state = state_action_prime_state.existAbstract(prime_vars_exist_cube.bddPattern())
+        state_action: BDD = self.monolithic_valid_state_robot_actions.bddPattern()
 
         # convert to 0 - 1 ADD and exist abstract rAct cubes to get ADD(s)->|s'| 
-        state_ract_count: ADD = state_action_prime_state.toADD().existAbstract(action_cube)
+        state_ract_count: ADD = state_action.toADD().existAbstract(action_cube)
         return state_ract_count
 
     
@@ -1260,56 +1264,31 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         Method: Output ADD(s, as)-br where br is the best-response.
         """
-        robot_action_cube = reduce(lambda a, b: a & b, self.rVars)
-        
-        # convert cVal to prime
-        prime_cVal = self.cVals.swapVariables(self.gou_game_latches, self.gou_game_prime_latches)
+        # compute preimage of ADD(s')-cVal to get ADD(s, a)-cVal(s')
+        cVals = self.cVals.swapVariables(self.latches + self.uVars + self.qVars, self.prime_latches + self.prime_uVars + self.prime_qVars)
+        dfa_preimage = cVals.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+        game_state_action = dfa_preimage.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr) 
 
-        # AND with ADD(s, as, s')-1 that represents valid full TR to get ADD(s, as, s')-cVal(s') (leaf values is cVal(s'))
-        full_state_prime_state_tr_cval: ADD = prime_cVal & self.monolithic_valid_full_gou_trns
-        
-        bdd_monolithic_valid_full_gou_trns: BDD = self.monolithic_valid_full_gou_trns.bddPattern()
-
-        # precompute the set of state-robot action pairs (s, as)-> +inf. Used in find the min value later
-        prime_vars_exist_cube = reduce(lambda a, b: a & b, self.gou_game_prime_latches)
-        state_action_pair: BDD = bdd_monolithic_valid_full_gou_trns.existAbstract(prime_vars_exist_cube.bddPattern())
+        # any state with env action has infinity value. So, we mask them out
+        game_state_action = self.tVar_map_sym['robot'].ite(game_state_action, self.manager.plusInfinity())
 
         # now compute the best alternate response
-        self.ba_per_ract = defaultdict(lambda: self.manager.plusInfinity())
         self.vector_of_br = defaultdict(lambda: self.manager.addZero())
+        
+        lVals = {*range(0, self.budget + 1)} | {math.inf}
         for ract, ract_sym in self.relevant_robot_actions_sym.items():
             print(f"Computing BR for Robot Act: {ract}")
             
-            # get the states where ract (as) is a valid action
-            care_states_ract: BDD = state_action_pair & ract_sym.bddPattern()
-            care_states_no_ract = care_states_ract.existAbstract(robot_action_cube.bddPattern())
+            game_state_action_without_ract = ract_sym.ite(self.manager.plusInfinity(), game_state_action)
+            ba_per_act = self.symbolic_min_abstract(game_state_action_without_ract, self.rVars)
 
-            alternate_ract_cube: BDD = self.relevant_robot_actions.bddPattern() & ~ract_sym.bddPattern()
-
-            # next get the ADD(s, as') where as' are all robot actions other than as
-            care_states_alt_ract = state_action_pair & care_states_no_ract & alternate_ract_cube
-
-            # get the full valid transition ADD(s, as', s)-1 and AND with ADD(s')-(cVal(s')) so that the leaves have the cVal of (s')
-            add_care_states_alt_ract: ADD = (care_states_alt_ract.toADD()).ite(self.manager.addOne(), self.manager.plusInfinity())
-
-            add_care_states_alt_ract_prime_states = add_care_states_alt_ract & full_state_prime_state_tr_cval
-
-            # find the min amongst all (s, as', s') and store it
-            ba_per_act = self.manager.plusInfinity().min(add_care_states_alt_ract_prime_states)
-            self.ba_per_ract[ract] = ba_per_act
-
-            # chop the ADDs into vector of BDD(s-as'-s'), one for each leaf node
-            lVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in ba_per_act.generate_cubes()}
-
+            # chop the ADDs into vector of BDD(s), one for each leaf node
             for leaf_val in lVals:
                 # leav_vals == inf may have invalid states into, so post-process and remove it later
                 bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val))
-                if leaf_val == math.inf:
-                    # remove the current action ract from bdd_state_act as they are default set to inf. 
-                    bdd_state_act = (bdd_state_act & ~ract_sym.bddPattern()).existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
-                else:
-                    bdd_state_act = bdd_state_act.existAbstract((prime_vars_exist_cube & robot_action_cube).bddPattern()) & ract_sym.bddPattern()
-                # remove goal states from br computation; later we add them to +inf br value
+                if not bdd_state_act.isZero():
+                    bdd_state_act = bdd_state_act & ract_sym.bddPattern()
+                    # remove goal states from br computation; later we add them to +inf br value
                 bdd_state_act = bdd_state_act & ~self.dfa_handle.goal_latch.bddPattern()  
                 self.vector_of_br[leaf_val] |= bdd_state_act.toADD() & self.monolithic_valid_state_robot_actions
         
@@ -1321,22 +1300,21 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # This is not capture in the above code. Hence, we manually override the +inf BDD here.
         if math.inf in self.vector_of_br.keys():
             inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
-            inf_state_actions: BDD = inf_states & state_action_pair
-            self.vector_of_br[math.inf] |= inf_state_actions.toADD()
+            self.vector_of_br[math.inf] |= inf_states.toADD()
         
         self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
 
         # post-processing best-response to only preserve the lwer states action pair value
         # unions of all predecessors
         pre_states: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
-        self.monolithich_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
+        self.monolithic_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
         for br in sorted(self.vector_of_br.keys(), reverse=True):
             br_states: ADD = self.vector_of_br[br]
-            self.monolithich_br = br_states.ite(self.manager.addConst(br), self.monolithich_br)
+            self.monolithic_br = br_states.ite(self.manager.addConst(br), self.monolithic_br)
         
         # finally put them back in vector_of_br
         for br in self.vector_of_br.keys():
-            self.vector_of_br[br] = self.monolithich_br.bddInterval(br, br).toADD()
+            self.vector_of_br[br] = self.monolithic_br.bddInterval(br, br).toADD()
 
         if verbose:
             # l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
@@ -1372,7 +1350,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         # invalid br vals also map to +inf regret value
         reg_vals_add = valid_brVars_add.ite(reg_vals_add, self.manager.plusInfinity())
-        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()}
+        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()} | {0}
         # print(reg_vals)
         print("Processed the Regret Values!")
 
