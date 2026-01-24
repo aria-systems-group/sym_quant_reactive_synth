@@ -247,7 +247,8 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         # now compute the best alternate response
         self.vector_of_br = defaultdict(lambda: self.manager.addZero())
         
-        lVals = {*range(1, self.budget + 1)} | {math.inf}
+        # lVals = {*range(1, self.budget + 1)} | {math.inf}
+        lVals = {*range(0, self.budget + 1)} | {math.inf}
         for ract, ract_sym in self.relevant_robot_actions_sym.items():
             print(f"Computing BR for Robot Act: {ract}")
             
@@ -631,7 +632,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         
         # invalid br vals also map to +inf regret value
         reg_vals_add = valid_brVars_add.ite(reg_vals_add, self.manager.plusInfinity())
-        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()}
+        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()} | {0}
         # print(reg_vals)
         print("Processed the Regret Values!")
 
