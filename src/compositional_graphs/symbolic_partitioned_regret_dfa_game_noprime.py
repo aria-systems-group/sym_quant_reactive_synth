@@ -3,7 +3,7 @@ import time
 
 from functools import reduce
 from collections import defaultdict
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 
 from bidict import bidict
 from tabulate import tabulate
@@ -160,6 +160,32 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             # else:
             self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds
     
+    def count_actions_per_state_gou(self) -> ADD:
+        """
+         A function that counts the numbe of actions per state in graph of utility.
+        """
+        action_cube = reduce(lambda a, b: a & b, self.rVars)
+        # convert to BDD and then exist abstract
+        # monolithic_valid_state_robot_actions will be over states in the game (s, u) and not over DFA states
+        state_action_prime_state: BDD = self.monolithic_valid_state_robot_actions.bddPattern()
+
+        # convert to 0 - 1 ADD and exist abstract rAct cubes to get ADD(s)->|s'| 
+        state_ract_count: ADD = state_action_prime_state.toADD().existAbstract(action_cube)
+        return state_ract_count
+    
+
+    def get_states_with_one_outgoing_transition_gou(self) -> BDD:
+        """
+         This method computes the set of GoU states that have exactly one outgoing robot action.
+        """
+        gou_state_act_count: ADD = self.count_actions_per_state_gou()
+        bdd_gou_state_single_act: BDD = gou_state_act_count.bddInterval(1, 1)
+
+        # as accepting states in DFA are sink states in GoU, we need to post-process the gou_state_act_count so that accepting states map to cardinality 1.
+        bdd_gou_state_single_act |= (self.dfa_handle.goal_latch & gou_state_act_count).bddPattern()
+        return bdd_gou_state_single_act
+
+    
 
     def create_utility_transition_relation(self):
         """
@@ -183,6 +209,81 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
+
+
+    def compute_best_alternate_response(self, verbose: bool = False) -> None:
+        """
+        A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
+            Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
+            Mathematically, given cVal (cooperative value) for every state s in G, we have
+
+            ba(s, s') = +inf if s is Env player states
+            ba(s, s') = min (s, s'') {cVal(s'')} if s is Sys plaeyr states
+
+            min(s, s'') = +inf if no s'' exists, i.e., there does not exist an alternate edge.
+        
+        Output ADD(s, as)-br where br is the best-response.
+
+        1. First compute ADD(s, a)-cVal(s') by vectorCompose-ing cVal(s) over GoU transition relation.
+        2. For each robot action, mask out the action from ADD(s, a)-cVal(s') and compute min over rVars to get ADD(s)-ba_per_act
+        3. For each leaf node in ADD(s)-ba_per_act, chop the ADD into BDD(s) & ract and store them in vector_of_br
+        """        
+        # compute preimage of ADD(s')-cVal to get ADD(s, a)-cVal(s')
+        dfa_preimage = self.cVals.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+        game_state_action = dfa_preimage.vectorCompose(self.latches + self.uVars, self.graph_of_utility_tr) 
+
+        # any state with env action has infinity value. So, we mask them out
+        game_state_action = self.tVar_map_sym['robot'].ite(game_state_action, self.manager.plusInfinity())
+
+        # now compute the best alternate response
+        self.vector_of_br = defaultdict(lambda: self.manager.addZero())
+        
+        lVals = {*range(1, self.budget + 1)} | {math.inf}
+        for ract, ract_sym in self.relevant_robot_actions_sym.items():
+            print(f"Computing BR for Robot Act: {ract}")
+            
+            game_state_action_without_ract = ract_sym.ite(self.manager.plusInfinity(), game_state_action)
+            ba_per_act = self.symbolic_min_abstract(game_state_action_without_ract, self.rVars)
+
+            # chop the ADDs into vector of BDD(s), one for each leaf node
+            for leaf_val in lVals:
+                # leav_vals == inf may have invalid states into, so post-process and remove it later
+                bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val))
+                if not bdd_state_act.isZero():
+                    bdd_state_act = bdd_state_act & ract_sym.bddPattern()
+                    # remove goal states from br computation; later we add them to +inf br value
+                bdd_state_act = bdd_state_act & ~self.dfa_handle.goal_latch.bddPattern()  
+                self.vector_of_br[leaf_val] |= bdd_state_act.toADD() & self.monolithic_valid_state_robot_actions
+        
+        # print stuff for debugging
+        print("Done computing BR")
+
+        # ovveride the +inf BDD. The above code works for states with one egdes. 
+        # The inf vector include these states as well as valid state conf. Further, we manually all accepting states in DFA to +inf as they are sink states in GoU.
+        # This is not capture in the above code. Hence, we manually override the +inf BDD here.
+        if math.inf in self.vector_of_br.keys():
+            inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
+            self.vector_of_br[math.inf] |= inf_states.toADD()
+        
+        self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
+
+        # post-processing best-response to only preserve the lwer states action pair value
+        # unions of all predecessors
+        pre_states: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
+        self.monolithich_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
+        for br in sorted(self.vector_of_br.keys(), reverse=True):
+            br_states: ADD = self.vector_of_br[br]
+            self.monolithich_br = br_states.ite(self.manager.addConst(br), self.monolithich_br)
+        
+        # finally put them back in vector_of_br
+        for br in self.vector_of_br.keys():
+            self.vector_of_br[br] = self.monolithich_br.bddInterval(br, br).toADD()
+
+        if verbose:
+            # l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
+            # t = self.monolithich_br.bddInterval(l, h).toADD()
+            # self.gou_convert_cube_to_state_ADD(t, action=True, verbose=True)
+            self.gou_convert_cube_to_state_ADD(self.monolithich_br, action=True, verbose=True)
     
     
 
@@ -194,15 +295,18 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False, optimized=False)
-        # strategy = self.iros23_gou_solve(verbose=False)
+        # strategy = self.gou_solve(verbose=False, optimized=False)
+        strategy = self.iros23_gou_solve(verbose=False)
         # self.TVI_gou_solve(verbose=False, optimized=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
 
-        if strategy is not None:
-            self.gou_roll_out_strategy(strategy=strategy, verbose=True)
-        return
+        # if strategy is not None:
+        #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+        # return
+
+        # compute best-alternate response
+        self.compute_best_alternate_response(verbose=False)
     
 
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
