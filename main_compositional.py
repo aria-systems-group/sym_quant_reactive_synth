@@ -315,9 +315,12 @@ def Regret_DFA_Game_Main_no_prime():
 
     print(f"Time to create transition relation: {toc - tic} seconds")
     tic = time.time()
-    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
+    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=True)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+
+    if strategy is not None:
+        dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
     
 
 
