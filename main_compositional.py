@@ -298,6 +298,26 @@ def Regret_DFA_Game_Main_no_prime():
     tic = time.time()
     dfa_game.create_transition_relation()
     toc = time.time()
+
+    print("*****************BR Info*****************")
+    for k, v in dfa_game.brVar_map.items():
+        print(f"{k} : {v}")
+    
+    print(f"Total num of explicit states in Graph of BR DFA Game: {len(dfa_game.brVals) * budget * dfa_game.dfa_handle.num_of_states * (env_states + sys_states):,}")
+
+    print("|xVars|: ", len(dfa_game.xVars))
+    print("|rAct|: ", len(dfa_game.rVars))
+    print("|kVars|: ", len(dfa_game.kVars))
+    print("|uVars|: ", len(dfa_game.uVars))
+    print("|brVars|: ", len(dfa_game.brVars))
+
+    print("Total boolean vars in GoBR: ", len(dfa_game.gobr_game_latches) + len(dfa_game.rVars))
+
+    print(f"Time to create transition relation: {toc - tic} seconds")
+    tic = time.time()
+    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
+    toc = time.time()
+    print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
     
 
 

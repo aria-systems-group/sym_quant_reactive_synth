@@ -136,6 +136,16 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             self.uVar_map[f'u{u}'] = ubit_str
             self.uVar_map_sym[f'u{u}'] = self.cube_to_add(ubit_str, self.uVars)
     
+    
+    def create_all_br_vars_maps(self):
+        """
+         Given, the set of best-response values, this method creates all latches and maps for best-alternate response variables. 
+        """
+        # create variables for best-alternate response values
+        self.brVars = self.create_br_latches()
+        self.create_br_var_map()
+        self.gobr_game_latches = self.latches + self.uVars + self.brVars + self.qVars
+    
 
     def create_br_var_map(self):
         """
@@ -184,7 +194,6 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         # as accepting states in DFA are sink states in GoU, we need to post-process the gou_state_act_count so that accepting states map to cardinality 1.
         bdd_gou_state_single_act |= (self.dfa_handle.goal_latch & gou_state_act_count).bddPattern()
         return bdd_gou_state_single_act
-
     
 
     def create_utility_transition_relation(self):
@@ -285,6 +294,43 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             # self.gou_convert_cube_to_state_ADD(t, action=True, verbose=True)
             self.gou_convert_cube_to_state_ADD(self.monolithich_br, action=True, verbose=True)
     
+
+    def create_best_alternate_response_transition_relation(self):
+        self.brVars_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.brVars}
+        
+        for br in self.brVals:
+            brConf_cube = self.brVar_map_sym[br]
+            
+            for prime_br in self.brVals:
+                if prime_br <= br:
+                    # create the transition cube
+                    transition_cube = brConf_cube & self.vector_of_br[prime_br]
+                    
+                    brConf_cube_str = self.brVar_map[prime_br]
+                    for sidx, s in enumerate(brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+                    
+                else:
+                    state_act_pairs = self.manager.addZero()
+                    for i in self.brVals:
+                        if i > br:
+                            state_act_pairs |= self.vector_of_br[i]
+                    
+                    transition_cube = brConf_cube & state_act_pairs
+                
+                    brConf_cube_str = self.brVar_map[br]
+                    for sidx, s in enumerate(brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+                    break
+        
+            # add that from human states, the best-alternate response remains the same
+            human_transition_cube = brConf_cube & self.tVar_map_sym['human']
+            brConf_cube_str = self.brVar_map[br]
+            for sidx, s in enumerate(brConf_cube_str):
+                if s == '1':
+                    self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= human_transition_cube
     
 
     def create_transition_relation(self):
@@ -307,6 +353,14 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
 
         # compute best-alternate response
         self.compute_best_alternate_response(verbose=False)
+
+        # create boolean vars and their prime versions for Best-alternate response values computed
+        self.create_all_br_vars_maps()
+
+        tic = time.time()
+        self.create_best_alternate_response_transition_relation()
+        toc = time.time()
+        print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
     
 
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
