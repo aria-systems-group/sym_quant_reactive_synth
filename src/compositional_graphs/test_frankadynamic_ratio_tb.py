@@ -455,6 +455,7 @@ class FrankaWorldDynamicRatioTurnBased():
     def set_latches(self):
         self.xVars: List[ADD] = self.kVars + self.pVars + [var for box_adds in self.bVars for var in box_adds]
         self.latches: List[ADD] = self.tVar + self.xVars
+        self.latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.latches]
     
 
     def set_prime_latches(self):

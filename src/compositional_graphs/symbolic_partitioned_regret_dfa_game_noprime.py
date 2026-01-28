@@ -614,7 +614,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         # preprocess TR into buckets of BDDs separated based on actions
         self.gobr_convert_mono_tr_to_action_tr()
 
-        # intialize the iteration counter
+        # initialize the iteration counter
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)

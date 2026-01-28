@@ -172,8 +172,15 @@ def Regret_DFA_Game_Main():
     # print("Variable ordering before calling the regret solver: ", dfa_game.manager.bddOrder())
     tic = time.time()
     strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
+    # hybrid_strategy, hybrid_rVals = dfa_game.hybrid_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+
+    # if hybrid_strategy.compare(strategy, 2):
+    #     print("The strategies from both methods are the same!")
+    # if hybrid_rVals.compare(rVals, 2):
+    #     print("The optimal state values from both methods are the same!")
+    # strategy = hybrid_strategy
     
     # tic = time.time()
     # # to avoid caching related issues
@@ -746,5 +753,5 @@ if __name__ == "__main__":
     # DFA_Game_Main_no_prime()
 
     # Regret dfa game synthesis main function call
-    # Regret_DFA_Game_Main()
-    Regret_DFA_Game_Main_no_prime()
+    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main_no_prime()
