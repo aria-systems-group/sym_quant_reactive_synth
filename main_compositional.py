@@ -426,8 +426,9 @@ def DFA_Game_Main():
     # return
 
     tic = time.time()
-    strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
     # strategy = dfa_game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = dfa_game.hybrid_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

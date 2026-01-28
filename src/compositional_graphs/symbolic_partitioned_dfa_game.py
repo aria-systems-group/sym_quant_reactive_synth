@@ -9,7 +9,8 @@ import sys
 import math
 
 from functools import reduce
-from typing import List, Union, Tuple
+from collections import defaultdict
+from typing import List, Union, Tuple, Dict
 
 from bidict import bidict
 from tabulate import tabulate
@@ -118,6 +119,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # create prime DFA latches next
         self.dfa_handle.create_prime_latches()
         self.prime_qVars: List[ADD] = self.dfa_handle.prime_qVars
+        self.prime_qVars_bdd = [var.bddPattern() for var in self.prime_qVars]
     
 
     def create_dfa_latches_and_maps(self):
@@ -142,6 +144,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.dfa_handle.create_latches_and_map()
 
         self.qVars = dfa_handle.qVars
+        self.qVars_bdd = [var.bddPattern() for var in self.qVars]
         self.dfa_latches: List[ADD] = dfa_handle.qVars
         self.qVar_map = dfa_handle.qVar_map
         self.qVar_map_sym = dfa_handle.qVar_map_sym
@@ -475,6 +478,31 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         pre_sys = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.sys_transition_relation.values()))
         pre_env = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.env_transition_relation.values()))
         return pre_sys, pre_env
+
+
+    def iros23_compute_preimage(self, win_state_bucket) -> ADD:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for tr_action in self.ts_bdd_transition_fun_list:
+            # we get from the new weightr dictionary
+            for sval, succ_states in win_state_bucket.items():
+                # prime the vars
+                dfa_succ_states_primed = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
+                # dfa_pre_states: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+                dfa_pre_states: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+
+                dfa_pre_states_primed = dfa_pre_states.swapVariables(self.latches_bdd, self.prime_latches_bdd)
+                pre_states: BDD = dfa_pre_states_primed.vectorCompose(self.prime_latches_bdd, tr_action)
+
+                if not pre_states.isZero():
+                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                    pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        preimage = self.manager.plusInfinity()
+        for sval, add_bucket in pre_buckets.items():
+            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+        
+        return preimage
     
 
     def preimage_test(self, From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:
