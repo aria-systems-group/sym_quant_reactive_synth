@@ -30,13 +30,19 @@ def _test_opt_state_vals_are_equal(game: Union[FrankaWorldDynamicRatioTurnBased,
     # check that the reachable states are the same as the original states
     diff_add = reachable_opt_sVals - opt_sVals
     if reachable_opt_sVals.compare(opt_sVals, 2):
-        print("******************The reachable states are the same as the original states!******************")
+        print("************************************")
+        print("The reachable states are the same as the original states!")
+        print("************************************")
         return True
     elif diff_add.findMin() == game.manager.addZero() and diff_add.findMax() == game.manager.plusInfinity():
-        print("******************The reachable states are the same as the original states!******************")
+        print("************************************")
+        print("The reachable states are the same as the original states!")
+        print("************************************")
         return True
     else:
-        print("******************The reachable states are different from the original states!******************")
+        print("************************************")
+        print("The reachable states are different from the original states!")
+        print("************************************")
         if debug:
             game.convert_cube_to_state_ADD(diff_add, action=False, verbose=True)
         return False
@@ -315,10 +321,11 @@ def Regret_DFA_Game_Main_no_prime():
 
     print(f"Time to create transition relation: {toc - tic} seconds")
     tic = time.time()
-    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=True)
+    # strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False)
+    iros23_strategy, iros23_rVals = dfa_game.iros23_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
-
+    strategy = iros23_strategy
     if strategy is not None:
         dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
     
@@ -511,10 +518,15 @@ def DFA_Game_Main_no_prime():
 
     tic = time.time()
     strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
-    # strategy, old_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    # iros23_strategy, iros23_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
+    # if iros23_strategy.compare(strategy, 2):
+    #     print("The strategies from both methods are the same!")
+    # if iros23_opt_sVals.compare(opt_sVals, 2):
+    #     print("The optimal state values from both methods are the same!")
+    # strategy = iros23_strategy
     if strategy is not None:
         dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
 

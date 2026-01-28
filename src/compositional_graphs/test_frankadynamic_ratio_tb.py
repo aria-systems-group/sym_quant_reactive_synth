@@ -78,6 +78,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
+        self.ts_bdd_transition_fun_list: List[List[BDD]] = []
 
         # create robot and human action vars and maps
         self.rVars: List[ADD] = self.create_action_vars()
@@ -459,6 +460,7 @@ class FrankaWorldDynamicRatioTurnBased():
     def set_prime_latches(self):
         self.prime_xVars: List[ADD] = self.prime_kVars + self.prime_pVars + [var for box_adds in self.prime_bVars for var in box_adds]
         self.prime_latches: List[ADD] = self.prime_tVar + self.prime_xVars
+        self.prime_latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.prime_latches]
     
 
     def get_number_of_states(self, verbose: bool = True):
@@ -2116,6 +2118,120 @@ class FrankaWorldDynamicRatioTurnBased():
 
             # swap the winning states
             curr_winning_states = next_winning_states
+    
+
+    def convert_mono_tr_to_action_tr(self):
+        # loop throught the transition relation and separate them based on action
+        for act_dd in self.action_map_sym.values():
+            # loop over the tr and rertain these action
+            act_ls = []
+            for tr_bdd in self.transition_relation.values():
+                ts_action_dd = tr_bdd & act_dd
+                act_ls.append(ts_action_dd.bddPattern())
+            self.ts_bdd_transition_fun_list.append(act_ls)
+    
+
+    def convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, layer: int, c_max: int) -> Dict[int, BDD]:    
+        win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        
+        # convert the winning states into buckets of BDD
+        _max_interval_val = layer * c_max
+        for sval in range(_max_interval_val + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval = monolithic_add.bddInterval(sval, sval)
+
+            if not win_sval.isZero():
+                win_state_bucket[sval] |= win_sval
+        
+        return win_state_bucket
+    
+
+    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> ADD:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for tr_action in self.ts_bdd_transition_fun_list:
+            # we get from the new weightr dictionary
+            for sval, succ_states in win_state_bucket.items():
+                succ_states_prime = succ_states.swapVariables(self.latches, self.prime_latches)
+                pre_states: BDD = succ_states_prime.vectorCompose(self.prime_latches_bdd, tr_action)
+
+                if not pre_states.isZero():
+                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                    pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        preimage = self.manager.plusInfinity()
+        for sval, add_bucket in pre_buckets.items():
+            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+        
+        return preimage
+    
+
+    def hybrid_solve(self, verbose: bool = False, cooperative_game: bool = False) ->  Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
+
+          This mwthod replace is different from te pure ADD approach as it first converts the current winning states 
+           into BDD buckets based on the state values and then computes the preimage using BDD vectorCompose operation.
+        """
+        # create Partitiotned TR based on actions
+        self.convert_mono_tr_to_action_tr()
+
+        # initialize goal state with 0 state value and add it to the winnign regiom
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states = self.manager.plusInfinity().min(goal)
+        next_winning_states = self.manager.plusInfinity()
+        # intialize the iteration counter
+        layer = 0
+        c_max: int = 1        
+        
+        valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            win_state_bucket = self.convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, layer=layer, c_max=c_max)
+            preimage = self.iros23_compute_preimage(win_state_bucket=win_state_bucket)
+                    
+            # add the action costs associated with the robot actions
+            preimage = preimage + self.weight
+            # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
+            if cooperative_game:
+                next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
+            else:
+                next_winning_states = self.compute_min_max_preimage(preimage=preimage, valid_human_action_mask=valid_human_action_mask)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, action=False, verbose=verbose)
+            
+            
+            if next_winning_states.compare(curr_winning_states, 2):
+                print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
+                    if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    # return preimage if init_val < math.inf else None
+                    if init_val < math.inf:
+                        return preimage, curr_winning_states
+                    else:
+                        return None, None
+                else:
+                    print(f"No Winning Strategy Exists!! The State value is {math.inf}")
+                return None, None
+            
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+
 
     
     def test_pre_image_restricted_human_moves(self):
