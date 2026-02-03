@@ -733,9 +733,16 @@ def Game_Main_no_prime():
     # print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     tic = time.time()
-    strategy, opt_sVals = game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = game.old_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    # if bdd_strategy.compare(strategy, 2):
+    #     print("The strategies from both methods are the same!")
+    # if bdd_opt_sVals.compare(opt_sVals, 2):
+    #     print("The optimal state values from both methods are the same!")
+    # strategy = bdd_strategy
 
     if strategy is not None:
         game.roll_out_strategy(strategy=strategy, verbose=True)
@@ -746,12 +753,12 @@ def Game_Main_no_prime():
 if __name__ == "__main__":
     # game synthesis main function call
     # Game_Main()
-    # Game_Main_no_prime()
+    Game_Main_no_prime()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
     # DFA_Game_Main_no_prime()
 
     # Regret dfa game synthesis main function call
-    Regret_DFA_Game_Main()
+    # Regret_DFA_Game_Main()
     # Regret_DFA_Game_Main_no_prime()
