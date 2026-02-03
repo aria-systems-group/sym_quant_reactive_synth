@@ -1229,40 +1229,54 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         return preimage
 
 
+    def compute_min_preimage_pure_bdd(self, preimage: Dict[int, BDD]) -> Dict[int, BDD]:
+        minmin_preimage = defaultdict(self.manager.bddZero) 
+        states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
+        states: BDD = states_action_pairs.existAbstract(self.rVars_cube.bddPattern())
+        for sval in sorted(preimage.keys()):
+            # intersect with finite valued states for Sys and Env player
+            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube.bddPattern()) & states
+            minmin_preimage[sval] |= sval_to_keep
+            states &= ~sval_to_keep
+        assert states.isZero() == True, "Error in computing min for system states"
 
-    def compute_min_max_preimage_pure_bdd(self, preimage: Dict[int, BDD]) -> Dict[int, BDD]:
-        minmax_preimage = defaultdict(self.manager.bddZero) 
+        return minmin_preimage
+
+
+    def compute_min_max_preimage_pure_bdd(self, preimage: Dict[int, BDD], debug: bool = False) -> Dict[int, BDD]:
+        minmax_preimage = defaultdict(self.manager.bddZero)
+        rVars_cube_bdd = self.rVars_cube.bddPattern()
         human_turn_bdd: BDD = self.tVar_map_sym['human'].bddPattern()
         states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
         # now take univ abstraction to remove edges to states with infinity value
-        states: BDD = states_action_pairs.existAbstract(self.rVars_cube.bddPattern())
+        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
         
         robot_state_bdd: BDD = states & ~human_turn_bdd
 
         # remove Env state that do not have a finite value value under all actions
-        human_state_w_inf_val = self.manager.bddZero()
-        for eact in self.env_action_cube_list_bdd:
-            env_state_act = human_turn_bdd & eact
-            human_state_w_inf_val |= (env_state_act & ~states_action_pairs).restrict(eact)
+        human_state_w_inf_val = human_turn_bdd & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd) & ~states_action_pairs
+        human_state_w_inf_val = human_state_w_inf_val.existAbstract(rVars_cube_bdd)
         
         # debug states without inf value are
         human_finite_valued_states = states & human_turn_bdd & ~human_state_w_inf_val
         
         for sval in sorted(preimage.keys(), reverse=True):
             # intersect with human finite valued states
-            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube.bddPattern()) & human_finite_valued_states
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & human_finite_valued_states
             minmax_preimage[sval] |= sval_to_keep
             human_finite_valued_states &= ~sval_to_keep
         
-        assert human_finite_valued_states.isZero() == True, "Error in computing max for human states"
+        if debug:
+            assert human_finite_valued_states.isZero() == True, "Error in computing max for human states"
 
         for sval in sorted(preimage.keys()):
             # intersect with human finite valued states
-            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube.bddPattern()) & robot_state_bdd
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & robot_state_bdd
             minmax_preimage[sval] |= sval_to_keep
             robot_state_bdd &= ~sval_to_keep
         
-        assert robot_state_bdd.isZero() == True, "Error in computing min for system states"
+        if debug:
+            assert robot_state_bdd.isZero() == True, "Error in computing min for system states"
 
         return minmax_preimage
 
@@ -1397,21 +1411,6 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
             return preimage
         
         return pre_buckets
-
-
-    # def bdd_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> Dict[int, BDD]:
-    #     pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-    #     for tr_action in self.ts_bdd_transition_fun_list:
-    #         # we get from the new weightr dictionary
-    #         for sval, succ_states in win_state_bucket.items():
-    #             pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, tr_action)
-
-    #             if not pre_states.isZero():
-    #                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-    #                 pre_buckets[sval] |= pre_states
-        
-    #     return pre_buckets
-
     
 
     def old_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
@@ -1539,12 +1538,10 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                         next_winning_states[total_cost] |= common_states
 
             # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
-            # if cooperative_game:
-            #     next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
-            # else:
-                # next_winning_states = self.compute_min_max_preimage(preimage=preimage, valid_human_action_mask=valid_human_action_mask)
-
-            next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states)
+            if cooperative_game:
+                next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=next_winning_states)
+            else:
+                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=False)
             # retain the min over goal states - here all goal states are at 0 cost
             next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
 
@@ -1576,7 +1573,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
             # update the counter
             layer += 1
 
-            # swap the winning states
+            # swap the winning states; can't do  curr_winning_states = next_winning_states_opt as python pass by value of reference
             curr_winning_states = defaultdict(lambda: self.manager.bddZero())
             for sval in next_winning_states_opt.keys():
                 curr_winning_states[sval] |= next_winning_states_opt[sval]
