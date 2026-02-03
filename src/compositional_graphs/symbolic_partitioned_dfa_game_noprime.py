@@ -281,7 +281,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # first evolve over the DFA
-        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation.values()))
         dfa_preimage: ADD = curr_winning_states.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the game
@@ -290,13 +290,13 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         return preimage
     
 
-    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> ADD:
+    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, BDD]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for tr_action in self.ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
                 # first evolve over the DFA
-                # dfa_preimage: BDD = succ_states.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+                # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
                 dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
                 pre_states: BDD = dfa_preimage.vectorCompose(self.latches_bdd, tr_action)
 
@@ -305,11 +305,13 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
                     pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
-        preimage = self.manager.plusInfinity()
-        for sval, add_bucket in pre_buckets.items():
-            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
-        
-        return preimage
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
 
 
     def test_pre_image(self):

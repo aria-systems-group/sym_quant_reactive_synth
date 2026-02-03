@@ -1409,7 +1409,6 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
             for sval, add_bucket in pre_buckets.items():
                 preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
             return preimage
-        
         return pre_buckets
     
 
@@ -1564,7 +1563,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                 # post process the strategy to return as monolithic ADD that corresponds to strategy
                 strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
                 if init_val < math.inf:
-                    return strategy, curr_winning_states
+                    return strategy, self.comp_winning_states
                 else:
                     print(f"No Winning Strategy Exists!! The State value is {math.inf}")
                     return None, None

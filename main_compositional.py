@@ -525,8 +525,9 @@ def DFA_Game_Main_no_prime():
     # return
 
     tic = time.time()
-    strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
     # iros23_strategy, iros23_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    bdd_strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
