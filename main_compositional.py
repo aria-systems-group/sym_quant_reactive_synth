@@ -328,12 +328,17 @@ def Regret_DFA_Game_Main_no_prime():
 
     print(f"Time to create transition relation: {toc - tic} seconds")
     tic = time.time()
-    # strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False)
-    iros23_strategy, iros23_rVals = dfa_game.iros23_regret_solver(verbose=False)
+    strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False)
+    # iros23_strategy, iros23_rVals = dfa_game.iros23_regret_solver(verbose=False)
+    bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
     strategy = iros23_strategy
     if strategy is not None:
+        vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=rVals, opt_sVals=bdd_rVals, debug=False)
+
+        if not vals_same:
+            sys.exit(-1)
         dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
     
 

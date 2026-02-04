@@ -290,7 +290,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         return preimage
     
 
-    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, BDD]:
+    def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for tr_action in self.ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
