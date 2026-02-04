@@ -1222,7 +1222,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     def compute_min_goal_states(self, preimage: Dict[int, BDD], goal: Dict[int, BDD]) -> Dict[int, BDD]:
         for goal_sval in sorted(goal.keys()):
             for sval in sorted(preimage.keys()):
-                # if there exists states in gola state, then we override the state value in preimage
+                # if there exists states in goal state, then we override the state value in preimage
                 sval_to_update = preimage[sval] & goal[goal_sval]
                 preimage[sval] &= ~sval_to_update
                 preimage[goal_sval] |= sval_to_update
@@ -1231,14 +1231,15 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
     def compute_min_preimage_pure_bdd(self, preimage: Dict[int, BDD]) -> Dict[int, BDD]:
         minmin_preimage = defaultdict(self.manager.bddZero) 
+        rVars_cube_bdd = self.rVars_cube.bddPattern()
         states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
-        states: BDD = states_action_pairs.existAbstract(self.rVars_cube.bddPattern())
+        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
         for sval in sorted(preimage.keys()):
             # intersect with finite valued states for Sys and Env player
-            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube.bddPattern()) & states
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & states
             minmin_preimage[sval] |= sval_to_keep
             states &= ~sval_to_keep
-        assert states.isZero() == True, "Error in computing min for system states"
+        assert states.isZero() == True, "Error in computing min for system and env states"
 
         return minmin_preimage
 
