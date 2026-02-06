@@ -716,7 +716,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # finally, we add frame axioms for all boxes that enforce state invariance constraint
         self.add_robot_frame_axioms()
-        if self.boxes > 1:
+        if self.boxes > 1 and self.only_reachable_states:
             self.add_robot_s_sprime_frame_axioms()
         
         self.create_human_move_transit()
@@ -726,9 +726,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
         self.add_human_frame_axiom()
 
-        # keep only the relvant states and actions
-        self.postprocess_monolithic_valid_state_robot_actions_prime_state()
-
         self.add_turn_var_update_rule()
         self.add_hmove_var_update_rule_from_robot_states()
         
@@ -736,6 +733,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
 
         if self.only_reachable_states:
+            self.postprocess_monolithic_valid_state_robot_actions_prime_state()
             self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_state_action_prime_state,
                                                              latches=self.latches, prime_latches=self.prime_latches,
                                                              act_vars=self.rVars, verbose=False, print_states=False)

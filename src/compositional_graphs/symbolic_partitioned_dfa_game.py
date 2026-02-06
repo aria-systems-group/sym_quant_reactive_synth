@@ -165,14 +165,13 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
 
-        # take the product of the DFA tr and the game tr
-        # self.monolithic_valid_full_dfa_game_trns = self.monolithic_valid_state_robot_actions_prime_state & self.monolithic_dfa_state_prime_state_trns
-        self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
         # print("Done creating product transition relation")
 
         if self.dfa_game_only_reachable_states:
             # set this falg to true as we the synthesis code use this varibales to preprocess the TR to only reasosn about reachable states
             self.only_reachable_states = True
+            # take the product of the DFA tr and the game tr
+            self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
             self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_valid_full_dfa_game_trns,
                                                              latches=self.latches + self.qVars,
                                                              prime_latches=self.prime_latches + self.prime_qVars,

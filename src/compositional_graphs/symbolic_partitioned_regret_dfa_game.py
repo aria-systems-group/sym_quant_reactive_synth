@@ -1720,6 +1720,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
          A method to compute the set of reachable states in the Graph of Best-response.
         """
+        # first construct the full TR for Game 
+        self.add_robot_s_sprime_frame_axioms()
+        self.postprocess_monolithic_valid_state_robot_actions_prime_state()
+        # create DFA Game transition relation
+        self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
         gobr_game_latches_cube = reduce(lambda a, b: a & b, self.gobr_game_latches)
         action_cube = reduce(lambda a, b: a & b, self.rVars)
         
