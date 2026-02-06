@@ -900,7 +900,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return pre_sys, pre_env
 
 
-    def hybrid_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> ADD:
+    def hybrid_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for tr_action in self.gou_ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
@@ -918,14 +918,16 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
-        preimage = self.manager.plusInfinity()
-        for sval, add_bucket in pre_buckets.items():
-            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
-        
-        return preimage
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
     
 
-    def hybrid_gobr_compute_preimage(self, win_state_bucket: Dict[int, BDD]) -> ADD:
+    def hybrid_gobr_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for tr_action in self.gobr_ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
@@ -943,11 +945,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
-        preimage = self.manager.plusInfinity()
-        for sval, add_bucket in pre_buckets.items():
-            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
-        
-        return preimage
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
     
     def create_gou_sys_env_transition_relations(self):
         """
@@ -1101,7 +1105,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     self.cVals = curr_winning_states
                     if optimized:
                         preimage = pre_sys.min(pre_env)
-                    return preimage if init_val < math.inf else None
+                    return preimage.min(goal) if init_val < math.inf else None
                 return None
 
             # update the counter
@@ -1150,7 +1154,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Cooperation Strategy Exists!!. The State value is {init_val}")
                     self.cVals = curr_winning_states
-                    return preimage if init_val < math.inf else None
+                    return preimage.min(goal) if init_val < math.inf else None
                 return None
 
             # update the counter
@@ -1158,6 +1162,72 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
             # swap the winning states
             curr_winning_states = next_winning_states
+    
+
+    def pure_bdd_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+        # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
+        self.graph_of_utility_tr = list(self.transition_relation.values())
+        self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+
+        # preprocess TR into buckets of BDDs separated based on actions
+        self.gou_convert_mono_tr_to_action_tr()
+        
+        goal: ADD = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        goal_states_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        curr_winning_states: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in range(0, self.budget + 1):
+            goal_sval = goal.bddInterval(sval, sval)
+            if not goal_sval.isZero():
+                goal_states_buckets[sval] |= goal_sval
+                curr_winning_states[sval] |= goal_sval
+       
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # compute preimage
+            vector_preimage: Dict[int, BDD] = self.hybrid_gou_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
+
+            # take min over Sys and Env player states
+            next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=vector_preimage)
+            # retain the min over goal states - goal/sink states in GoU do not have outgoing transition. We add them back as preimage will not capture them
+            # this was taken care by min operation in Pure and Hybrid Approach. Here, we have to do it manually
+            next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
+            for goal_sval in sorted(goal_states_buckets.keys()):
+                next_winning_states_opt[goal_sval] |=  goal_states_buckets[goal_sval]
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                # unions of all predecessors along with their state values - ADD used for easy printing only
+                preimage = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states_opt)
+                self.gou_convert_cube_to_state_ADD(preimage, action=False, verbose=True, print_val=True)
+            
+            if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
+                print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                init_val = math.inf
+                for sval, sbdd in curr_winning_states.items():
+                    if sbdd & (self.dfa_handle.init_latch & self.init_latch).bddPattern() != self.manager.bddZero():
+                        init_val: int = sval
+                        print(f"A Cooperative Opt. Strategy Exists!!. The State value is {init_val}")
+                        break
+                self.cVals = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+                # post process the strategy to return as monolithic ADD that corresponds to strategy
+                strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=vector_preimage)
+                if init_val < math.inf:
+                    return strategy.min(goal)
+                else:
+                    print(f"No Cooperative Opt. Strategy Exists!! The State value is {math.inf}")
+                    return None
+            
+            # update the counter
+            layer += 1
+
+            # swap the winning states; can't do  curr_winning_states = next_winning_states_opt as python is pass by value of reference
+            curr_winning_states = defaultdict(lambda: self.manager.bddZero())
+            for sval in next_winning_states_opt.keys():
+                curr_winning_states[sval] |= next_winning_states_opt[sval]
     
 
     def get_next_state_br(self, turn: str, curr_state_exp: List[str], curr_action_sym: ADD, **kwargs) -> ADD:
@@ -1365,6 +1435,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         strategy = self.gou_solve(verbose=False, optimized=False)
         # hybrid_strategy = self.hybrid_gou_solve(verbose=False)
         # self.TVI_gou_solve(verbose=False, optimized=False)
+        # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
         # if strategy is not None:
