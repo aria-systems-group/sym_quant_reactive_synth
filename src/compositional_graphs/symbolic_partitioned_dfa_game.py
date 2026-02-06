@@ -480,7 +480,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         return pre_sys, pre_env
 
 
-    def iros23_compute_preimage(self, win_state_bucket) -> ADD:
+    def iros23_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for tr_action in self.ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
@@ -498,11 +498,13 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                     pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
-        preimage = self.manager.plusInfinity()
-        for sval, add_bucket in pre_buckets.items():
-            preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
-        
-        return preimage
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
     
 
     def preimage_test(self, From: ADD, latches: List[ADD], prime_latches: List[ADD], ts_action: List[ADD]) -> ADD:

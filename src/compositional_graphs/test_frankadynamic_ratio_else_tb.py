@@ -139,6 +139,19 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 #     continue
                 self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
     
+    def get_states_per_cost(self):
+        """
+         A helper function that takes in the ADD weight abd return a vector of 0-1 BDD per cost.
+        """
+        min_val: int = 0
+        max_val: int = 1
+        relevant_box_preds_bdd: BDD = self.monolithic_relevant_box_preds.bddPattern()
+        
+        for val in range(min_val, max_val + 1, 1):
+            self.states_per_cost[val] |= self.weight.bddInterval(val, val) & relevant_box_preds_bdd & ~self.goal_latch.bddPattern()
+        
+        self.states_per_cost[0] |= self.goal_latch.bddPattern()
+    
     def create_transit_actions(self):
         """
          The update rule for transit action is changed here. When the robot transits from ready to in-transit,
