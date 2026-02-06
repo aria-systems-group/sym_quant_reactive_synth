@@ -2021,7 +2021,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     self.comp_winning_states = curr_winning_states
                     # return preimage if init_val < math.inf else None
                     if init_val < math.inf:
-                        return preimage, curr_winning_states
+                        return preimage.min(goal), curr_winning_states
                     else:
                         return None, None
                 else:
@@ -2104,9 +2104,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
                     preimage = pre_sys.min(pre_env)
-                    # return preimage if init_val < math.inf else None
                     if init_val < math.inf:
-                        return preimage, curr_winning_states
+                        return preimage.min(goal), curr_winning_states
                     else:
                         return None, None
                 else:
@@ -2315,9 +2314,10 @@ class FrankaWorldDynamicRatioTurnBased():
                         init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                     self.comp_winning_states = curr_winning_states
+                    strategy = preimage.min(goal)
                     # return preimage if init_val < math.inf else None
                     if init_val < math.inf:
-                        return preimage, curr_winning_states
+                        return strategy, curr_winning_states
                     else:
                         return None, None
                 else:
