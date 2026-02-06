@@ -1262,6 +1262,7 @@ class FrankaWorldDynamicRatioTurnBased():
         print("Added Grasp constraint to robot frame axioms.")
 
         # finally we add the release constraint
+        # TODO: Check if constraint is correct or not
         for grasp_loc in range(1, self.locs + 1):
             rConf_cube = self.xVar_map_sym[f'holding l{grasp_loc}']
             for non_grasp_loc in range(1, self.locs + 1):
@@ -1269,7 +1270,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     continue
                 for b in range(self.boxes):
                     parent_constraint |= (self.tVar_map_sym['robot'] & self.kVal_cube & rConf_cube & self.action_map_sym['release'] & \
-                            self.xVar_map_sym[f'b{b} l{non_grasp_loc}']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())
+                            self.xVar_map_sym[f'b{b} l0']).ite(self.prime_xVar_map_sym[f'b{b} l{non_grasp_loc}'], self.manager.addZero())
         
         self.monolithic_valid_state_robot_actions_prime_state &= parent_constraint
         print("Added Release constraint to robot frame axioms.")
@@ -1987,7 +1988,14 @@ class FrankaWorldDynamicRatioTurnBased():
 
         while True:
             print(f"**************************Layer: {layer}**************************")
+            # lets add nodes in the graph before and after and read the peak node count
+            print("Node Count Before:", curr_winning_states.size())
+            print("Stats: ", self.manager.printInfo())
+            print("ADD Summary Before:", curr_winning_states.summary())
             preimage: ADD = self.compute_preimage(curr_winning_states)
+            print("Node Count After:", preimage.size())
+            print("Stats: ", self.manager.printInfo())
+            print("ADD Summary After:", preimage.summary())
 
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight

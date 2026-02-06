@@ -171,6 +171,10 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             # set this falg to true as we the synthesis code use this varibales to preprocess the TR to only reasosn about reachable states
             self.only_reachable_states = True
             # take the product of the DFA tr and the game tr
+            # first construct the full TR for Game
+            if self.boxes > 1: 
+                self.add_robot_s_sprime_frame_axioms()
+            self.postprocess_monolithic_valid_state_robot_actions_prime_state()
             self.monolithic_valid_full_dfa_game_trns = self.monolithic_state_action_prime_state & self.monolithic_dfa_state_prime_state_trns
             self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_valid_full_dfa_game_trns,
                                                              latches=self.latches + self.qVars,
