@@ -1694,7 +1694,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
                     if init_val < math.inf:
-                        return preimage, self.rVals
+                        return preimage.min(goal), self.rVals
                     else:
                         return None, None
                 else:
@@ -1754,7 +1754,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
                     if init_val < math.inf:
-                        return preimage, self.rVals
+                        return preimage.min(goal), self.rVals
                     else:
                         return None, None
                 else:
@@ -1766,6 +1766,72 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
             # swap the winning states
             curr_winning_states = next_winning_states
+
+    
+    def pure_bdd_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+
+        # preprocess TR into buckets of BDDs separated based on actions
+        self.gobr_convert_mono_tr_to_action_tr()
+
+        goal, sorted_reg_vals = self.create_goal_nodes_with_regret_values()
+        sorted_reg_vals.remove(math.inf)
+
+        goal_states_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        curr_winning_states: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in sorted_reg_vals:
+            goal_sval = goal.bddInterval(sval, sval)
+            if not goal_sval.isZero():
+                goal_states_buckets[sval] |= goal_sval
+                curr_winning_states[sval] |= goal_sval
+
+        # initialize the iteration counter
+        layer = 0
+        regret_init_latch: ADD = self.init_latch & self.brVar_map_sym[math.inf]
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # compute preimage
+            vector_preimage: Dict[int, BDD] = self.hybrid_gobr_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)            
+            next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(vector_preimage, debug=False)
+            # as in GoU Solver - goal/sink states in GoBR do not have outgoing transition. We add them back as preimage will not capture them
+            # this was taken care by min operation in Pure and Hybrid Approach. Here, we have to do it manually
+            for goal_sval in sorted(goal_states_buckets.keys()):
+                next_winning_states_opt[goal_sval] |=  goal_states_buckets[goal_sval]
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                # unions of all predecessors along with their state values - ADD used for easy printing only
+                preimage = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states_opt)
+                self.gobr_convert_cube_to_state_ADD(preimage, action=False, verbose=True, print_val=True)
+            
+            if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
+                print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                init_val = math.inf
+                for sval, sbdd in curr_winning_states.items():
+                    if sbdd & (self.dfa_handle.init_latch & regret_init_latch).bddPattern() != self.manager.bddZero():
+                        init_val: int = sval
+                        print(f"A Regret-Minimizing Strategy Exists!!. The State value is {init_val}")
+                        break
+                self.rVals = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+                # post process the strategy to return as monolithic ADD that corresponds to strategy
+                strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=vector_preimage)
+                if init_val < math.inf:
+                    return strategy.min(goal), self.rVals
+                else:
+                    print(f"No Regret Minimizing Strategy Exists!! The State value is {math.inf}")
+                    return None, None
+            
+            # update the counter
+            layer += 1
+
+            # swap the winning states; can't do curr_winning_states = next_winning_states_opt as python is pass by value of reference
+            curr_winning_states = defaultdict(lambda: self.manager.bddZero())
+            for sval in next_winning_states_opt.keys():
+                curr_winning_states[sval] |= next_winning_states_opt[sval]
 
     
     def preprocess_gobr_tr(self):

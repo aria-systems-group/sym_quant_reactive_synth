@@ -529,7 +529,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                     self.cVals = curr_winning_states
                     if optimized:
                         preimage = pre_sys.min(pre_env)
-                    return preimage if init_val < math.inf else None
+                    return preimage.min(goal) if init_val < math.inf else None
                 return None
 
             # update the counter
@@ -588,7 +588,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                     print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
                     if init_val < math.inf:
-                        return preimage, self.rVals
+                        return preimage.min(goal), self.rVals
                     else:
                         return None, None
                 else:
@@ -648,7 +648,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                     print(f"A Winning Strategy Exists!! The State value is {init_val}")
                     self.rVals = curr_winning_states
                     if init_val < math.inf:
-                        return preimage, self.rVals
+                        return preimage.min(goal), self.rVals
                     else:
                         return None, None
                 else:
@@ -689,7 +689,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             print(f"**************************Layer: {layer}**************************")
             # compute preimage
             vector_preimage: Dict[int, BDD] = self.iros23_gobr_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)            
-            next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(vector_preimage, debug=True)
+            next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(vector_preimage, debug=False)
             # as GoU Solver - goal/sink states in GoBR do not have outgoing transition. We add them back as preimage will not capture them
             # this was taken care by min operation in Pure and Hybrid Approach. Here, we have to do it manually
             for goal_sval in sorted(goal_states_buckets.keys()):
@@ -700,7 +700,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                 print("Current Winning States:")
                 # unions of all predecessors along with their state values - ADD used for easy printing only
                 preimage = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states_opt)
-                self.gou_convert_cube_to_state_ADD(preimage, action=False, verbose=True, print_val=True)
+                self.gobr_convert_cube_to_state_ADD(preimage, action=False, verbose=True, print_val=True)
             
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
@@ -714,7 +714,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                 # post process the strategy to return as monolithic ADD that corresponds to strategy
                 strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=vector_preimage)
                 if init_val < math.inf:
-                    return strategy, self.rVals
+                    return strategy.min(goal), self.rVals
                 else:
                     print(f"No Regret Minimizing Strategy Exists!! The State value is {math.inf}")
                     return None, None
@@ -867,7 +867,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                         init_val: int = list((self.dfa_handle.init_latch & self.init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Cooperation Strategy Exists!!. The State value is {init_val}")
                     self.cVals = curr_winning_states
-                    return preimage if init_val < math.inf else None
+                    return preimage.min(goal) if init_val < math.inf else None
                 return None
 
             # update the counter
@@ -929,7 +929,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                 # post process the strategy to return as monolithic ADD that corresponds to strategy
                 strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=vector_preimage)
                 if init_val < math.inf:
-                    return strategy
+                    return strategy.min(goal)
                 else:
                     print(f"No Cooperative Opt. Strategy Exists!! The State value is {math.inf}")
                     return None
