@@ -408,11 +408,11 @@ class FrankaWorldDynamicRatioTurnBased():
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs:0{len(self.rVars)}b}"
         self.action_map['grasp'] = rbit_str
-        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym['grasp'] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs + 1:0{len(self.rVars)}b}"
         self.action_map['release'] = rbit_str
-        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym['release'] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
 
         # human actions
@@ -1989,14 +1989,7 @@ class FrankaWorldDynamicRatioTurnBased():
         while True:
             print(f"**************************Layer: {layer}**************************")
             # lets add nodes in the graph before and after and read the peak node count
-            print("Node Count Before:", curr_winning_states.size())
-            print("Stats: ", self.manager.printInfo())
-            print("ADD Summary Before:", curr_winning_states.summary())
             preimage: ADD = self.compute_preimage(curr_winning_states)
-            print("Node Count After:", preimage.size())
-            print("Stats: ", self.manager.printInfo())
-            print("ADD Summary After:", preimage.summary())
-
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
             # print("*****************************Current Preimage:*****************************")
@@ -2376,7 +2369,7 @@ class FrankaWorldDynamicRatioTurnBased():
             if cooperative_game:
                 next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=next_winning_states)
             else:
-                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=True)
+                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=False)
             # retain the min over goal states - here all goal states are at 0 cost
             next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
 

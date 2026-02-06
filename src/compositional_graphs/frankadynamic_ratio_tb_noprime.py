@@ -361,11 +361,11 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                     self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs:0{len(self.rVars)}b}"
         self.action_map['grasp'] = rbit_str
-        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym['grasp'] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
         rbit_str = f"{self.boxes + self.locs + 1:0{len(self.rVars)}b}"
         self.action_map['release'] = rbit_str
-        self.relevant_robot_actions_sym[act_str] |= self.cube_to_add(rbit_str, self.rVars)
+        self.relevant_robot_actions_sym['release'] |= self.cube_to_add(rbit_str, self.rVars)
         self.relevant_robot_actions |= self.cube_to_add(rbit_str, self.rVars)
 
         # human actions
