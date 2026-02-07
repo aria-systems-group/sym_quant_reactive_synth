@@ -60,6 +60,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # create latches - tVars + kVars + pVars + bVars
         self.create_all_boolean_state_vars_and_maps()
         self.set_latches()
+        self.rVars: List[ADD] = self.create_action_vars()
         
         # create prime latches - prime tVars + prime kVars + prime pVars + prime bVars
         self.create_all_prime_boolean_state_vars_and_maps()
@@ -82,7 +83,7 @@ class FrankaWorldDynamicRatioTurnBased():
         self.ts_bdd_transition_fun_list: List[List[BDD]] = []
 
         # create robot and human action vars and maps
-        self.rVars: List[ADD] = self.create_action_vars()
+        # self.rVars: List[ADD] = self.create_action_vars()
         self.human_action: List[str] = ['hmove']
         self.action_map = bidict({})
         self.relevant_robot_actions = None
@@ -1421,6 +1422,30 @@ class FrankaWorldDynamicRatioTurnBased():
 
         return bdd_ltu & ~bdd_sgtl
     
+
+    def get_all_state_var_start_end_index(self, reverse: bool = False) -> Dict[str, Tuple[int, int]]:
+        var_idx_dict = defaultdict(lambda: None) 
+        start_kvar_idx, end_kvar_idx = self.manager.addVariables().index(self.kVars[0]), self.manager.addVariables().index(self.kVars[-1])
+        start_pvar_idx, end_pvar_idx = self.manager.addVariables().index(self.pVars[0]), self.manager.addVariables().index(self.pVars[-1])
+        var_idx_dict['tVar'] = (0, 0)
+        var_idx_dict['kVar'] = (start_kvar_idx, end_kvar_idx)
+        var_idx_dict['pVar'] = (start_pvar_idx, end_pvar_idx)
+        i = 0 
+        for bidx in range(self.boxes):
+            var_idx_dict[f'bVar{i}'] = (self.manager.addVariables().index(self.bVars[bidx][0]), self.manager.addVariables().index(self.bVars[bidx][-1]))
+            i += 1
+        
+        if reverse:
+            new_var_idx_dict = defaultdict(lambda: None)
+            for bidx in range(self.boxes - 1, -1, -1):
+                new_var_idx_dict[f'bVar{bidx}'] = var_idx_dict[f'bVar{bidx}']
+            new_var_idx_dict['pVar'] = var_idx_dict['pVar']
+            new_var_idx_dict['kVar'] = var_idx_dict['kVar']
+            new_var_idx_dict['tVar'] = var_idx_dict['tVar']
+            return new_var_idx_dict
+        
+        return var_idx_dict
+    
     
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:
         """
@@ -1940,9 +1965,35 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
+        print("*********************************")
+        print("Size Before: ", curr_winning_states.size())
         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
         preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        print("Size After: ", preimage.size())
 
+        return preimage
+    
+
+    def batch_compute_preimage(self, curr_winning_states: ADD, var_dict: dict) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+        # Test - let compose one by one - works
+        # preimage = curr_winning_states_primed
+        # for idx, dd in  enumerate(list(self.transition_relation.values())):
+        #     preimage = preimage.vectorCompose([self.prime_latches[idx]], [dd])
+        
+        # Test - let compose in batches - works
+        # preimage = curr_winning_states_primed
+        # for start_idx, end_idx in var_dict.values():
+        #     preimage = preimage.vectorCompose(self.prime_latches[start_idx:end_idx + 1], list(self.transition_relation.values())[start_idx:end_idx + 1])
+        
+        preimage = curr_winning_states_primed
+        print("*********************************")
+        print("Size Before: ", preimage.size())
+        for start_idx, end_idx in var_dict.values():
+            preimage = preimage.vectorCompose(self.prime_latches[start_idx:end_idx + 1], list(self.transition_relation.values())[start_idx:end_idx + 1])
+            print("Size Inter: ", preimage.size())
+        
         return preimage
     
 
@@ -1974,6 +2025,8 @@ class FrankaWorldDynamicRatioTurnBased():
         curr_winning_states = self.manager.plusInfinity().min(goal)
         if self.only_reachable_states:
             self.post_process_transition_relation_reachable()
+        
+        var_dict = self.get_all_state_var_start_end_index(reverse=True)
 
         # print the initial winning states
         if verbose:
@@ -1989,7 +2042,15 @@ class FrankaWorldDynamicRatioTurnBased():
         while True:
             print(f"**************************Layer: {layer}**************************")
             # lets add nodes in the graph before and after and read the peak node count
+            tic = time.time()
             preimage: ADD = self.compute_preimage(curr_winning_states)
+            toc = time.time()
+            # print(f"Time taken for preimage computation: {toc - tic} seconds")
+            # preimage_test: ADD = self.batch_compute_preimage(curr_winning_states, var_dict)
+            # toc2 = time.time()
+            # print(f"Time taken for batch preimage computation: {toc2 - toc} seconds")
+            # if not preimage_test.compare(preimage, 2):
+            #     print("Preimage computation test did NOT pass!!")
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
             # print("*****************************Current Preimage:*****************************")

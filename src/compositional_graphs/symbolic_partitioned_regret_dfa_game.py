@@ -1076,6 +1076,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while True:
             print(f"**************************Layer: {layer}**************************")
+            print("Before: ", curr_winning_states.size())
             if optimized:
                 pre_sys, pre_env = self.compute_preimage_optimized(curr_winning_states)
                 next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
@@ -1083,6 +1084,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
             else:
                 preimage: ADD = self.compute_preimage(curr_winning_states)
+                print("After: ", preimage.size())
                 next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             
             next_winning_states = next_winning_states.min(goal)
@@ -1438,6 +1440,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
+        # if strategy == bdd_strategy:
+        #     print("Both strategies are equal!!")
         # if strategy is not None:
         #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
         # return
@@ -1671,7 +1675,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     preimage_reg_val = self.compute_regret_preimage(curr_winning_states_reg_val)
                     preimage = preimage_reg_val.ite(self.manager.addConst(reg_val), preimage)
             else:
+                print("Before: ", curr_winning_states.size())
                 preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+                print("After: ", preimage.size())
             
             next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
             next_winning_states = next_winning_states.min(goal)
