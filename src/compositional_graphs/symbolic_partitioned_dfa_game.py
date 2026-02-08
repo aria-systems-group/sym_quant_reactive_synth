@@ -122,6 +122,23 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.prime_qVars_bdd = [var.bddPattern() for var in self.prime_qVars]
     
 
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.qVars) + len(self.prime_latches) + len(self.prime_qVars) + len(self.rVars),
+            'latches': len(self.latches) + len(self.qVars),
+            'prime_latches': len(self.prime_latches) + len(self.prime_qVars),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVar),
+            'ratio_vars': len(self.kVars),
+            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
+            'dfa_latches': len(self.qVars),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states
+            }
+        return abs_dict
+
     def create_dfa_latches_and_maps(self):
         """
          Create DFA latches and their symbolic maps based on the provided LTL/LTLf formula.

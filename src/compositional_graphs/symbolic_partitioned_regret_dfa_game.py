@@ -140,6 +140,29 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.gobr_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_brVars + self.prime_qVars
     
 
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        abs_dict = {
+            'total_latches': len(self.gobr_game_latches) + len(self.gobr_game_prime_latches) + len(self.rVars),
+            'latches': len(self.gobr_game_latches),
+            'prime_latches':  len(self.gobr_game_prime_latches),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVar),
+            'ratio_vars': len(self.kVars),
+            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
+            'utility_vars': len(self.uVars),
+            'ba_vars': len(self.brVars),
+            'dfa_latches': len(self.qVars),
+            'total_states': sys_states + env_states,
+            'game_sys_states': sys_states,
+            'game_env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'GoU_states': self.dfa_handle.num_of_states * (env_states + sys_states) * (self.budget + 1),
+            'GoBR_states': (len(self.brVals) + 1) * (self.budget + 1) * self.dfa_handle.num_of_states * (env_states + sys_states)
+            }
+        return abs_dict
+    
+
     def set_init_latch(self) -> ADD:
         """
         Ovveride the base method. In Graph of Utility, the initial state also includes the utility variable set to 0.
@@ -1438,28 +1461,34 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
+        self.logger.comp_time['GoU_Synth_Time'] = toc - tic
         # if strategy is not None:
         #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
         # return
 
         # compute best-alternate response
+        tic = time.time()
         self.compute_best_alternate_response(verbose=False)
+        toc = time.time()
+        print(f"Time to compute Best-Alternate Response: {toc - tic} seconds")
+        self.logger.comp_time['BA_Comp_Time'] = toc - tic
         # sys.exit(-1)
 
         # create boolean vars and their prime versions for Best-alternate response values computed
         self.create_all_br_vars_maps()
         
         # create br Transition Relation
-        # print("[DBEUG]: Variable Order BEFORE creating monolithic full_gobr_trns ADD:", self.manager.bddOrder(), sep='\n')
-        # print("[DBEUG]: Max Memory BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DBEUG]: Max Live Nodes BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
+        # print("[DEBUG]: Variable Order BEFORE creating monolithic full_gobr_trns ADD:", self.manager.bddOrder(), sep='\n')
+        # print("[DEBUG]: Max Memory BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DEBUG]: Max Live Nodes BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
         tic = time.time()
         self.create_best_alternate_response_transition_relation()
         toc = time.time()
         print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
-        # print("[DBEUG]: Variable Order AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DBEUG]: Max Memory AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DBEUG]: Max Live Nodes AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
+        self.logger.comp_time['GoBR_TR_Creation_Time'] = toc - tic
+        # print("[DEBUG]: Variable Order AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DEBUG]: Max Memory AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
+        # print("[DEBUG]: Max Live Nodes AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
 
         # compute reachbale states
         # if self.regret_game_only_reachable_states:

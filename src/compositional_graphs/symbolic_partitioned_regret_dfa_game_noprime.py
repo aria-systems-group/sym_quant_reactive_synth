@@ -343,10 +343,10 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         self.create_utility_transition_relation()
 
         tic = time.time()
-        # strategy = self.gou_solve(verbose=False, optimized=False)
+        strategy = self.gou_solve(verbose=False, optimized=False)
         # strategy = self.iros23_gou_solve(verbose=True)
         # self.TVI_gou_solve(verbose=False, optimized=False)
-        strategy = self.pure_bdd_gou_solve(verbose=False)
+        # strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
 

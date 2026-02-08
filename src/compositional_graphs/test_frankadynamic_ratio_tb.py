@@ -20,7 +20,7 @@ from bidict import bidict
 from tabulate import tabulate
 
 from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
-
+from src.compositional_graphs.logger import CustomLogger
 
 
 class FrankaWorldDynamicRatioTurnBased():
@@ -111,6 +111,10 @@ class FrankaWorldDynamicRatioTurnBased():
         self.sys_action_cube_list_bdd: List[BDD] = [act_dd.bddPattern() for act_dd in self.sys_action_cube_list]
         self.miscellanoues_helper_stuff()
 
+        # create logger instance
+        self.logger = CustomLogger()
+        
+
         if enable_reordering:
             self.manager.autodynEnable()
     
@@ -163,6 +167,23 @@ class FrankaWorldDynamicRatioTurnBased():
         self.prime_kVars: List[ADD] = self.create_prime_ratio_vars()
         self.prime_pVars, self.prime_bVars = self.create_prime_latches()
         self.create_all_sym_maps(prime=True)
+    
+
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.prime_latches) + len(self.rVars),
+            'latches': len(self.latches),
+            'prime_latches': len(self.prime_latches),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVar),
+            'ratio_vars': len(self.kVars),
+            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states
+            }
+        return abs_dict
     
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD], List[ADD]]:
@@ -1942,6 +1963,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # prime the vars
         curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
         preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        self.iteration_bookkeeping.append([curr_winning_states_primed.size(), preimage.size()])
 
         return preimage
     
@@ -1985,6 +2007,8 @@ class FrankaWorldDynamicRatioTurnBased():
         # intialize the iteration counter
         layer = 0
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -2009,6 +2033,8 @@ class FrankaWorldDynamicRatioTurnBased():
                 self.convert_cube_to_state_ADD(next_winning_states, action=False, verbose=verbose)
             
             if curr_winning_states.compare(next_winning_states, 2):
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 print("**************************Reached fixpoint**************************")
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
@@ -2146,6 +2172,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        bookkeeping_size = []
         for tr_action in self.ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
@@ -2155,7 +2182,9 @@ class FrankaWorldDynamicRatioTurnBased():
                 if not pre_states.isZero():
                     assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                     pre_buckets[sval] |= pre_states
-
+                    bookkeeping_size.append([succ_states_prime.size(), pre_states.size()])
+                                            
+        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()
@@ -2283,6 +2312,9 @@ class FrankaWorldDynamicRatioTurnBased():
         
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
 
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
+
         while True:
             print(f"**************************Layer: {layer}**************************")
             win_state_bucket = self.convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, layer=layer, c_max=c_max)
@@ -2305,6 +2337,8 @@ class FrankaWorldDynamicRatioTurnBased():
             
             if next_winning_states.compare(curr_winning_states, 2):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
@@ -2351,6 +2385,9 @@ class FrankaWorldDynamicRatioTurnBased():
         # intialize the iteration counter
         layer = 0
 
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
+
         while True:
             print(f"**************************Layer: {layer}**************************")
             # compute preimage
@@ -2383,6 +2420,8 @@ class FrankaWorldDynamicRatioTurnBased():
             
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 init_val = math.inf
                 for sval, sbdd in curr_winning_states.items():
                     if sbdd & self.init_latch.bddPattern() != self.manager.bddZero():
