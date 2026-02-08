@@ -56,14 +56,14 @@ def Regret_DFA_Game_Main():
     # budget = 4
 
     boxes = 3
-    locs = 8
+    locs = 10
     ratio = 1
     budget = 25
 
     cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
-    only_reachable_states = True
+    only_reachable_states = False
 
     # init = ['ready l6', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5']
     init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6']
@@ -86,15 +86,15 @@ def Regret_DFA_Game_Main():
     # init = ['ready l3', 'b0 l2', 'b1 l3']
 
     # Even more simple set-up
-    # boxes = 1
-    # locs = 2
-    # ratio = 0
-    # budget = 6
-    # init = ['ready l2', 'b0 l2']
+    boxes = 1
+    locs = 2
+    ratio = 0
+    budget = 6
+    init = ['ready l2', 'b0 l2']
 
-    # human_locs = range(2, locs + 1)
-    # human_boxes = range(boxes)
-    # human_boxes = [0]
+    human_locs = range(1, locs + 1)
+    human_boxes = range(boxes)
+    human_boxes = [0]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
@@ -173,14 +173,15 @@ def Regret_DFA_Game_Main():
     tic = time.time()
     strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False, only_reachable_state=False)
     # hybrid_strategy, hybrid_rVals = dfa_game.hybrid_regret_solver(verbose=False)
+    # bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
 
-    # if hybrid_strategy.compare(strategy, 2):
+    # if bdd_strategy.compare(strategy, 2):
     #     print("The strategies from both methods are the same!")
-    # if hybrid_rVals.compare(rVals, 2):
+    # if bdd_rVals.compare(rVals, 2):
     #     print("The optimal state values from both methods are the same!")
-    # strategy = hybrid_strategy
+    # strategy = bdd_strategy
     
     # tic = time.time()
     # # to avoid caching related issues
@@ -250,18 +251,18 @@ def Regret_DFA_Game_Main_no_prime():
     # Even more simple set-up
     boxes = 1
     locs = 2
-    ratio = 0
-    budget = 6
-    init = ['ready l2', 'b0 l2']
+    ratio = 1
+    budget = 10
+    init = ['ready l1', 'b0 l2']
 
     human_locs = range(2, locs + 1)
-    human_boxes = range(boxes)
+    # human_boxes = range(boxes)
     human_boxes = [0]
 
-    # formula = 'F(p01 & F(p02 & F(p01)))'
+    formula = 'F(p01 & F(p02 & F(p01)))'
     # formula = 'F(p01 & p12)'
     # formula = 'F(p01 & F(p02))'
-    formula = 'F(p01)'
+    # formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedRegretDFAGameNoPrime(boxes=boxes, locs=locs,
                                                        ratio=ratio, init=init,
@@ -330,32 +331,32 @@ def Regret_DFA_Game_Main_no_prime():
     tic = time.time()
     strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False)
     # iros23_strategy, iros23_rVals = dfa_game.iros23_regret_solver(verbose=False)
-    bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
+    # bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
-    strategy = iros23_strategy
+    # strategy = bdd_strategy
     if strategy is not None:
-        vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=rVals, opt_sVals=bdd_rVals, debug=False)
+        # vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=rVals, opt_sVals=bdd_rVals, debug=False)
 
-        if not vals_same:
-            sys.exit(-1)
+        # if not vals_same:
+        #     sys.exit(-1)
         dfa_game.gobr_roll_out_strategy(strategy=strategy, verbose=True)
     
 
 
 def DFA_Game_Main():
     # setting things up
-    boxes = 2
-    locs = 3
-    ratio = 3
+    boxes = 5
+    locs = 10
+    ratio = 1
 
     cooperative_game = False
     enable_reordering = False
-    only_reachable_states = False
-    ltlf_flag = False
+    only_reachable_states = True
+    ltlf_flag = True
 
     # init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4', 'b3 l5', 'b4 l6', 'b5 l7']
-    init = ['ready l4', 'b0 l2', 'b1 l3']#, 'b2 l9']
+    init = ['ready l3', 'b0 l2', 'b1 l3', 'b2 l9', 'b3 l10', 'b4 l6']#, 'b5 l7']
     # goal = [['b0 l1']]
     goal = []
 
@@ -365,8 +366,8 @@ def DFA_Game_Main():
     # human_locs = [3]
 
     # formula = 'F(p01 & F(p02 & F(p01)))'
-    formula = 'F(p01 & F(p02))'
-    # formula = 'F(p01)'
+    # formula = 'F(p01 & F(p02))'
+    formula = 'F(p01)'
 
     # Simple set-up
     # boxes = 2
@@ -375,16 +376,16 @@ def DFA_Game_Main():
     # init = ['ready l3', 'b0 l2', 'b1 l3']
 
     # Even more simple set-up
-    boxes = 1
-    locs = 2
-    ratio = 1
-    init = ['ready l3', 'b0 l2']
+    # boxes = 1
+    # locs = 2
+    # ratio = 1
+    # init = ['ready l3', 'b0 l2']
     # goal = [['b0 l1']]
 
-    human_locs = range(1, locs + 1)
-    human_boxes = range(boxes)
-    # human_boxes = [1]
-    formula = 'F(p01)'
+    # human_locs = range(2, locs + 1)
+    # human_boxes = range(boxes)
+    # # human_boxes = [1]
+    # formula = 'F(p01)'
 
     dfa_game = SymbolicPartitionedDFAGame(boxes=boxes, locs=locs,
                                           ratio=ratio, init=init,
@@ -438,25 +439,26 @@ def DFA_Game_Main():
     # return
 
     tic = time.time()
-    # strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
-    # strategy = dfa_game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
-    strategy, opt_sVals = dfa_game.hybrid_solve(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = dfa_game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = dfa_game.hybrid_solve(verbose=True, cooperative_game=cooperative_game)
+    # strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
-    dfa_game.only_reachable_states = True
-    dfa_game.care_states = dfa_game.compute_reachable_states(monolithic_trans_dd=dfa_game.monolithic_valid_full_dfa_game_trns,
-                                                             latches=dfa_game.latches + dfa_game.qVars,
-                                                             prime_latches=dfa_game.prime_latches + dfa_game.prime_qVars,
-                                                             act_vars=dfa_game.rVars, verbose=False, print_states=False)
-    strategy, reach_opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
+    # dfa_game.only_reachable_states = True
+    # dfa_game.care_states = dfa_game.compute_reachable_states(monolithic_trans_dd=dfa_game.monolithic_valid_full_dfa_game_trns,
+    #                                                          latches=dfa_game.latches + dfa_game.qVars,
+    #                                                          prime_latches=dfa_game.prime_latches + dfa_game.prime_qVars,
+    #                                                          act_vars=dfa_game.rVars, verbose=False, print_states=False)
+    # strategy, reach_opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
     
-    # check that the reachable states are the same as the original states - sanity checking
-    if strategy is not None:
-        vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=reach_opt_sVals, opt_sVals=opt_sVals, debug=False)
+    # # check that the reachable states are the same as the original states - sanity checking
+    # if strategy is not None:
+    #     vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=bdd_opt_sVals, opt_sVals=opt_sVals, debug=False)
 
-        if not vals_same:
-            sys.exit(-1)
+    #     if not vals_same:
+    #         sys.exit(-1)
 
     if strategy is not None:
         dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
@@ -467,17 +469,18 @@ def DFA_Game_Main_no_prime():
 
     # Even more simple set-up
     boxes = 1
-    locs = 20
+    locs = 10
     ratio = 1
-    init = ['ready l2', 'b0 l2']
+    init = ['ready l2', 'b0 l2']# 'b1 l3', 'b2 l6']
     goal = []
 
-    human_locs = range(1, locs + 1)
+    human_locs = range(5, locs + 1)
     # human_boxes = range(boxes)
     human_boxes = [0]
-    formula = 'F(p01 & F(p02))'
+    # formula = 'F(p01 & F(p02))'
+    formula = 'F(p01)'
 
-    cooperative_game = True
+    cooperative_game = False
     enable_reordering = False
     ltlf_flag = True
 
@@ -532,15 +535,15 @@ def DFA_Game_Main_no_prime():
     tic = time.time()
     # strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
     # iros23_strategy, iros23_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
-    bdd_strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
-    # if iros23_strategy.compare(strategy, 2):
+    # if bdd_strategy.compare(strategy, 2):
     #     print("The strategies from both methods are the same!")
-    # if iros23_opt_sVals.compare(opt_sVals, 2):
+    # if bdd_opt_sVals.compare(opt_sVals, 2):
     #     print("The optimal state values from both methods are the same!")
-    # strategy = iros23_strategy
+    # strategy = bdd_strategy
     if strategy is not None:
         dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
 
@@ -553,7 +556,7 @@ def Game_Main():
     ratio = 1
 
     cooperative_game = False
-    enable_reordering = True
+    enable_reordering = False
     only_reachable_states = False
 
     init = [f'ready l{locs + 1}', 'b0 l2', 'b1 l3', 'b2 l6', 'b3 l7']#, 'b4 l4', 'b5 l8']
@@ -569,10 +572,10 @@ def Game_Main():
     human_boxes = [2, 3]#, 5]
 
     # Simple set-up
-    boxes = 2
-    locs = 3
+    boxes = 3
+    locs = 10
     ratio = 1
-    init = ['ready l3', 'b0 l2', 'b1 l3']
+    init = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l4']
     goal = [['b0 l1']]
 
     # Even more simple set-up
@@ -582,24 +585,24 @@ def Game_Main():
     # init = ['ready l2', 'b0 l2']
     # goal = [['b0 l1']]
 
-    human_locs = range(2, locs + 1)
-    # human_boxes = range(boxes)
+    human_locs = range(1, locs + 1)
+    human_boxes = range(boxes)
     human_boxes = [0]
 
     
-    # game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
-    #                                             ratio=ratio, init=init,
-    #                                             goal=goal, enable_reordering=enable_reordering,
-    #                                             restricted_human_locs=human_locs,
-    #                                             restricted_human_boxes=human_boxes,
-    #                                             only_reachable_states=only_reachable_states)
+    game = FrankaWorldDynamicRatioTurnBasedElse(boxes=boxes, locs=locs,
+                                                ratio=ratio, init=init,
+                                                goal=goal, enable_reordering=enable_reordering,
+                                                restricted_human_locs=human_locs,
+                                                restricted_human_boxes=human_boxes,
+                                                only_reachable_states=only_reachable_states)
     
-    game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
-                                            ratio=ratio, init=init,
-                                            goal=goal, enable_reordering=enable_reordering,
-                                            restricted_human_locs=human_locs, 
-                                            restricted_human_boxes=human_boxes,
-                                            only_reachable_states=only_reachable_states)
+    # game = FrankaWorldDynamicRatioTurnBased(boxes=boxes, locs=locs,
+    #                                         ratio=ratio, init=init,
+    #                                         goal=goal, enable_reordering=enable_reordering,
+    #                                         restricted_human_locs=human_locs, 
+    #                                         restricted_human_boxes=human_boxes,
+    #                                         only_reachable_states=only_reachable_states)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -620,7 +623,7 @@ def Game_Main():
     game.get_number_of_states(verbose=True)
 
     # print Game Info
-    print("******************Printing DFA Game Info*****************")
+    print("******************Printing Game Info*****************")
     print("Total num of latches: ", len(game.latches))
     print("Total num of prime latches: ", len(game.prime_latches))
     print("Total boolean vars: ", len(game.latches) + len(game.prime_latches) + len(game.rVars))
@@ -636,31 +639,40 @@ def Game_Main():
     # sys.exit(-1)
 
     tic = time.time()
-    # strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game)
-    strategy, opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    strategy, opt_sVals = game.solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    # hybrid_strategy, hybrid_opt_sVals = game.hybrid_solve(verbose=False, cooperative_game=cooperative_game)
+    bdd_strategy, bdd_opt_sVals = game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
 
+    if bdd_strategy.compare(strategy, 2):
+        print("The strategies from both methods are the same!")
+    if bdd_opt_sVals.compare(opt_sVals, 2):
+        print("The optimal state values from both methods are the same!")
+    strategy = bdd_strategy
     # NOTE: I am doing this purely to test reachable state computation and non-reachable state computation in one go.
     # To just do eithe of them, jsut se the reachable states flag in the game initilization above accordingly and comment this part.
     # now override - compute reachable states variable and manually set it to True 
-    game.only_reachable_states = True
-    game.care_states = game.compute_reachable_states(monolithic_trans_dd=game.monolithic_state_action_prime_state,
-                                                     latches=game.latches, prime_latches=game.prime_latches,
-                                                     act_vars=game.rVars, verbose=False, print_states=False)
-    strategy, reach_opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
+    # game.only_reachable_states = True
+    # game.care_states = game.compute_reachable_states(monolithic_trans_dd=game.monolithic_state_action_prime_state,
+    #                                                  latches=game.latches, prime_latches=game.prime_latches,
+    #                                                  act_vars=game.rVars, verbose=False, print_states=False)
+    # strategy, reach_opt_sVals = game.solve_optimized(verbose=False, cooperative_game=cooperative_game)
 
 
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     # check that the reachable states are the same as the original states - sanity checking
-    if strategy is not None:
-        vals_same: bool = _test_opt_state_vals_are_equal(game=game, reachable_opt_sVals=reach_opt_sVals, opt_sVals=opt_sVals, debug=False)
+    # if strategy is not None:
+    #     vals_same: bool = _test_opt_state_vals_are_equal(game=game, reachable_opt_sVals=reach_opt_sVals, opt_sVals=opt_sVals, debug=False)
 
-        if not vals_same:
-            sys.exit(-1)
+    #     if not vals_same:
+    #         sys.exit(-1)
 
     if strategy is not None:
         game.roll_out_strategy(strategy=strategy, verbose=True)
+    
+    game.manager.printInfo()
 
 
 
@@ -676,30 +688,30 @@ def Game_Main_no_prime():
     human_boxes = [1]
 
     # Even more simple set-up
-    # boxes = 1
-    # locs = 2
-    # ratio = 1
-    # init = ['ready l2', 'b0 l2']
-    # goal = [['b0 l1']]
+    boxes = 1
+    locs = 2
+    ratio = 1
+    init = ['ready l3', 'b0 l2']
+    goal = [['b0 l1']]
 
-    # human_locs = range(1, locs + 1)
-    # # human_boxes = range(boxes)
-    # human_boxes = [0]
+    human_locs = range(1, locs + 1)
+    # human_boxes = range(boxes)
+    human_boxes = [0]
 
     cooperative_game = False
-    enable_reordering = True
+    enable_reordering = False
 
-    # game = FrankaWorldDynamicRatioTurnBasedNoPrime(boxes=boxes, locs=locs,
-    #                                                ratio=ratio, init=init,
-    #                                                goal=goal, enable_reordering=enable_reordering,
-    #                                                restricted_human_locs=human_locs, 
-    #                                                restricted_human_boxes=human_boxes)
+    game = FrankaWorldDynamicRatioTurnBasedNoPrime(boxes=boxes, locs=locs,
+                                                   ratio=ratio, init=init,
+                                                   goal=goal, enable_reordering=enable_reordering,
+                                                   restricted_human_locs=human_locs, 
+                                                   restricted_human_boxes=human_boxes)
     
-    game = FrankaWorldDynamicRatioTurnBasedElseNoPrime(boxes=boxes, locs=locs,
-                                                       ratio=ratio, init=init,
-                                                       goal=goal, enable_reordering=enable_reordering,
-                                                       restricted_human_locs=human_locs, 
-                                                       restricted_human_boxes=human_boxes)
+    # game = FrankaWorldDynamicRatioTurnBasedElseNoPrime(boxes=boxes, locs=locs,
+    #                                                    ratio=ratio, init=init,
+    #                                                    goal=goal, enable_reordering=enable_reordering,
+    #                                                    restricted_human_locs=human_locs, 
+    #                                                    restricted_human_boxes=human_boxes)
 
     # print Game Info
     print("*****************Printing Game Info*****************")
@@ -758,8 +770,8 @@ def Game_Main_no_prime():
 
 if __name__ == "__main__":
     # game synthesis main function call
-    # Game_Main()
-    Game_Main_no_prime()
+    Game_Main()
+    # Game_Main_no_prime()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
