@@ -181,7 +181,8 @@ class FrankaWorldDynamicRatioTurnBased():
             'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
             'total_states': sys_states + env_states,
             'sys_states': sys_states,
-            'env_states': env_states
+            'env_states': env_states,
+            'num_opt_sVals': self.comp_winning_states.countLeaves()
             }
         return abs_dict
     

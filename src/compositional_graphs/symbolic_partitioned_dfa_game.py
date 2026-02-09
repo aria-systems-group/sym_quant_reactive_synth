@@ -135,7 +135,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             'dfa_latches': len(self.qVars),
             'total_states': sys_states + env_states,
             'sys_states': sys_states,
-            'env_states': env_states
+            'env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_opt_sVals': self.comp_winning_states.countLeaves()
             }
         return abs_dict
 
@@ -481,6 +483,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # then evolve over the game
         dfa_preimage_primed = dfa_preimage.swapVariables(self.latches, self.prime_latches)
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        self.iteration_bookkeeping.append([dfa_preimage_primed.size(), preimage.size()])
 
         return preimage
     
@@ -502,6 +505,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
     def iros23_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        bookkeeping_size = []
         for tr_action in self.ts_bdd_transition_fun_list:
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
@@ -516,7 +520,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 if not pre_states.isZero():
                     assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                     pre_buckets[sval] |= pre_states
-
+                    bookkeeping_size.append([dfa_pre_states_primed.size(), pre_states.size()])
+        
+        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()

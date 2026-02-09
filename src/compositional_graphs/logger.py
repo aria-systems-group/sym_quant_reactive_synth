@@ -20,11 +20,11 @@ class CustomLogger():
         """
          This method appends the computation results along with abstraction construciton results.
         """
-        self.run_data['setup'] = setup_dict
-        self.run_data['comp_time'] = comp_time
-        self.run_data['abs_dict'] = abs_dict
+        self.run_data['Setup'] = setup_dict
+        self.run_data['CompTime'] = comp_time
+        self.run_data['AbsDict'] = abs_dict
     
-    def dump_results_to_yaml(self, file_path: str, add_time_stamp: bool = True):
+    def dump_results_to_yaml(self, file_path: str, add_time_stamp: bool = True, iteration: int = None):
         """
         Dump the _results list to a YAML file.
 
@@ -39,4 +39,7 @@ class CustomLogger():
             file_path += ".yaml"
         # tmp_dict = {f'Run {run}': run_data for run, run_data in enumerate(self._results)}
         with open(file_path, 'a') as file:
-            yaml.dump(self.run_data, file, default_flow_style=False, sort_keys=False)
+            if iteration is not None:
+                yaml.dump({f'Run {iteration}': self.run_data}, file, default_flow_style=False, sort_keys=False)
+            else:
+                yaml.dump(self.run_data, file, default_flow_style=False, sort_keys=False)
