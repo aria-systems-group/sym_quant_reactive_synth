@@ -1441,7 +1441,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         return pre_buckets
     
 
-    def old_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+    def hybrid_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
