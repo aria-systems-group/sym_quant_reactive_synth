@@ -329,11 +329,11 @@ def Regret_DFA_Game_Main_no_prime():
     print(f"Time to create transition relation: {toc - tic} seconds")
     tic = time.time()
     strategy, rVals = dfa_game.regret_solver(verbose=False, optimized=False)
-    # iros23_strategy, iros23_rVals = dfa_game.iros23_regret_solver(verbose=False)
+    # iros23_strategy, iros23_rVals = dfa_game.hybrid_regret_solver(verbose=False)
     bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
     toc = time.time()
     print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
-    strategy = iros23_strategy
+    # strategy = iros23_strategy
     if strategy is not None:
         vals_same: bool = _test_opt_state_vals_are_equal(game=dfa_game, reachable_opt_sVals=rVals, opt_sVals=bdd_rVals, debug=False)
 
@@ -531,7 +531,7 @@ def DFA_Game_Main_no_prime():
 
     tic = time.time()
     # strategy, opt_sVals = dfa_game.solve(verbose=False, cooperative_game=cooperative_game)
-    # iros23_strategy, iros23_opt_sVals = dfa_game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    # iros23_strategy, iros23_opt_sVals = dfa_game.hybrid_solve(verbose=False, cooperative_game=cooperative_game)
     bdd_strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
@@ -540,7 +540,7 @@ def DFA_Game_Main_no_prime():
     #     print("The strategies from both methods are the same!")
     # if iros23_opt_sVals.compare(opt_sVals, 2):
     #     print("The optimal state values from both methods are the same!")
-    # strategy = iros23_strategy
+    strategy = bdd_strategy
     if strategy is not None:
         dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
 
@@ -740,7 +740,7 @@ def Game_Main_no_prime():
 
     tic = time.time()
     strategy, opt_sVals = game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
-    # strategy, opt_sVals = game.old_solve(verbose=False, cooperative_game=cooperative_game)
+    # strategy, opt_sVals = game.hybrid_solve(verbose=False, cooperative_game=cooperative_game)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 

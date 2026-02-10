@@ -344,7 +344,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
 
         tic = time.time()
         # strategy = self.gou_solve(verbose=False, optimized=False)
-        # strategy = self.iros23_gou_solve(verbose=True)
+        # strategy = self.hybrid_gou_solve(verbose=True)
         # self.TVI_gou_solve(verbose=False, optimized=False)
         strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
@@ -602,7 +602,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             curr_winning_states = next_winning_states
     
 
-    def iros23_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+    def hybrid_regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
         """
         A method that implements the value iteration algorithm For computing regret minimizing strategies. 
         """
@@ -827,7 +827,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         return goal_add, sorted(rVals)
     
 
-    def iros23_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+    def hybrid_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
