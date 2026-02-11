@@ -58,36 +58,56 @@ if __name__ == "__main__":
         # 1. Instantiate the correct game class based on arguments
         if REGRET_GAME:
             print("--- Initializing Regret DFA Game ---")
-            game_class = SymbolicPartitionedRegretDFAGameNoPrime if NO_PRIME else SymbolicPartitionedRegretDFAGame
-            game = game_class(
-                boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
-                goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
-                restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
-                budget=BUDGET, enable_reordering=ENABLE_REORDERING,
-                only_reachable_states=ONLY_REACHABLE_STATES
-            )
+            if NO_PRIME:
+                print("--- Initializing No Prime Regret DFA Game ---")
+                game = SymbolicPartitionedRegretDFAGameNoPrime(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
+                    budget=BUDGET, enable_reordering=ENABLE_REORDERING)
+            else:
+                print("--- Initializing Regret DFA Game with Primes ---")
+                game = SymbolicPartitionedRegretDFAGame(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
+                    budget=BUDGET, enable_reordering=ENABLE_REORDERING,
+                    only_reachable_states=ONLY_REACHABLE_STATES)
             setup_dict['goal'] = ''
         elif DFA_GAME:
             print("--- Initializing DFA Game ---")
-            game_class = SymbolicPartitionedDFAGameNoPrime if NO_PRIME else SymbolicPartitionedDFAGame
-            game = game_class(
-                boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
-                goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
-                restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
-                enable_reordering=ENABLE_REORDERING,
-                only_reachable_states=ONLY_REACHABLE_STATES
-            )
+            if NO_PRIME:
+                print("--- Initializing No Prime DFA Game ---")
+                game = SymbolicPartitionedDFAGameNoPrime(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
+                    enable_reordering=ENABLE_REORDERING)
+            else:
+                print("--- Initializing DFA Game with Primes ---")
+                game =SymbolicPartitionedDFAGame(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, formula=FORMULA, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, ltlf_flag=LTLF_FLAG,
+                    enable_reordering=ENABLE_REORDERING,
+                    only_reachable_states=ONLY_REACHABLE_STATES)
             setup_dict['goal'] = ''
             setup_dict['budget'] = ''
         elif GAME:
             print("--- Initializing Standard Game ---")
-            game_class = FrankaWorldDynamicRatioTurnBasedElseNoPrime if NO_PRIME else FrankaWorldDynamicRatioTurnBasedElse
-            game = game_class(
-                boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
-                goal=GOAL, restricted_human_locs=HUMAN_LOCS,
-                restricted_human_boxes=HUMAN_BOXES, enable_reordering=ENABLE_REORDERING,
-                only_reachable_states=ONLY_REACHABLE_STATES
-            )
+            if NO_PRIME:
+                print("--- Initializing No Prime Standard Game ---")
+                game = FrankaWorldDynamicRatioTurnBasedElseNoPrime(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, enable_reordering=ENABLE_REORDERING)
+            else:
+                print("--- Initializing Standard Game with Primes ---")
+                game = FrankaWorldDynamicRatioTurnBasedElse(
+                    boxes=BOXES, locs=LOCS, ratio=RATIO, init=INIT,
+                    goal=GOAL, restricted_human_locs=HUMAN_LOCS,
+                    restricted_human_boxes=HUMAN_BOXES, enable_reordering=ENABLE_REORDERING,
+                    only_reachable_states=ONLY_REACHABLE_STATES)
             setup_dict['formula'] = ''
             setup_dict['budget'] = ''
         else:

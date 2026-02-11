@@ -954,8 +954,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def hybrid_gobr_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        bookkeeping_size = []
-        for tr_action in self.gobr_ts_bdd_transition_fun_list:
+        bookkeeping_size = defaultdict(lambda: defaultdict(list))
+        for idx, tr_action in enumerate(self.gobr_ts_bdd_transition_fun_list):
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
                 # prime the vars
@@ -964,15 +964,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
                 dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
                 dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd + self.brVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd)
-                test = dfa_preimage_primed.size()
                 pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd, tr_action)
-                test_1 = dfa_preimage_primed.size()
-                assert test == test_1, "Check if the size of the BDD is changing after composition with the transition relation. If so, there might be an issue with the transition relation or the variable swapping."
-
                 if not pre_states.isZero():
                     assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                     pre_buckets[sval] |= pre_states
-                    bookkeeping_size.append([dfa_preimage_primed.size(), pre_states.size()])
+                    bookkeeping_size[idx][sval] = [dfa_preimage_primed.size(), pre_states.size()]
         
         self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
@@ -1789,6 +1785,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
                 self.logger.comp_time['Iterations'] = layer
                 self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
@@ -1858,6 +1855,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
                 init_val = math.inf
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
                 self.logger.comp_time['Iterations'] = layer
                 self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 for sval, sbdd in curr_winning_states.items():
