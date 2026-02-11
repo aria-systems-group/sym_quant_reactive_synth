@@ -505,8 +505,8 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
     def iros23_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        bookkeeping_size = []
-        for tr_action in self.ts_bdd_transition_fun_list:
+        bookkeeping_size = defaultdict(lambda: defaultdict(list))
+        for idx, tr_action in enumerate(self.ts_bdd_transition_fun_list):
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
                 # prime the vars
@@ -520,7 +520,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
                 if not pre_states.isZero():
                     assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                     pre_buckets[sval] |= pre_states
-                    bookkeeping_size.append([dfa_pre_states_primed.size(), pre_states.size()])
+                    bookkeeping_size[idx][sval] = [dfa_pre_states_primed.size(), pre_states.size()]
         
         self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
