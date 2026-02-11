@@ -150,6 +150,30 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         self.gobr_game_latches = self.latches + self.uVars + self.brVars + self.qVars
     
 
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        abs_dict = {
+            'total_latches': len(self.gobr_game_latches) + len(self.rVars),
+            'latches': len(self.gobr_game_latches),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVar),
+            'ratio_vars': len(self.kVars),
+            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
+            'utility_vars': len(self.uVars),
+            'ba_vars': len(self.brVars),
+            'dfa_latches': len(self.qVars),
+            'total_states': sys_states + env_states,
+            'game_sys_states': sys_states,
+            'game_env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'GoU_states': self.dfa_handle.num_of_states * (env_states + sys_states) * (self.budget + 1),
+            'GoBR_states': (len(self.brVals) + 1) * (self.budget + 1) * self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_cVals': self.cVals.countLeaves(),
+            'brVals': self.brVals,
+            }
+        return abs_dict
+    
+
     def create_br_var_map(self):
         """
          Small function to create symbolic maps for the brVar_map. 
@@ -416,6 +440,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
 
         # then evolve over the DFA game state (s, u)
         preimage_subr: ADD = dfa_preimage.vectorCompose(self.latches + self.uVars + self.brVars, self.graph_of_br_tr)
+        self.iteration_bookkeeping.append([dfa_preimage.size(), preimage_subr.size()])
 
         return preimage_subr
 
@@ -446,7 +471,8 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
 
     def iros23_gobr_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        for tr_action in self.gobr_ts_bdd_transition_fun_list:
+        bookkeeping_size =  defaultdict(lambda: defaultdict(list))
+        for idx, tr_action in enumerate(self.gobr_ts_bdd_transition_fun_list):
             # we get from the new weightr dictionary
             for sval, succ_states in win_state_bucket.items():
                 # first evolve over the DFA
@@ -457,7 +483,9 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                 if not pre_states.isZero():
                     assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                     pre_buckets[sval] |= pre_states
+                    bookkeeping_size[idx][sval] = [dfa_preimage.size(), pre_states.size()]
 
+        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()
@@ -554,6 +582,8 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -580,6 +610,8 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
                     if self.dfa_handle.init_latch & regret_init_latch & curr_winning_states == self.manager.addZero():
                         init_val: int = 0
@@ -621,6 +653,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         layer = 0
         regret_init_latch = self.init_latch & self.brVar_map_sym[math.inf]
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -640,6 +673,9 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.dfa_handle.init_latch & regret_init_latch) != self.manager.plusInfinity():
                     if self.dfa_handle.init_latch & regret_init_latch & curr_winning_states == self.manager.addZero():
                         init_val: int = 0
@@ -684,6 +720,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         # initialize the iteration counter
         layer = 0
         regret_init_latch: ADD = self.init_latch & self.brVar_map_sym[math.inf]
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -705,6 +742,9 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
                 init_val = math.inf
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 for sval, sbdd in curr_winning_states.items():
                     if sbdd & (self.dfa_handle.init_latch & regret_init_latch).bddPattern() != self.manager.bddZero():
                         init_val: int = sval

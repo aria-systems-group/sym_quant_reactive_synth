@@ -1,10 +1,17 @@
 import yaml
+from collections import defaultdict
 
 # Representer for forcing lists to be in flow style (inline)
 def flow_style_list_representer(dumper, data):
     return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
 
+# Representer for defaultdict to dump as a regular dict
+def defaultdict_representer(dumper, data):
+    return dumper.represent_dict(dict(data))
+
 yaml.add_representer(list, flow_style_list_representer)
+yaml.add_representer(defaultdict, defaultdict_representer)
+
 
 class CustomLogger():
     def __init__(self):
