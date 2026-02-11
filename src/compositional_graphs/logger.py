@@ -23,6 +23,7 @@ class CustomLogger():
         self.run_data['Setup'] = setup_dict
         self.run_data['CompTime'] = comp_time
         self.run_data['AbsDict'] = abs_dict
+        self.run_data['Status'] = self.status
     
     def dump_results_to_yaml(self, file_path: str, add_time_stamp: bool = True, iteration: int = None):
         """

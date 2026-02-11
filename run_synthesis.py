@@ -5,6 +5,7 @@ import yaml
 
 # import argparse
 from config_compositional import *
+from temp_config import *
 
 # Imports with prime latches
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
@@ -27,8 +28,8 @@ if __name__ == "__main__":
     """
     # --- Setup Logging ---
     # Ensure the logs directory exists
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
+    if not os.path.exists('./logs'):
+        os.makedirs('./logs')
     
 
     for run in range(ITERATIONS):
@@ -158,6 +159,10 @@ if __name__ == "__main__":
         game.logger.log(setup_dict=setup_dict, comp_time=comp_time, abs_dict=game.log_game_details())
         # Add manager info to the log
         game.logger.run_data['MemoryInUse'] = game.manager.readMemoryInUse()
-        game.logger.dump_results_to_yaml(file_path=os.path.join('logs', 'synthesis_results_2'), iteration=run, add_time_stamp=False)
-      
+        if GAME:
+            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_game'), iteration=run, add_time_stamp=False)
+        elif DFA_GAME:
+            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_dfa_game'), iteration=run, add_time_stamp=False)
+        elif REGRET_GAME:
+            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_regret_game'), iteration=run, add_time_stamp=False)
         del game.manager
