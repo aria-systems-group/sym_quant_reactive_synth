@@ -1460,7 +1460,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False, optimized=False)
+        strategy = self.gou_solve(verbose=False, optimized=True)
         # hybrid_strategy = self.hybrid_gou_solve(verbose=False)
         # self.TVI_gou_solve(verbose=False, optimized=False)
         # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)

@@ -1995,7 +1995,7 @@ class FrankaWorldDynamicRatioTurnBased():
         return winning_states_decomposed
 
 
-    def compute_preimage_decomposed(self, curr_winning_states: Dict[int, ADD], add_max_size: int, add_threshold: int, layer: int, debug: bool = False) -> Dict[int, ADD]:
+    def compute_preimage_decomposed(self, curr_winning_states: Dict[int, ADD], add_max_size: int, add_threshold: int, layer: int, debug: bool = False, adaptive: bool = False) -> Dict[int, ADD]:
         if curr_winning_states.size() < add_max_size:
             return self.compute_preimage(curr_winning_states)
         
@@ -2003,7 +2003,13 @@ class FrankaWorldDynamicRatioTurnBased():
             print("Decomposing the winning states ADD as it is above the threshold size")
             print("Size of the winning states ADD before decomposition is ", curr_winning_states.size())
         c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
-        decomposed_add = self.decompose_winning_states(curr_winning_states, add_threshold, layer=layer, c_max=c_max, debug=debug)
+        if adaptive:
+            # lets try an adaptive version
+            add_threshold = curr_winning_states.size() // 5
+            decomposed_add = self.decompose_winning_states(curr_winning_states, add_threshold, layer=layer, c_max=c_max, debug=debug)
+        else:
+            decomposed_add = self.decompose_winning_states(curr_winning_states, add_threshold, layer=layer, c_max=c_max, debug=debug)
+        
         preimage = self.manager.plusInfinity()
         for decomposed_curr_winning_states in decomposed_add.values():
             preimage = preimage.min(self.compute_preimage(decomposed_curr_winning_states))
@@ -2056,10 +2062,10 @@ class FrankaWorldDynamicRatioTurnBased():
         while True:
             print(f"**************************Layer: {layer}**************************")
             # lets add nodes in the graph before and after and read the peak node count
-            # preimage: ADD = self.compute_preimage(curr_winning_states)
+            preimage: ADD = self.compute_preimage(curr_winning_states)
 
             # let try the new decomposition preimage method
-            preimage: ADD = self.compute_preimage_decomposed(curr_winning_states, add_max_size=2000, add_threshold=2000, layer=layer, debug=False)
+            # preimage: ADD = self.compute_preimage_decomposed(curr_winning_states, add_max_size=2000, add_threshold=2000, layer=layer, adaptive=True, debug=False)
             # add the action costs associated with the robot actions
             # assert preimage.compare(preimage_test, 2), "Make sure the new decomposed preimage method is correct!!"   
             preimage = preimage + self.weight
