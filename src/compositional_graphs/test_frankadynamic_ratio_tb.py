@@ -1967,6 +1967,48 @@ class FrankaWorldDynamicRatioTurnBased():
         self.iteration_bookkeeping.append([curr_winning_states_primed.size(), preimage.size()])
 
         return preimage
+
+    
+    def decompose_winning_states(self, monolithic_add: ADD, add_threshold: int, layer: int, c_max: int, debug: bool = False) -> List[ADD]:
+        """
+         A method tthat decomposes the monolithic ADD into vectors of ADDs of smaller size.  
+         
+         Given the threhold, we use leaf values to obtain the partitioning of the monolithic ADD. 
+         This is a heuristic method to decompose the monolithic ADD.
+        """
+        winning_states_decomposed = defaultdict(lambda: self.manager.plusInfinity()) 
+        bucket_iter = 0
+        curr_bucket_add = self.manager.plusInfinity()
+        # prev_bucket_add = self.manager.plusInfinity()
+        for sval in range(0, (layer * c_max) + 1):
+            decomposed_add: BDD = monolithic_add.bddInterval(sval, sval)
+            if not decomposed_add.isZero():
+                curr_bucket_add = decomposed_add.toADD().ite(self.manager.addConst(sval), winning_states_decomposed[bucket_iter])
+                if curr_bucket_add.size() < add_threshold:
+                    winning_states_decomposed[bucket_iter] = curr_bucket_add
+                else:
+                    bucket_iter += 1
+                    winning_states_decomposed[bucket_iter] = decomposed_add.toADD().ite(self.manager.addConst(sval), winning_states_decomposed[bucket_iter])
+                    if debug:
+                        print(f"Size of the decomposed add in bucket {bucket_iter} is {winning_states_decomposed[bucket_iter - 1].size()}")
+        winning_states_decomposed[bucket_iter] = curr_bucket_add
+        return winning_states_decomposed
+
+
+    def compute_preimage_decomposed(self, curr_winning_states: Dict[int, ADD], add_max_size: int, add_threshold: int, layer: int, debug: bool = False) -> Dict[int, ADD]:
+        if curr_winning_states.size() < add_max_size:
+            return self.compute_preimage(curr_winning_states)
+        
+        if debug:
+            print("Decomposing the winning states ADD as it is above the threshold size")
+            print("Size of the winning states ADD before decomposition is ", curr_winning_states.size())
+        c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
+        decomposed_add = self.decompose_winning_states(curr_winning_states, add_threshold, layer=layer, c_max=c_max, debug=debug)
+        preimage = self.manager.plusInfinity()
+        for decomposed_curr_winning_states in decomposed_add.values():
+            preimage = preimage.min(self.compute_preimage(decomposed_curr_winning_states))
+        return preimage
+
     
 
     def compute_preimage_optimized(self, curr_winning_states: ADD) -> Tuple[ADD, ADD]:
@@ -2014,8 +2056,12 @@ class FrankaWorldDynamicRatioTurnBased():
         while True:
             print(f"**************************Layer: {layer}**************************")
             # lets add nodes in the graph before and after and read the peak node count
-            preimage: ADD = self.compute_preimage(curr_winning_states)
-            # add the action costs associated with the robot actions   
+            # preimage: ADD = self.compute_preimage(curr_winning_states)
+
+            # let try the new decomposition preimage method
+            preimage: ADD = self.compute_preimage_decomposed(curr_winning_states, add_max_size=2000, add_threshold=2000, layer=layer, debug=False)
+            # add the action costs associated with the robot actions
+            # assert preimage.compare(preimage_test, 2), "Make sure the new decomposed preimage method is correct!!"   
             preimage = preimage + self.weight
             # print("*****************************Current Preimage:*****************************")
             # self.convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=verbose)
