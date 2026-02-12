@@ -1007,6 +1007,51 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         return preimage_subr
     
 
+    def decompose_gobr_winning_states(self, monolithic_add: ADD, add_threshold: int, sorted_reg_vals: Set[int], debug: bool = False) -> List[ADD]:
+        """
+         A method tthat decomposes the monolithic ADD into vectors of ADDs of smaller size.  
+         
+         Given the threhold, we use leaf values to obtain the partitioning of the monolithic ADD. 
+         This is a heuristic method to decompose the monolithic ADD.
+        """
+        winning_states_decomposed = defaultdict(lambda: self.manager.plusInfinity()) 
+        bucket_iter = 0
+        curr_bucket_add = self.manager.plusInfinity()
+        for sval in sorted_reg_vals:
+            decomposed_add: BDD = monolithic_add.bddInterval(sval, sval)
+            if not decomposed_add.isZero():
+                curr_bucket_add = decomposed_add.toADD().ite(self.manager.addConst(sval), winning_states_decomposed[bucket_iter])
+                if curr_bucket_add.size() < add_threshold:
+                    winning_states_decomposed[bucket_iter] = curr_bucket_add
+                else:
+                    bucket_iter += 1
+                    winning_states_decomposed[bucket_iter] = decomposed_add.toADD().ite(self.manager.addConst(sval), winning_states_decomposed[bucket_iter])
+                    if debug:
+                        print(f"Size of the decomposed add in bucket {bucket_iter} is {winning_states_decomposed[bucket_iter - 1].size()}")
+        winning_states_decomposed[bucket_iter] = curr_bucket_add
+        return winning_states_decomposed
+    
+
+    def compute_preimage_decomposed(self, curr_winning_states: Dict[int, ADD], add_max_size: int, add_threshold: int, sorted_reg_vals: Set[int], debug: bool = False, adaptive: bool = False) -> Dict[int, ADD]:
+        if curr_winning_states.size() < add_max_size:
+            return self.compute_regret_preimage(curr_winning_states)
+        
+        if debug:
+            print("Decomposing the winning states ADD as it is above the threshold size")
+            print("Size of the winning states ADD before decomposition is ", curr_winning_states.size())
+        if adaptive:
+            # lets try an adaptive version
+            add_threshold = curr_winning_states.size() // 5
+            decomposed_add = self.decompose_gobr_winning_states(curr_winning_states, add_threshold, sorted_reg_vals=sorted_reg_vals, debug=debug)
+        else:
+            decomposed_add = self.decompose_gobr_winning_states(curr_winning_states, add_threshold, sorted_reg_vals=sorted_reg_vals, debug=debug)
+        
+        preimage = self.manager.plusInfinity()
+        for decomposed_curr_winning_states in decomposed_add.values():
+            preimage = preimage.min(self.compute_regret_preimage(decomposed_curr_winning_states))
+        return preimage
+    
+
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
         """
          Create Graph of Utility's accting nodes with utility values.
@@ -1708,6 +1753,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                     preimage = preimage_reg_val.ite(self.manager.addConst(reg_val), preimage)
             else:
                 preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+                # preimage: ADD = self.compute_preimage_decomposed(curr_winning_states=curr_winning_states,
+                #                                                  sorted_reg_vals=sorted_reg_vals,
+                #                                                  add_max_size=2000, add_threshold=2000,
+                #                                                  adaptive=True, debug=False)
             
             next_winning_states = self.compute_min_max_preimage(preimage, valid_human_action_mask=valid_human_action_mask)
             next_winning_states = next_winning_states.min(goal)

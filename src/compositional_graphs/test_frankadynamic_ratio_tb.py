@@ -1979,7 +1979,6 @@ class FrankaWorldDynamicRatioTurnBased():
         winning_states_decomposed = defaultdict(lambda: self.manager.plusInfinity()) 
         bucket_iter = 0
         curr_bucket_add = self.manager.plusInfinity()
-        # prev_bucket_add = self.manager.plusInfinity()
         for sval in range(0, (layer * c_max) + 1):
             decomposed_add: BDD = monolithic_add.bddInterval(sval, sval)
             if not decomposed_add.isZero():

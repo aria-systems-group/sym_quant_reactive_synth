@@ -141,6 +141,7 @@ if __name__ == "__main__":
         else:
             if ALGORITHM == 'ADD':
                 strategy, _ = game.solve(verbose=False, cooperative_game=COOPERATIVE_GAME)
+                # strategy, _ = game.solve_optimized(verbose=False, cooperative_game=COOPERATIVE_GAME)
             elif ALGORITHM == 'BDD':
                 strategy, _ = game.pure_bdd_solve(verbose=False, cooperative_game=COOPERATIVE_GAME)
             elif ALGORITHM == 'hybrid':
