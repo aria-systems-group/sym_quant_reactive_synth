@@ -312,19 +312,17 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
 
     def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        bookkeeping_size = defaultdict(lambda: defaultdict(list))
-        for idx, tr_action in enumerate(self.ts_bdd_transition_fun_list):
-            # we get from the new weightr dictionary
-            for sval, succ_states in win_state_bucket.items():
-                # first evolve over the DFA
-                # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
-                dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
-                pre_states: BDD = dfa_preimage.vectorCompose(self.latches_bdd, tr_action)
+        bookkeeping_size = defaultdict(lambda: list)
+        for sval, succ_states in win_state_bucket.items():
+            # first evolve over the DFA
+            # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+            dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+            pre_states: BDD = dfa_preimage.vectorCompose(self.latches_bdd, self.ts_bdd_transition_fun_list)
 
-                if not pre_states.isZero():
-                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                    pre_buckets[sval] |= pre_states
-                    bookkeeping_size[idx][sval] = [dfa_preimage.size(), pre_states.size()]
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
+                bookkeeping_size[sval] = [dfa_preimage.size(), pre_states.size()]
 
         self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
