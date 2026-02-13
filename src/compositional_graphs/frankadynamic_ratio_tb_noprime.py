@@ -67,7 +67,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
-        self.ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.ts_bdd_transition_fun_list: List[BDD] = []
 
         # create robot and human action vars and maps
         self.rVars: List[ADD] = self.create_action_vars()
@@ -1369,13 +1369,8 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     
     def convert_mono_tr_to_action_tr(self):
         # loop throught the transition relation and separate them based on action
-        for act_dd in self.action_map_sym.values():
-            # loop over the tr and rertain these action
-            act_ls = []
-            for tr_bdd in self.transition_relation.values():
-                ts_action_dd = tr_bdd & act_dd
-                act_ls.append(ts_action_dd.bddPattern())
-            self.ts_bdd_transition_fun_list.append(act_ls)
+        for tr_bdd in self.transition_relation.values():
+            self.ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
     
     def convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, layer: int, c_max: int) -> Dict[int, BDD]:    
@@ -1395,14 +1390,12 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
 
     def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        for tr_action in self.ts_bdd_transition_fun_list:
-            # we get from the new weightr dictionary
-            for sval, succ_states in win_state_bucket.items():
-                pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, tr_action)
+        for sval, succ_states in win_state_bucket.items():
+            pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, self.ts_bdd_transition_fun_list)
 
-                if not pre_states.isZero():
-                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                    pre_buckets[sval] |= pre_states
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
         if not return_bdd:

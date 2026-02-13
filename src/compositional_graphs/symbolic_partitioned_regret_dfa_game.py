@@ -50,8 +50,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.uVar_map_sym: List[ADD] = bidict({}) 
         self.brVar_map: List[ADD] = bidict({}) 
         self.brVar_map_sym: List[ADD] = bidict({})
-        self.gou_ts_bdd_transition_fun_list: List[List[BDD]] = []
-        self.gobr_ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.gou_ts_bdd_transition_fun_list: List[BDD] = []
+        self.gobr_ts_bdd_transition_fun_list: List[BDD] = []
         self.regret_game_only_reachable_states: bool = only_reachable_states
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
         super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, restricted_human_boxes, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering, only_reachable_states=False)
@@ -444,24 +444,14 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def gou_convert_mono_tr_to_action_tr(self):
         # loop throught the transition relation and separate them based on action
-        for act_dd in self.action_map_sym.values():
-            # loop over the tr and retain these action
-            act_ls = []
-            for tr_bdd in self.graph_of_utility_tr:
-                ts_action_dd = tr_bdd & act_dd
-                act_ls.append(ts_action_dd.bddPattern())
-            self.gou_ts_bdd_transition_fun_list.append(act_ls)
+        for tr_bdd in self.graph_of_utility_tr:
+            self.gou_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
     def gobr_convert_mono_tr_to_action_tr(self):
         # loop throught the transition relation and separate them based on action
-        for act_dd in self.action_map_sym.values():
-            # loop over the tr and retain these action
-            act_ls = []
-            for tr_bdd in self.graph_of_br_tr:
-                ts_action_dd = tr_bdd & act_dd
-                act_ls.append(ts_action_dd.bddPattern())
-            self.gobr_ts_bdd_transition_fun_list.append(act_ls)
+        for tr_bdd in self.graph_of_br_tr:
+            self.gobr_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
     def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, c_max: int) -> Dict[int, BDD]:
@@ -902,20 +892,18 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def hybrid_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        for tr_action in self.gou_ts_bdd_transition_fun_list:
-            # we get from the new weightr dictionary
-            for sval, succ_states in win_state_bucket.items():
-                # prime the vars
-                dfa_succ_states_primed: BDD = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
-                # first evolve over the DFA
-                # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
-                dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
-                dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd)
-                pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd, tr_action)
+        for sval, succ_states in win_state_bucket.items():
+            # prime the vars
+            dfa_succ_states_primed: BDD = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
+            # first evolve over the DFA
+            # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+            dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+            dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd)
+            pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd, self.gou_ts_bdd_transition_fun_list)
 
-                if not pre_states.isZero():
-                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                    pre_buckets[sval] |= pre_states
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
         if not return_bdd:
@@ -929,20 +917,18 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
     def hybrid_gobr_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        for tr_action in self.gobr_ts_bdd_transition_fun_list:
-            # we get from the new weightr dictionary
-            for sval, succ_states in win_state_bucket.items():
-                # prime the vars
-                dfa_succ_states_primed: BDD = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
-                # first evolve over the DFA
-                # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
-                dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
-                dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd + self.brVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd)
-                pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd, tr_action)
+        for sval, succ_states in win_state_bucket.items():
+            # prime the vars
+            dfa_succ_states_primed: BDD = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
+            # first evolve over the DFA
+            # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+            dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+            dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd + self.brVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd)
+            pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd + self.prime_brVars_bdd, self.gobr_ts_bdd_transition_fun_list)
 
-                if not pre_states.isZero():
-                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                    pre_buckets[sval] |= pre_states
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
 
         # unions of all predecessors
         if not return_bdd:
