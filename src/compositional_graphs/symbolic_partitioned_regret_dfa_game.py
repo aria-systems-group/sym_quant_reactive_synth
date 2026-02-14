@@ -1434,6 +1434,13 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         # create boolean vars and their prime versions for Best-alternate response values computed
         self.create_all_br_vars_maps()
+
+        # test variable reordering
+        my_var_order = [v.index() for v in self.tVar + self.prime_tVar + self.kVars + self.prime_kVars + self.pVars + self.prime_pVars +  self.xVars[len(self.kVars) + len(self.pVars):] + self.prime_xVars[len(self.kVars) + len(self.pVars):] + self.uVars + self.prime_uVars + self.brVars + self.prime_brVars + self.qVars + self.prime_qVars + self.rVars]
+        my_var_order = [v.index() for v in self.tVar + self.xVars + self.qVars + self.prime_tVar +  self.prime_xVars + self.prime_qVars + self.uVars + self.prime_uVars + self.brVars + self.prime_brVars + self.rVars]
+        
+        self.manager.shuffleHeap(my_var_order)
+        print(self.manager.bddOrder())
         
         # create br Transition Relation
         # print("[DBEUG]: Variable Order BEFORE creating monolithic full_gobr_trns ADD:", self.manager.bddOrder(), sep='\n')
