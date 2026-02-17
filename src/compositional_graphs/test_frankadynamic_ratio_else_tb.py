@@ -1,3 +1,4 @@
+import re
 import sys
 import math
 import time
@@ -125,7 +126,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
     
 
-    def create_sym_weight_dict(self):
+    def create_sym_weight_dict(self, weight_factor: int = 3):
         """
          Ovverride base class method. Here the weights are associated with states rather than actions. We assign all states
            where the robot is not at `else` location (ready else; holding else) a weight of 1, and states where the robot
@@ -137,20 +138,37 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
                 # if rConf in self.init:
                 #     continue
-                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
+                # add that if you are human loc then weight is weight_factor times more expensive
+                if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
+                    if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:
+                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(weight_factor), self.weight)
+                    else:
+                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.weight)
+                elif rConf.split(' ')[0] == 'to-obj':
+                    box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
+                    for hloc in self.human_locs:
+                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(weight_factor), self.weight)
+        
+        # if the state is an accepting state, then weight is 0
+        self.weight = self.goal_latch.ite(self.manager.addZero(), self.weight)
+                
+            
     
     def get_states_per_cost(self):
         """
          A helper function that takes in the ADD weight abd return a vector of 0-1 BDD per cost.
         """
-        min_val: int = 0
-        max_val: int = 1
         relevant_box_preds_bdd: BDD = self.monolithic_relevant_box_preds.bddPattern()
+
+        lVals = set({0})
+        for _, leaf_value in self.weight.generate_cubes():
+            if leaf_value != math.inf:
+                lVals.add(int(leaf_value))
         
-        for val in range(min_val, max_val + 1, 1):
+        for val in lVals:
             self.states_per_cost[val] |= self.weight.bddInterval(val, val) & relevant_box_preds_bdd & ~self.goal_latch.bddPattern()
         
-        self.states_per_cost[0] |= self.goal_latch.bddPattern()
+        self.states_per_cost[0] |= self.goal_latch.bddPattern() & relevant_box_preds_bdd
     
     def create_transit_actions(self):
         """
@@ -449,6 +467,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         elif action.startswith('grasp'):
             if curr_state[rConf_idx].startswith('to-obj'):
                 box: str = curr_state[rConf_idx].split(' ')[1]
+                # TODO: Will not work for boxes > 10. FIX THIS!!!
                 b_idx = int(box[-1])
                 # the box str will of the form b0 l1, b1 l3, etc..
                 split_str = curr_state[box_idx].split(', ')

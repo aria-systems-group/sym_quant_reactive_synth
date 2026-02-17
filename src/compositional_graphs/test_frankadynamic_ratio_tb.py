@@ -754,6 +754,9 @@ class FrankaWorldDynamicRatioTurnBased():
         # keep only the valid robot states and actions in the transition relation
         self.post_process_transition_relation()
 
+        # post process weight dictionary to remove irrelvant states
+        self.weight = self.monolithic_relevant_box_preds.ite(self.weight, self.manager.plusInfinity())
+
         if self.only_reachable_states:
             self.postprocess_monolithic_valid_state_robot_actions_prime_state()
             self.care_states = self.compute_reachable_states(monolithic_trans_dd=self.monolithic_state_action_prime_state,
@@ -2146,14 +2149,9 @@ class FrankaWorldDynamicRatioTurnBased():
     
 
     def convert_mono_tr_to_action_tr(self):
-        # loop throught the transition relation and separate them based on action
-        for act_dd in self.action_map_sym.values():
-            # loop over the tr and rertain these action
-            act_ls = []
-            for tr_bdd in self.transition_relation.values():
-                ts_action_dd = tr_bdd & act_dd
-                act_ls.append(ts_action_dd.bddPattern())
-            self.ts_bdd_transition_fun_list.append(act_ls)
+        # loop through the transition relation and separate them based on action
+        for tr_bdd in self.transition_relation.values():
+            self.ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
     def convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, layer: int, c_max: int) -> Dict[int, BDD]:    
@@ -2173,17 +2171,15 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        bookkeeping_size = defaultdict(lambda: defaultdict(list))
-        for idx, tr_action in enumerate(self.ts_bdd_transition_fun_list):
-            # we get from the new weightr dictionary
-            for sval, succ_states in win_state_bucket.items():
-                succ_states_prime = succ_states.swapVariables(self.latches_bdd, self.prime_latches_bdd)
-                pre_states: BDD = succ_states_prime.vectorCompose(self.prime_latches_bdd, tr_action)
+        bookkeeping_size = defaultdict(lambda: list)
+        for sval, succ_states in win_state_bucket.items():
+            succ_states_prime = succ_states.swapVariables(self.latches_bdd, self.prime_latches_bdd)
+            pre_states: BDD = succ_states_prime.vectorCompose(self.prime_latches_bdd, self.ts_bdd_transition_fun_list)
 
-                if not pre_states.isZero():
-                    assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
-                    pre_buckets[sval] |= pre_states
-                    bookkeeping_size[idx][sval] = [succ_states_prime.size(), pre_states.size()]
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
+                bookkeeping_size[sval] = [succ_states_prime.size(), pre_states.size()]
                                             
         self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
@@ -2264,9 +2260,11 @@ class FrankaWorldDynamicRatioTurnBased():
         for goal_sval in sorted(goal.keys()):
             for sval in sorted(preimage.keys()):
                 # if there exists states in goal state, then we override the state value in preimage
-                sval_to_update = preimage[sval] & goal[goal_sval]
-                preimage[sval] &= ~sval_to_update
-                preimage[goal_sval] |= sval_to_update
+                if sval != goal_sval:
+                    sval_to_update = preimage[sval] & goal[goal_sval]
+                    if not sval_to_update.isZero():
+                        preimage[sval] &= ~sval_to_update
+                        preimage[goal_sval] |= sval_to_update
         return preimage
 
 
@@ -2374,6 +2372,9 @@ class FrankaWorldDynamicRatioTurnBased():
         # create Partitioned TR based on actions
         self.convert_mono_tr_to_action_tr()
         self.get_states_per_cost()
+        # TESTING 
+        testing = self.convert_vector_of_bdd_to_add(bdd_vector=self.states_per_cost)
+        assert testing == self.weight, "Make sure the conversion from vector of BDD to ADD is correct!!"
         goal_states_buckets = defaultdict(lambda: self.manager.bddZero())
 
         # initialize goal state with 0 state value and add it to the winning region
@@ -2387,8 +2388,20 @@ class FrankaWorldDynamicRatioTurnBased():
         # intialize the iteration counter
         layer = 0
 
+        # print the initial winning states
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not return cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            self.convert_cube_to_state_ADD(curr_winning_states[0].toADD(), action=False, verbose=True)
+
         # iteration bookkeeping
         self.iteration_bookkeeping = []
+
+        #### ADD Setup
+        # goal_add = (self.goal_latch & self.monolithic_relevant_box_preds).ite(self.manager.addZero(), self.manager.plusInfinity())
+        # curr_winning_states_add = self.manager.plusInfinity().min(goal_add)
+        # valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -2396,6 +2409,7 @@ class FrankaWorldDynamicRatioTurnBased():
             vector_preimage: Dict[int, BDD] = self.iros23_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
             
             # add the action costs associated with the robot actions
+            next_winning_states = defaultdict(lambda: self.manager.bddZero())
             for sCost, sbdd in self.states_per_cost.items():
                 for pre_sVal, pre_sbdd in vector_preimage.items():
                     total_cost: int = sCost + pre_sVal
@@ -2408,9 +2422,24 @@ class FrankaWorldDynamicRatioTurnBased():
             if cooperative_game:
                 next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=next_winning_states)
             else:
-                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=False)
+                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=True)
             # retain the min over goal states - here all goal states are at 0 cost
             next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
+
+            ##### TESTING - ADD Computation to check for consistency with pure BDD approach #####
+            # preimage_add: ADD = self.compute_preimage(curr_winning_states_add)
+            # preimage_add = preimage_add + self.weight
+            # next_winning_states_add = self.compute_min_max_preimage(preimage_add, valid_human_action_mask=valid_human_action_mask)
+            # next_winning_states_add = next_winning_states_add.min(goal_add)
+            # # check for consistency between pure BDD and ADD approach
+            # for sval in next_winning_states_opt.keys():
+            #     if sval != 0:
+            #         bdd_sval_states = next_winning_states_opt[sval]
+            #         add_sval_states = next_winning_states_add.bddInterval(sval, sval)
+            #         assert bdd_sval_states == add_sval_states, f"Make sure the pure BDD and ADD approach are consistent with each other for state value {sval}!!"
+            
+            # curr_winning_states_add = next_winning_states_add
+
 
             # adding debugging step
             if verbose:
@@ -2436,7 +2465,7 @@ class FrankaWorldDynamicRatioTurnBased():
                 strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
                 goal: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=goal_states_buckets)
                 if init_val < math.inf:
-                    return strategy.min(goal), self.comp_winning_states
+                    return strategy.min(goal), self.comp_winning_states.min(goal)
                 else:
                     print(f"No Winning Strategy Exists!! The State value is {math.inf}")
                     return None, None
