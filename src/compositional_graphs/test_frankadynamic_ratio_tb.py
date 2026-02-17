@@ -79,7 +79,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
-        self.ts_bdd_transition_fun_list: List[List[BDD]] = []
+        self.ts_bdd_transition_fun_list: List[BDD] = []
 
         # create robot and human action vars and maps
         self.rVars: List[ADD] = self.create_action_vars()
@@ -2398,11 +2398,6 @@ class FrankaWorldDynamicRatioTurnBased():
         # iteration bookkeeping
         self.iteration_bookkeeping = []
 
-        #### ADD Setup
-        # goal_add = (self.goal_latch & self.monolithic_relevant_box_preds).ite(self.manager.addZero(), self.manager.plusInfinity())
-        # curr_winning_states_add = self.manager.plusInfinity().min(goal_add)
-        # valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
-
         while True:
             print(f"**************************Layer: {layer}**************************")
             # compute preimage
@@ -2425,20 +2420,6 @@ class FrankaWorldDynamicRatioTurnBased():
                 next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=True)
             # retain the min over goal states - here all goal states are at 0 cost
             next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
-
-            ##### TESTING - ADD Computation to check for consistency with pure BDD approach #####
-            # preimage_add: ADD = self.compute_preimage(curr_winning_states_add)
-            # preimage_add = preimage_add + self.weight
-            # next_winning_states_add = self.compute_min_max_preimage(preimage_add, valid_human_action_mask=valid_human_action_mask)
-            # next_winning_states_add = next_winning_states_add.min(goal_add)
-            # # check for consistency between pure BDD and ADD approach
-            # for sval in next_winning_states_opt.keys():
-            #     if sval != 0:
-            #         bdd_sval_states = next_winning_states_opt[sval]
-            #         add_sval_states = next_winning_states_add.bddInterval(sval, sval)
-            #         assert bdd_sval_states == add_sval_states, f"Make sure the pure BDD and ADD approach are consistent with each other for state value {sval}!!"
-            
-            # curr_winning_states_add = next_winning_states_add
 
 
             # adding debugging step
