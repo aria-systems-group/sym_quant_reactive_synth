@@ -2028,10 +2028,7 @@ class FrankaWorldDynamicRatioTurnBased():
         while True:
             print(f"**************************Layer: {layer}**************************")
             preimage: ADD = self.compute_preimage(curr_winning_states)
-            # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
-            # print("*****************************Current Preimage:*****************************")
-            # self.convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=verbose)
             
             # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
             if cooperative_game:
@@ -2315,7 +2312,7 @@ class FrankaWorldDynamicRatioTurnBased():
         next_winning_states = self.manager.plusInfinity()
         # intialize the iteration counter
         layer = 0
-        c_max: int = 1        
+        c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
         
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
 
