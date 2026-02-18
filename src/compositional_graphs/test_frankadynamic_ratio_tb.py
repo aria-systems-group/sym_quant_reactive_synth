@@ -11,10 +11,10 @@ import sys
 import time
 import math
 
-from typing import List, Dict, Tuple, Set, Union, Optional
 from functools import reduce
 from itertools import product
 from collections import defaultdict
+from typing import List, Dict, Tuple, Set, Union, Optional
 
 from bidict import bidict
 from tabulate import tabulate
@@ -31,15 +31,17 @@ class FrankaWorldDynamicRatioTurnBased():
                  goal: tuple, restricted_human_locs: List[int],
                  restricted_human_boxes: List[int],
                  enable_reordering: bool = False,
-                 only_reachable_states: bool = False):
+                 only_reachable_states: bool = False,
+                 weight_factor: int = 3):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
+        self.weight_factor: int = weight_factor
         self.human_locs: List[int] = restricted_human_locs
         self.human_boxes: List[int] = restricted_human_boxes
         self.only_reachable_states = only_reachable_states
         self.restricted_human_locs: Set[int] = set([0, self.locs] + [*range(1, self.locs + 1)]) - set(self.human_locs) 
-        self.misc_preds = ['ready', 'in-transit', 'in-transfer' 'to-obj', 'holding']
+        self.misc_preds = ['ready', 'in-transit', 'in-transfer', 'to-obj', 'holding']
         self.robot_actions: List[str] = ['transit', 'transfer', 'grasp', 'release']
         self.init = init
         self.goal = goal
@@ -94,7 +96,7 @@ class FrankaWorldDynamicRatioTurnBased():
         
         self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
         self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
-        self.create_sym_weight_dict()
+        # self.create_sym_weight_dict()
 
         # precompute cubes of valid Robot and Env actions - needed for synthesis
         self.env_action_cube_list = []
@@ -755,7 +757,8 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
 
         # post process weight dictionary to remove irrelvant states
-        self.weight = self.monolithic_relevant_box_preds.ite(self.weight, self.manager.plusInfinity())
+        # self.weight = self.monolithic_relevant_box_preds.ite(self.weight, self.manager.plusInfinity())
+        self.create_sym_weight_dict()
 
         if self.only_reachable_states:
             self.postprocess_monolithic_valid_state_robot_actions_prime_state()
@@ -1019,6 +1022,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{to_loc}'] & self.prime_kVar_map_sym['k0']
                     self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
 
+                    self.weight |= hmove_cube.ite(self.manager.addConst(1), self.weight)
+
     
 
     def create_human_move_transit(self) -> None:
@@ -1090,6 +1095,10 @@ class FrankaWorldDynamicRatioTurnBased():
                     prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'to-obj b{b}'] & self.prime_kVar_map_sym['k0']
                     self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
 
+                    # create the weight ADD - for now they
+                    # self.create_sym_weight_dict()
+                    self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
+
 
     def create_human_move_actions(self) -> None:
         """
@@ -1160,6 +1169,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[box_pred] & self.prime_kVar_map_sym['k0']
                     # self.monolithic_valid_state_human_actions_prime_state &= hmove_cube.ite(prime_state_cube, self.manager.addZero())
                     parent_hmove_cube = hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                    self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
         self.tmp_parent_hmove_cube = parent_hmove_cube            
     
@@ -1230,6 +1240,7 @@ class FrankaWorldDynamicRatioTurnBased():
                         # create s a_s s' transitions - human
                         prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & pred_clause_prime_sym & self.prime_kVar_map_sym['k0']
                         self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                        self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
 
     def add_robot_s_sprime_frame_axioms(self):
@@ -1387,7 +1398,7 @@ class FrankaWorldDynamicRatioTurnBased():
                         constraint_cube &= ~self.xVar_map_sym[f'b{b} l{restricted_loc}']
                     haction_cube &= constraint_cube & self.monolithic_relevant_box_preds
 
-                # box remmains in the same location if human does not move it
+                # box remains in the same location if human does not move it
                 for sidx, s in enumerate(self.xVar_map[box_pred]):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= haction_cube
@@ -1835,7 +1846,7 @@ class FrankaWorldDynamicRatioTurnBased():
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=verbose)
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state & self.comp_winning_states, state_flag=True, action=False, table_header=False, verbose=verbose)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
@@ -2016,7 +2027,6 @@ class FrankaWorldDynamicRatioTurnBased():
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            # lets add nodes in the graph before and after and read the peak node count
             preimage: ADD = self.compute_preimage(curr_winning_states)
             # add the action costs associated with the robot actions   
             preimage = preimage + self.weight
@@ -2269,12 +2279,10 @@ class FrankaWorldDynamicRatioTurnBased():
 
 
     def check_reached_fixpoint_bdd(self, curr_winning_states: Dict[int, BDD], next_winning_states: Dict[int, BDD]) -> bool:
-        if set(next_winning_states.keys()) != set(curr_winning_states.keys()):
+        curr_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+        next_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
+        if not next_winning_states_add.compare(curr_winning_states_add, 2):
             return False
-        else:
-            for new_bdd, pre_bdd in zip(next_winning_states.values(), curr_winning_states.values()):
-                if not pre_bdd.compare(new_bdd, 2):
-                    return False
         return True
     
 
@@ -2404,7 +2412,9 @@ class FrankaWorldDynamicRatioTurnBased():
             vector_preimage: Dict[int, BDD] = self.iros23_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
             
             # add the action costs associated with the robot actions
+            # preimage contains the preimage of current winning states and not the current winning states itself. 
             next_winning_states = defaultdict(lambda: self.manager.bddZero())
+            # TODO Fix this! 
             for sCost, sbdd in self.states_per_cost.items():
                 for pre_sVal, pre_sbdd in vector_preimage.items():
                     total_cost: int = sCost + pre_sVal
@@ -2412,6 +2422,10 @@ class FrankaWorldDynamicRatioTurnBased():
                     common_states: BDD = sbdd & pre_sbdd
                     if not common_states.isZero():
                         next_winning_states[total_cost] |= common_states
+            
+            # add the current winnign states back
+            for sCost, sbdd in curr_winning_states.items():
+                next_winning_states[sCost] |= sbdd
 
             # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
             if cooperative_game:

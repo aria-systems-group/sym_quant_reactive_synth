@@ -18,6 +18,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
     """
     def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], enable_reordering: bool = False, only_reachable_states: bool = False):
         super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering, only_reachable_states)
+        self.weight = self.manager.addZero()
     
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
@@ -126,37 +127,65 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
     
 
-    def create_sym_weight_dict(self, weight_factor: int = 3):
-        """
-         Ovverride base class method. Here the weights are associated with states rather than actions. We assign all states
-           where the robot is not at `else` location (ready else; holding else) a weight of 1, and states where the robot
-           is at `else` location a weight of 0. For human states, the weight is always 0.
-        """
-        # initialize a weight ADD that assigns cost to each robot state
-        self.weight = self.manager.addZero()
+    def _compute_state_weights(self) -> ADD:
+        """Helper method to compute weights for each system state."""
+        state_weight = self.manager.addZero()
         for rConf in self.pVar_map.keys():
             if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-                # if rConf in self.init:
-                #     continue
                 # add that if you are human loc then weight is weight_factor times more expensive
                 if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
                     if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:
-                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(weight_factor), self.weight)
+                        state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(self.weight_factor), state_weight)
                     else:
-                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.weight)
+                        state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), state_weight)
                 elif rConf.split(' ')[0] == 'to-obj':
                     box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
                     for hloc in self.human_locs:
-                        self.weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(weight_factor), self.weight)
+                        state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(self.weight_factor), state_weight)
         
-        # if the state is an accepting state, then weight is 0
-        self.weight = self.goal_latch.ite(self.manager.addZero(), self.weight)
+        return state_weight
+    
+
+    def create_sym_weight_dict(self, debug: bool = False):
+        """
+        Override base class method to create a monolithic ADD for weights.
+        
+        Weights are primarily associated with system states. A cost is incurred when the system reaches an intended state.
+         This method also computes costs for environment (human) state-action pairs that lead to these intended system states.
+        """
+        # Compute weights for system states
+        state_weight = self._compute_state_weights()
+        
+        # Goal states have zero cost
+        no_goal_weight = self.goal_latch.ite(self.manager.addZero(), state_weight)
+        
+        # Compute weights for human actions leading to weighted system states
+        # by taking the preimage over the full transition relation.
+        no_goal_weight_primed = no_goal_weight.swapVariables(self.latches, self.prime_latches)
+        new_weight = no_goal_weight_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        # Handle the case where the goal is a human state.
+        # Find system states that can transition to a human goal state and assign them weights
+        human_goal = self.tVar_map_sym['human'] & self.goal_latch
+        human_goal_primed = human_goal.swapVariables(self.latches, self.prime_latches)
+        
+        sys_state_evolve_to_human_goal_action = human_goal_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        sys_state_evolve_to_human_goal = self.symbolic_max_abstract(sys_state_evolve_to_human_goal_action, self.rVars)
+        sys_state_evolve_to_human_goal_weighted = sys_state_evolve_to_human_goal.ite(no_goal_weight, self.manager.addZero())
+
+        # Combine all weights into the final weight ADD
+        self.weight = self.weight.ite(new_weight, self.manager.addZero())
+        self.weight |= (sys_state_evolve_to_human_goal_weighted & self.monolithic_relevant_box_preds & self.kVal_cube) 
+
+        if debug:
+            print("Debug: Dumping computed weights (state-action pairs):")
+            self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
                 
             
     
     def get_states_per_cost(self):
         """
-         A helper function that takes in the ADD weight abd return a vector of 0-1 BDD per cost.
+         A helper function that takes in the ADD weight and return a vector of 0-1 BDD per cost.
         """
         relevant_box_preds_bdd: BDD = self.monolithic_relevant_box_preds.bddPattern()
 
@@ -315,6 +344,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 # create s a_s s' transitions - human
                 prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'to-obj b{b}'] & self.prime_kVar_map_sym['k0']
                 self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
     def create_human_move_transfer(self) -> None:
         """
@@ -381,6 +411,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 # create s a_s s' transitions - human
                 prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{to_loc}'] & self.prime_kVar_map_sym['k0']
                 self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
     
     def get_next_state_human(self, curr_state: List[str], action: str) -> Tuple[ADD, str] :
