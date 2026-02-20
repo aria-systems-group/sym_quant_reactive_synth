@@ -2278,6 +2278,9 @@ class FrankaWorldDynamicRatioTurnBased():
                     if not sval_to_update.isZero():
                         preimage[sval] &= ~sval_to_update
                         preimage[goal_sval] |= sval_to_update
+                    
+                    # add the goal states back to the preimage with their respective goal sval
+                    preimage[goal_sval] |= goal[goal_sval]
         return preimage
 
 
@@ -2384,9 +2387,6 @@ class FrankaWorldDynamicRatioTurnBased():
         # create Partitioned TR based on actions
         self.convert_mono_tr_to_action_tr()
         self.get_states_per_cost()
-        # TESTING 
-        testing = self.convert_vector_of_bdd_to_add(bdd_vector=self.states_per_cost)
-        assert testing == self.weight, "Make sure the conversion from vector of BDD to ADD is correct!!"
         goal_states_buckets = defaultdict(lambda: self.manager.bddZero())
 
         # initialize goal state with 0 state value and add it to the winning region
@@ -2418,7 +2418,6 @@ class FrankaWorldDynamicRatioTurnBased():
             # add the action costs associated with the robot actions
             # preimage contains the preimage of current winning states and not the current winning states itself. 
             next_winning_states = defaultdict(lambda: self.manager.bddZero())
-            # TODO Fix this! 
             for sCost, sbdd in self.states_per_cost.items():
                 for pre_sVal, pre_sbdd in vector_preimage.items():
                     total_cost: int = sCost + pre_sVal
@@ -2427,18 +2426,13 @@ class FrankaWorldDynamicRatioTurnBased():
                     if not common_states.isZero():
                         next_winning_states[total_cost] |= common_states
             
-            # add the current winnign states back
-            for sCost, sbdd in curr_winning_states.items():
-                next_winning_states[sCost] |= sbdd
-
             # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
             if cooperative_game:
                 next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=next_winning_states)
             else:
-                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=True)
+                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=False)
             # retain the min over goal states - here all goal states are at 0 cost
             next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
-
 
             # adding debugging step
             if verbose:
