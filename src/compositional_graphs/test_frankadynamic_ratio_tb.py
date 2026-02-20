@@ -36,7 +36,6 @@ class FrankaWorldDynamicRatioTurnBased():
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio
-        self.weight_factor: int = weight_factor
         self.human_locs: List[int] = restricted_human_locs
         self.human_boxes: List[int] = restricted_human_boxes
         self.only_reachable_states = only_reachable_states
@@ -96,7 +95,8 @@ class FrankaWorldDynamicRatioTurnBased():
         
         self.weight_dict: Dict[str, int] = {'transit': 1, 'transfer': 1, 'grasp': 1, 'release': 1}
         self.symbolic_weight_dict: Dict[str, ADD] = defaultdict(lambda: self.manager.addOne())
-        # self.create_sym_weight_dict()
+        self.weight = self.manager.addZero()
+        self.weight_factor: int = weight_factor
 
         # precompute cubes of valid Robot and Env actions - needed for synthesis
         self.env_action_cube_list = []
@@ -128,6 +128,10 @@ class FrankaWorldDynamicRatioTurnBased():
     def human_locs(self):
         return self._human_locs
 
+    @property
+    def weight_factor(self):
+        return self._weight_factor
+    
     @human_boxes.setter
     def human_boxes(self, hboxes: List[int]):
         assert set(hboxes).issubset(set(range(self.boxes))), "[Error] Human boxes should be a subset of all boxes."
@@ -137,7 +141,13 @@ class FrankaWorldDynamicRatioTurnBased():
     @human_locs.setter
     def human_locs(self, hlocs: List[int]):
         assert set(hlocs).issubset(set(range(1, self.locs + 1))), "[Error] Human locs should be a subset of all locs."
-        self._human_locs = hlocs  
+        self._human_locs = hlocs
+    
+    @weight_factor.setter
+    def weight_factor(self, weight_factor: int):
+        assert weight_factor > 0, "[Error] Weight factor should be a positive integer."
+        assert self.weight == self.manager.addZero(), f"[Error] Weight is already set with weight factor {self.weight_factor}"
+        self._weight_factor = weight_factor
     
 
     def create_all_boolean_state_vars_and_maps(self):
@@ -757,7 +767,6 @@ class FrankaWorldDynamicRatioTurnBased():
         self.post_process_transition_relation()
 
         # post process weight dictionary to remove irrelvant states
-        # self.weight = self.monolithic_relevant_box_preds.ite(self.weight, self.manager.plusInfinity())
         self.create_sym_weight_dict()
 
         if self.only_reachable_states:
@@ -2006,13 +2015,12 @@ class FrankaWorldDynamicRatioTurnBased():
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
         """
-        # initialize goal state with 0 state value and add it to the winnign regiom
+        # initialize goal state with 0 state value and add it to the winning region
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
         if self.only_reachable_states:
             self.post_process_transition_relation_reachable()
 
-        # print the initial winning states
         if verbose:
             print("Initial Winning States:")
             # by default generate cubes does not retuen cubes that point to 0 leaf. 
@@ -2022,7 +2030,6 @@ class FrankaWorldDynamicRatioTurnBased():
         # intialize the iteration counter
         layer = 0
         valid_human_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
-        # iteration bookkeeping
         self.iteration_bookkeeping = []
 
         while True:
@@ -2156,7 +2163,6 @@ class FrankaWorldDynamicRatioTurnBased():
     
 
     def convert_mono_tr_to_action_tr(self):
-        # loop through the transition relation and separate them based on action
         for tr_bdd in self.transition_relation.values():
             self.ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
@@ -2285,7 +2291,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def convert_vector_of_bdd_to_add(self, bdd_vector: Dict[int, BDD]) -> ADD:
         """
-         A helper function that converts a vector of BDDs to an ADD. USed in puree BDD solver method for 
+         A helper function that converts a vector of BDDs to an ADD. Used in pure BDD solver method for 
           (1) printing the winning states
           (2) returning the preimage strategy
         """
@@ -2310,6 +2316,7 @@ class FrankaWorldDynamicRatioTurnBased():
         goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
         next_winning_states = self.manager.plusInfinity()
+        
         # intialize the iteration counter
         layer = 0
         c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
