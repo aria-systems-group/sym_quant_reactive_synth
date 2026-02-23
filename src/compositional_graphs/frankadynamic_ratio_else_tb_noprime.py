@@ -1,7 +1,9 @@
+import re
 import sys
 import math
 import time
 
+from random import randint
 from functools import reduce
 from typing import List, Tuple, Union
 
@@ -124,20 +126,102 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
             self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'holding l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
             self.monolithic_valid_state_robot_actions |= (self.tVar_map_sym['human'] & self.xVar_map_sym[f'ready l{loc}']).ite(self.manager.addOne(), self.manager.addZero())
     
+    
+    def get_states_per_cost(self):
+        """
+         A helper function that takes in the ADD weight and return a vector of 0-1 BDD per cost.
+        """
+        relevant_box_preds_bdd: BDD = self.monolithic_relevant_box_preds.bddPattern()
 
-    def create_sym_weight_dict(self):
+        lVals = set({0})
+        for _, leaf_value in self.weight.generate_cubes():
+            if leaf_value != math.inf:
+                lVals.add(int(leaf_value))
+        
+        for val in lVals:
+            self.states_per_cost[val] |= self.weight.bddInterval(val, val) & relevant_box_preds_bdd & ~self.goal_latch.bddPattern()
+        
+        self.states_per_cost[0] |= self.goal_latch.bddPattern() & relevant_box_preds_bdd
+
+
+    def _compute_state_weights_random(self, random_weights_interval: Tuple[int, int] = None) -> ADD:
         """
-         Ovverride base class method. Here the weights are associated with states rather than actions. We assign all states
-           where the robot is not at `else` location (ready else; holding else) a weight of 1, and states where the robot
-           is at `else` location a weight of 0. For human states, the weight is always 0.
+         Helper method to compute weights for each system state.
         """
-        # initialize a weight ADD that assigns cost to each robot state
-        self.weight = self.manager.addZero()
+        self.state_weight = self.manager.addZero()
         for rConf in self.pVar_map.keys():
             if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
-                # if rConf in self.init:
-                #     continue
-                self.weight |= self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]
+                # add that if you are human loc then weight is weight_factor times more expensive
+                if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
+                    if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:
+                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(randint(random_weights_interval[0], random_weights_interval[1])), self.state_weight)
+                    else:
+                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.state_weight)
+                elif rConf.split(' ')[0] == 'to-obj':
+                    box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
+                    for hloc in self.human_locs:
+                        if random_weights_interval is not None:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(randint(random_weights_interval[0], random_weights_interval[1])), self.state_weight)
+        
+        # Goal states have zero cost
+        self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
+    
+    
+    
+    def _compute_state_weights(self) -> ADD:
+        """
+         Helper method to compute weights for each system state.
+        """
+        self.state_weight = self.manager.addZero()
+        for rConf in self.pVar_map.keys():
+            if rConf != f'ready l{self.locs + 1}' and rConf != f'holding l{self.locs + 1}':
+                # add that if you are human loc then weight is weight_factor times more expensive
+                if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
+                    if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:    
+                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+                    else:
+                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.state_weight)
+                elif rConf.split(' ')[0] == 'to-obj':
+                    box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
+                    for hloc in self.human_locs:
+                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+        
+        # Goal states have zero cost
+        self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
+    
+
+    def create_sym_weight_dict(self, debug: bool = False, user_random_weights: bool = False):
+        """
+        Override base class method to create a monolithic ADD for weights.
+        
+        Weights are primarily associated with system states. A cost is incurred when the system reaches an intended state.
+         This method also computes costs for environment (human) state-action pairs that lead to these intended system states.
+        """
+        # Compute weights for system states
+        if user_random_weights:
+            self._compute_state_weights_random(random_weights_interval=[1, 20])
+        else:
+            self._compute_state_weights()
+        
+        # Compute weights for human actions leading to weighted system states
+        # by taking the preimage over the full transition relation.
+        new_weight =  self.state_weight.vectorCompose(self.latches, list(self.transition_relation.values()))
+
+        # Handle the case where the goal is a human state.
+        # Find system states that can transition to a human goal state and assign them weights
+        human_goal = self.tVar_map_sym['human'] & self.goal_latch
+        
+        sys_state_evolve_to_human_goal_action = human_goal.vectorCompose(self.latches, list(self.transition_relation.values()))
+        sys_state_evolve_to_human_goal = self.symbolic_max_abstract(sys_state_evolve_to_human_goal_action, self.rVars)
+        sys_state_evolve_to_human_goal_weighted = sys_state_evolve_to_human_goal.ite(self.state_weight, self.manager.addZero())
+
+        # Combine all weights into the final weight ADD
+        self.weight = self.weight.ite(new_weight, self.manager.addZero())
+        self.weight |= (sys_state_evolve_to_human_goal_weighted & self.monolithic_relevant_box_preds & self.kVal_cube) 
+
+        if debug:
+            print("Debug: Dumping computed weights (state-action pairs):")
+            self.convert_cube_to_state_ADD(self.weight, action=True, verbose=True)
     
     def create_transit_actions(self):
         """
@@ -268,6 +352,8 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
                 for sidx, s in enumerate(self.kVar_map['k0']):
                     if s == '1':
                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                
+                self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
 
                 
     def create_human_move_transfer(self) -> None:
@@ -327,6 +413,8 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
                 for sidx, s in enumerate(self.kVar_map['k0']):
                     if s == '1':
                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
+                
+                self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
     
     def get_next_state_human(self, curr_state: List[str], action: str) -> Tuple[ADD, str] :

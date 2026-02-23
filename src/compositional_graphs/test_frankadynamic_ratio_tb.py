@@ -766,7 +766,6 @@ class FrankaWorldDynamicRatioTurnBased():
         # keep only the valid robot states and actions in the transition relation
         self.post_process_transition_relation()
 
-        # post process weight dictionary to remove irrelvant states
         self.create_sym_weight_dict()
 
         if self.only_reachable_states:
@@ -1104,8 +1103,7 @@ class FrankaWorldDynamicRatioTurnBased():
                     prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'to-obj b{b}'] & self.prime_kVar_map_sym['k0']
                     self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
 
-                    # create the weight ADD - for now they
-                    # self.create_sym_weight_dict()
+                    # create the weight ADD
                     self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
 
 
@@ -2416,7 +2414,6 @@ class FrankaWorldDynamicRatioTurnBased():
             vector_preimage: Dict[int, BDD] = self.iros23_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
             
             # add the action costs associated with the robot actions
-            # preimage contains the preimage of current winning states and not the current winning states itself. 
             next_winning_states = defaultdict(lambda: self.manager.bddZero())
             for sCost, sbdd in self.states_per_cost.items():
                 for pre_sVal, pre_sbdd in vector_preimage.items():
