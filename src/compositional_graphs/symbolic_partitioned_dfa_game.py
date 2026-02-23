@@ -171,16 +171,55 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
     def set_goal_latch(self):
         return self.dfa_handle.goal_latch
 
+
+    def create_sym_weight_dict(self, debug: bool = False, user_random_weights: bool = False):
+        """
+        Override base class method to create a monolithic ADD for weights. Here the main different Compose operation which is performed over DFA Game latches
+        
+        Weights are primarily associated with system states. A cost is incurred when the system reaches an intended state.
+         This method also computes costs for environment (human) state-action pairs that lead to these intended system states.
+        """
+        # Compute weights for system states
+        if user_random_weights:
+            self._compute_state_weights_random(random_weights_interval=[1, 20])
+        else:
+            self._compute_state_weights()
+        
+        # Compute weights for human actions leading to weighted system states
+        # by taking the preimage over the full transition relation.
+        no_goal_weight_primed = self.state_weight.swapVariables(self.latches, self.prime_latches)
+        new_weight = no_goal_weight_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        # Handle the case where the goal is a human state.
+        # Find system states that can transition to a human goal state and assign them weights
+        human_goal = self.tVar_map_sym['human'] & self.goal_latch
+        human_goal_primed = human_goal.swapVariables(self.qVars, self.prime_qVars)
+        dfa_human_goal: ADD = human_goal_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+        dfa_human_goal_primed = dfa_human_goal.swapVariables(self.latches, self.prime_latches)
+
+        sys_state_evolve_to_human_goal_action = dfa_human_goal_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        sys_state_evolve_to_human_goal = self.symbolic_max_abstract(sys_state_evolve_to_human_goal_action, self.rVars)
+        sys_state_evolve_to_human_goal_weighted = sys_state_evolve_to_human_goal.ite(self.state_weight, self.manager.addZero())
+
+        # Combine all weights into the final weight ADD
+        self.weight = self.weight.ite(new_weight, self.manager.addZero())
+        self.weight |= (sys_state_evolve_to_human_goal_weighted & self.monolithic_relevant_box_preds & self.kVal_cube) 
+
+        if debug:
+            print("Debug: Dumping computed weights (state-action pairs):")
+            self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
+
     
     def create_transition_relation(self):
         """
          Call the base method's create transition relation for the Game Construction.  
         """
-        # game TR
-        super().create_transition_relation()
-
         # DFA TR
         self.dfa_handle.create_dfa_transition_relation()
+        
+        # game TR
+        super().create_transition_relation()
+        
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
 
@@ -427,7 +466,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, state_flag=True, action=False, verbose=verbose, table_header=False)
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym & self.comp_winning_states, state_flag=True, action=False, verbose=verbose, table_header=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
