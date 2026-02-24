@@ -523,6 +523,7 @@ class FrankaWorldDynamicRatioTurnBased():
         init_cube = self.tVar_map_sym['robot'] & self.kVar_map_sym['k0']
         for s in self.init:
             init_cube &= self.xVar_map_sym[s]
+        assert init_cube != self.manager.addZero(), "The init cube is zero ADD. Please ensure there are not repetition of boxes in init state"
         return init_cube
     
 
