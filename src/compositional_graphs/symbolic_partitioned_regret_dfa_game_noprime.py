@@ -188,14 +188,14 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         """
          A helper function that takes in the ADD weight abd return a vector of 0-1 ADD per cost.
         """
-        min_val: int = 0
-        max_val: int = 1
+        lVals = set({0})
+        for _, leaf_value in self.weight.generate_cubes():
+            if leaf_value != math.inf:
+                lVals.add(int(leaf_value))
         
-        for val in range(min_val, max_val + 1, 1):
-            # if val != 0:
-                # self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & ~self.init_latch
-            # else:
+        for val in lVals:
             self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds
+
     
     def count_actions_per_state_gou(self) -> ADD:
         """
@@ -229,10 +229,9 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         """
         self.uVars_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.uVars}
         self.get_states_per_cost()
-        valid_state_costs = [1, 0]
         for u in range(self.budget + 1):
             uConf_cube = self.uVar_map_sym[f'u{u}']
-            for state_cost in valid_state_costs:
+            for state_cost in self.states_per_cost.keys():
                 transition_cube = uConf_cube & self.states_per_cost[state_cost]
                 
                 prime_u_val = u + state_cost if (u + state_cost) <= self.budget else self.budget + 1 
@@ -776,7 +775,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
             self.gobr_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
-    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, c_max: int) -> Dict[int, BDD]:
+    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD) -> Dict[int, BDD]:
         """
          Given a monolithic ADD of winning states, convert it into buckets of BDDs based on state values.
 
@@ -785,7 +784,7 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         
         # convert the winning states into buckets of BDD
-        for sval in range(0, self.budget + 1, c_max):
+        for sval in range(0, self.budget + 1):
             # get the states with state value equal to sval and store them in their respective bukcets
             win_sval = monolithic_add.bddInterval(sval, sval)
 
@@ -867,11 +866,10 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         
         # intialize the iteration counter
         layer = 0
-        c_max: int = 1
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, c_max=c_max)
+            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states)
             preimage: ADD = self.iros23_gou_compute_preimage(win_state_bucket)
             next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             
@@ -1112,7 +1110,6 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         curr_state_sym = kwargs['curr_state_sym']
         
         if turn == 'robot':
-            # next_br = (self.monolithic_valid_full_gobr_trns.restrict(curr_state_sym & curr_action_sym).bddInterval(1, 1).pickOneMinterm(prime_brVars_bdd)).toADD()
             cube = list(self.monolithic_br.restrict(curr_state_sym & curr_action_sym).generate_cubes())
             assert len(cube) == 1, "Make sure there is only one best-alternate response value for the given state-action pair."
             next_br = cube[0][1]
@@ -1121,44 +1118,30 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
         return self.brVar_map_sym[curr_br_state_val]
     
 
-    def get_next_state_robot(self, curr_state: List[str], action: str, **kwargs) -> ADD:
-        next_state_dfa_game = super().get_next_state_robot(curr_state, action)
-
-        # all the operations done in the parent method. Now include the utility variable transition
-        try:
-            curr_state_utl: str = kwargs['curr_state_utl']
-            curr_state_sym: str = kwargs['curr_state_sym']
-        except KeyError:
-            print("Cannot rollout the strategy without current utility value or current state in symbolic form.")
-            raise ValueError("curr_state_utl_val must be provided as a keyword argument.")
-
+    def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
+        # get the next state in the game in explicit form
+        curr_game_state = list(curr_state_exp[0][0][0][0])
+        curr_utl_state_val = curr_state_exp[0][0][0][-1]
+        curr_state_sym = kwargs['curr_state_sym']
+        if turn == 'robot':
+            next_state_dfa_game: ADD = self.get_next_state_robot(curr_game_state, act_name)
+        else:
+            next_state_dfa_game, act_name = self.get_next_state_human(curr_game_state, act_name)
+        
+        # update uVal - get the next utility value based on the current state and action
         # get the state cost
-        if self.weight.cofactor(curr_state_sym).isZero():
+        if self.weight.cofactor(curr_state_sym & self.action_map_sym[act_name]).isZero():
             state_cost: int = 0
         else:
-            state_cost: int = int(list((self.weight.cofactor(curr_state_sym)).generate_cubes())[0][1])
-        state_utl: int = int(curr_state_utl[-1])
+            state_cost: int = int(list((self.weight.cofactor(curr_state_sym & self.action_map_sym[act_name])).generate_cubes())[0][1])
+        state_utl: int = int(curr_utl_state_val[1:])
 
         if state_utl + state_cost <= self.budget:
             next_uVar_sym = self.uVar_map_sym[f'u{state_utl + state_cost}']
         else:
             next_uVar_sym = self.uVar_map_sym[f'u{self.budget + 1}']
-
-        return next_state_dfa_game & next_uVar_sym
-    
-
-    def get_next_state_human(self, curr_state: List[str], action: str, **kwargs) -> ADD:
-        next_state_dfa_game, act_name = super().get_next_state_human(curr_state, action)
-
-        # all the operations done in the parent method. Now include the utility variable transition
-        try:
-            curr_state_utl: str = kwargs['curr_state_utl']
-        except KeyError:
-            print("Cannot rollout the strategy without current utility value or current state in symbolic form.")
-            raise ValueError("curr_state_utl_val must be provided as a keyword argument.")
-
-        # from the human state the cost remains the same
-        return next_state_dfa_game & self.uVar_map_sym[curr_state_utl], act_name
+        
+        return next_state_dfa_game & next_uVar_sym, act_name
     
 
     def gou_convert_cube_to_state_ADD(self,
