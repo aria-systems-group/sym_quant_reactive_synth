@@ -1498,12 +1498,10 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     
 
     def check_reached_fixpoint_bdd(self, curr_winning_states: Dict[int, BDD], next_winning_states: Dict[int, BDD]) -> bool:
-        if set(next_winning_states.keys()) != set(curr_winning_states.keys()):
+        curr_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+        next_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
+        if not next_winning_states_add.compare(curr_winning_states_add, 2):
             return False
-        else:
-            for new_bdd, pre_bdd in zip(next_winning_states.values(), curr_winning_states.values()):
-                if not pre_bdd.compare(new_bdd, 2):
-                    return False
         return True
 
     
