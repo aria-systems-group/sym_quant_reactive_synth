@@ -150,7 +150,6 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
     
     
-    
     def _compute_state_weights(self) -> ADD:
         """
          Helper method to compute weights for each system state.
@@ -161,9 +160,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 # add that if you are human loc then weight is weight_factor times more expensive
                 if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
                     if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:    
-                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+                        self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addConst(self.weight_factor), self.state_weight)
                     else:
-                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.state_weight)
+                        self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addOne(), self.state_weight)
                 elif rConf.split(' ')[0] == 'to-obj':
                     box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
                     for hloc in self.human_locs:
@@ -190,6 +189,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         # by taking the preimage over the full transition relation.
         no_goal_weight_primed = self.state_weight.swapVariables(self.latches, self.prime_latches)
         new_weight = no_goal_weight_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        # prune out states that have holding and ready in the human state as we already add the weight to human actions.
+        new_weight = new_weight.ite(~(self.tVar_map_sym['human'] & (reduce(lambda x, y: x | y, [self.xVar_map_sym[f'holding l{loc}'] | self.xVar_map_sym[f'ready l{loc}'] for loc in range(1, self.locs + 1)]))), self.manager.addZero())
 
         # Handle the case where the goal is a human state.
         # Find system states that can transition to a human goal state and assign them weights

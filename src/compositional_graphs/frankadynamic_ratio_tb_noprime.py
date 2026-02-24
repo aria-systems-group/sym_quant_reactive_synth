@@ -792,6 +792,8 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                 for sidx, s in enumerate(box_clause_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                self.weight |= robot_transition_cube.ite(self.manager.addOne(), self.weight)
     
     def create_release_actions(self) -> None:
         """
@@ -832,6 +834,8 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                 for sidx, s in enumerate(box_clause_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                self.weight |= robot_transition_cube.ite(self.manager.addOne(), self.weight)
     
     
     def create_transit_actions(self) -> None:
@@ -1636,13 +1640,13 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
     
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
         """
-         A function to rollout a give strategy
+         A function to rollout a given strategy
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
-        while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state & self.comp_winning_states, action=False, table_header=False, verbose=verbose)
+        while (curr_state & self.goal_latch).isZero():
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, action=False, table_header=False, verbose=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
@@ -1651,6 +1655,9 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                 opt_sval: int = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
             except IndexError:
                 opt_sval: int = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
 
             # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)

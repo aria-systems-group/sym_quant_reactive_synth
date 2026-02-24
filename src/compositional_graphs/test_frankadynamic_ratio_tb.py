@@ -766,7 +766,7 @@ class FrankaWorldDynamicRatioTurnBased():
         # keep only the valid robot states and actions in the transition relation
         self.post_process_transition_relation()
 
-        self.create_sym_weight_dict()
+        self.create_sym_weight_dict(debug=False)
 
         if self.only_reachable_states:
             self.postprocess_monolithic_valid_state_robot_actions_prime_state()
@@ -822,6 +822,8 @@ class FrankaWorldDynamicRatioTurnBased():
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
                 
+                self.weight |= robot_transition_cube.ite(self.manager.addOne(), self.weight)
+                
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['holding l' + str(loc)] & self.prime_xVar_map_sym[f'b{b} l0']
                 self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
@@ -866,6 +868,8 @@ class FrankaWorldDynamicRatioTurnBased():
                 for sidx, s in enumerate(box_clause_prime_string):
                     if s == '1':
                         self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
+                
+                self.weight |= robot_transition_cube.ite(self.manager.addOne(), self.weight)
 
                 # create s a_s s' transitions
                 prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym['ready l' + str(loc)] & self.prime_xVar_map_sym[next_box_pred]
@@ -1847,21 +1851,23 @@ class FrankaWorldDynamicRatioTurnBased():
     
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
         """
-         A function to rollout a give strategy
+         A function to rollout a given strategy
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
-        while (curr_state & self.goal_latch.existAbstract(self.tVar[0])).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state & self.comp_winning_states, state_flag=True, action=False, table_header=False, verbose=verbose)
-            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
-            "For rollout, it should be a single intial state."
+        while (curr_state & self.goal_latch).isZero():
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=False)
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
             
             # first get the optimum state value
             try:
                 opt_sval: int = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
             except IndexError:
                 opt_sval: int = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
 
             # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)

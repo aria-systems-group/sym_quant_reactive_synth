@@ -152,6 +152,9 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         # by taking the preimage over the full transition relation.
         new_weight = self.state_weight.vectorCompose(self.latches, list(self.transition_relation.values()))
 
+        # prune out states that have holding and ready in the human state as we already add the weight to human actions.
+        new_weight = new_weight.ite(~(self.tVar_map_sym['human'] & (reduce(lambda x, y: x | y, [self.xVar_map_sym[f'holding l{loc}'] | self.xVar_map_sym[f'ready l{loc}'] for loc in range(1, self.locs + 1)]))), self.manager.addZero())
+
         # Handle the case where the goal is a human state.
         # Find system states that can transition to a human goal state and assign them weights
         human_goal = self.tVar_map_sym['human'] & self.goal_latch
@@ -289,7 +292,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym & self.comp_winning_states, action=False, verbose=verbose, table_header=False)
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, action=False, verbose=False, table_header=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
@@ -298,6 +301,9 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
                 opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
             except IndexError:
                 opt_sval = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
             
             turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
             
