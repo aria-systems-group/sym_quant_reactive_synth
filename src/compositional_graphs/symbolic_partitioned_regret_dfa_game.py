@@ -1260,51 +1260,24 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         curr_utl_state_val = curr_state_exp[0][0][0][-1]
         curr_state_sym = kwargs['curr_state_sym']
         if turn == 'robot':
-            curr_game_state_sym: ADD = self.get_next_state_robot(curr_game_state, act_name, curr_state_utl=curr_utl_state_val, curr_state_sym=curr_state_sym)
+            next_state_dfa_game: ADD = self.get_next_state_robot(curr_game_state, act_name)
         else:
-            curr_game_state_sym, act_name = self.get_next_state_human(curr_game_state, act_name, curr_state_utl=curr_utl_state_val)
+            next_state_dfa_game, act_name = self.get_next_state_human(curr_game_state, act_name)
         
-        return curr_game_state_sym, act_name
-    
-
-    def get_next_state_robot(self, curr_state: List[str], action: str, **kwargs) -> ADD:
-        next_state_dfa_game = super().get_next_state_robot(curr_state, action)
-
-        # all the operations done in the parent method. Now include the utility variable transition
-        try:
-            curr_state_utl: str = kwargs['curr_state_utl']
-            curr_state_sym: str = kwargs['curr_state_sym']
-        except KeyError:
-            print("Cannot rollout the strategy without current utility value or current state in symbolic form.")
-            raise ValueError("curr_state_utl_val must be provided as a keyword argument.")
-
+        # update uVal - get the next utility value based on the current state and action
         # get the state cost
-        if self.weight.cofactor(curr_state_sym).isZero():
+        if self.weight.cofactor(curr_state_sym & self.action_map_sym[act_name]).isZero():
             state_cost: int = 0
         else:
-            state_cost: int = int(list((self.weight.cofactor(curr_state_sym)).generate_cubes())[0][1])
-        state_utl: int = int(curr_state_utl[-1])
+            state_cost: int = int(list((self.weight.cofactor(curr_state_sym & self.action_map_sym[act_name])).generate_cubes())[0][1])
+        state_utl: int = int(curr_utl_state_val[-1])
 
         if state_utl + state_cost <= self.budget:
             next_uVar_sym = self.uVar_map_sym[f'u{state_utl + state_cost}']
         else:
             next_uVar_sym = self.uVar_map_sym[f'u{self.budget + 1}']
-
-        return next_state_dfa_game & next_uVar_sym
-    
-
-    def get_next_state_human(self, curr_state: List[str], action: str, **kwargs) -> ADD:
-        next_state_dfa_game, act_name = super().get_next_state_human(curr_state, action)
-
-        # all the operations done in the parent method. Now include the utility variable transition
-        try:
-            curr_state_utl: str = kwargs['curr_state_utl']
-        except KeyError:
-            print("Cannot rollout the strategy without current utility value or current state in symbolic form.")
-            raise ValueError("curr_state_utl_val must be provided as a keyword argument.")
-
-        # from the human state the cost remains the same
-        return next_state_dfa_game & self.uVar_map_sym[curr_state_utl], act_name
+        
+        return next_state_dfa_game & next_uVar_sym, act_name
     
     
     def gou_roll_out_strategy(self, strategy: ADD, verbose: bool = False):
@@ -1316,11 +1289,11 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             curr_state_exp: List[str] = self.gou_convert_cube_to_state_ADD(curr_state_sym,
-                                                                            state_flag=True,
-                                                                            action=False,
-                                                                            verbose=False,
-                                                                            table_header=False,
-                                                                            print_val=False)
+                                                                           state_flag=True,
+                                                                           action=False,
+                                                                           verbose=False,
+                                                                           table_header=False,
+                                                                           print_val=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
