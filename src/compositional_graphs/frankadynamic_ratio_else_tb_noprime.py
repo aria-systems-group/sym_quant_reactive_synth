@@ -159,9 +159,11 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
                         self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf]).ite(self.manager.addOne(), self.state_weight)
                 elif rConf.split(' ')[0] == 'to-obj':
                     box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
-                    for hloc in self.human_locs:
-                        if random_weights_interval is not None:
-                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(randint(random_weights_interval[0], random_weights_interval[1])), self.state_weight)
+                    for loc in range(1, self.locs + 1):
+                        if loc in self.human_locs:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addConst(randint(random_weights_interval[0], random_weights_interval[1])), self.state_weight)
+                        else:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addOne(), self.state_weight)
         
         # Goal states have zero cost
         self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
@@ -183,8 +185,11 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
                         self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addOne(), self.state_weight)
                 elif rConf.split(' ')[0] == 'to-obj':
                     box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
-                    for hloc in self.human_locs:
-                        self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{hloc}']).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+                    for loc in range(1, self.locs + 1):
+                        if loc in self.human_locs:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+                        else:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addOne(), self.state_weight)
         
         # Goal states have zero cost
         self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
