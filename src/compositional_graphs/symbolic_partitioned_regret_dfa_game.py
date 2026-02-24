@@ -254,17 +254,15 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
          A helper function that takes in the ADD weight abd return a vector of 0-1 ADD per cost.
         """
-        min_val: int = 0
-        max_val: int = 1
+        lVals = set({0})
+        for _, leaf_value in self.weight.generate_cubes():
+            if leaf_value != math.inf:
+                lVals.add(int(leaf_value))
         
-        for val in range(min_val, max_val + 1, 1):
-            # if val != 0:
-                # self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & ~self.init_latch
-            # else:
-            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds
+        for val in lVals:
+            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds #& ~self.goal_latch
         
-        # manually add the init state to cost 0
-        # self.states_per_cost[1] |= self.init_latch
+        # self.states_per_cost[0] |= self.goal_latch & self.monolithic_relevant_box_preds
     
 
     def create_utility_transition_relation(self):
@@ -273,10 +271,9 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         """
         self.uVars_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.uVars}
         self.get_states_per_cost()
-        valid_state_costs = [1, 0]
         for u in range(self.budget + 1):
             uConf_cube = self.uVar_map_sym[f'u{u}']
-            for state_cost in valid_state_costs:
+            for state_cost in self.states_per_cost.keys():
                 transition_cube = uConf_cube & self.states_per_cost[state_cost]
                 
                 prime_u_val = u + state_cost if (u + state_cost) <= self.budget else self.budget + 1 
@@ -468,18 +465,16 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
 
 
     def gou_convert_mono_tr_to_action_tr(self):
-        # loop throught the transition relation and separate them based on action
         for tr_bdd in self.graph_of_utility_tr:
             self.gou_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
     def gobr_convert_mono_tr_to_action_tr(self):
-        # loop throught the transition relation and separate them based on action
         for tr_bdd in self.graph_of_br_tr:
             self.gobr_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
 
-    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD, c_max: int) -> Dict[int, BDD]:
+    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD) -> Dict[int, BDD]:
         """
          Given a monolithic ADD of winning states, convert it into buckets of BDDs based on state values.
 
@@ -488,7 +483,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         
         # convert the winning states into buckets of BDD
-        for sval in range(0, self.budget + 1, c_max):
+        for sval in range(0, self.budget + 1):
             # get the states with state value equal to sval and store them in their respective bukcets
             win_sval = monolithic_add.bddInterval(sval, sval)
 
@@ -1143,11 +1138,10 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         
         # intialize the iteration counter
         layer = 0
-        c_max: int = 1
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states, c_max=c_max)
+            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states)
             preimage: ADD = self.hybrid_gou_compute_preimage(win_state_bucket)
             next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             
@@ -1337,7 +1331,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 opt_sval = 0
             
             if verbose:
-                # print(tabulate([(curr_state_exp[0][0][0], opt_sval)], headers=['Current State', 'Optimal State Value']))
                 print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
 
             turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
@@ -1397,7 +1390,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 opt_sval = 0
             
             if verbose:
-                # print(tabulate([(curr_state_exp[0][0][0], opt_sval)], headers=['Current State', 'Optimal State Value']))
                 print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
 
             turn = 'robot' if curr_state_exp[0][0][0][0][0][0] == 'robot' else'human'
@@ -1469,28 +1461,12 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_all_br_vars_maps()
         
         # create br Transition Relation
-        # print("[DEBUG]: Variable Order BEFORE creating monolithic full_gobr_trns ADD:", self.manager.bddOrder(), sep='\n')
-        # print("[DEBUG]: Max Memory BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DEBUG]: Max Live Nodes BEFORE creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
         tic = time.time()
         self.create_best_alternate_response_transition_relation()
         toc = time.time()
         print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
         self.logger.comp_time['GoBR_TR_Creation_Time'] = toc - tic
-        # print("[DEBUG]: Variable Order AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DEBUG]: Max Memory AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxMemory(), sep='\n')
-        # print("[DEBUG]: Max Live Nodes AFTER creating monolithic full_gobr_trns ADD:", self.manager.readMaxLive(), sep='\n')
 
-        # compute reachbale states
-        # if self.regret_game_only_reachable_states:
-        #     # tic = time.time()
-        #     self.gobr_care_set: ADD = self.compute_gobr_reachable_states(verbose=True, print_states=False)
-            # toc = time.time()
-            # print(f"Time to compute GoBR reachable states: {toc - tic} seconds")
-
-        # test BR TR for sanity checking
-        # self.test_pre_image()
-        # self.test_br_pre_image_old_approach()
     
 
     def count_actions_per_state_gou(self) -> ADD:
