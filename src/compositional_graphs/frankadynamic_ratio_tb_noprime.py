@@ -487,7 +487,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
          A tiny method to create relevant box predicates for each box.
         """
         for box_str, box_add in self.bVar_map_sym.items():
-            box_id = int(box_str.split(' ')[0][-1])
+            box_id = int(box_str.split(' ')[0][1:])
             assert isinstance(box_id, int) and box_id in range(self.boxes), "Error in extracting box id. Fix this!!!"
             self.relevant_box_preds_sym[box_id] |= box_add
     
@@ -1710,7 +1710,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                     return 'hmove noop'
             
             # checking point 2
-            curr_box__loc = split_str[int(b_idx[-1])].split(' ')[1]
+            curr_box__loc = split_str[int(b_idx[1:])].split(' ')[1]
             if int(curr_box__loc[1:]) in self.restricted_human_locs:
                 return 'hmove noop'
             
@@ -1719,7 +1719,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                 return 'hmove noop'
 
             # checking point 4
-            kval = int(curr_state[human_move_idx][-1])
+            kval = int(curr_state[human_move_idx][1:])
             if (self.ratio == 0 and kval == 0) or kval >= self.ratio:
                 return 'hmove noop'
         else:
@@ -1763,11 +1763,11 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         elif action.startswith('hmove'):
             # update box configuration
             b_idx = action.split(' ')[1]
-            kval = int(curr_state[human_move_idx][-1])
+            kval = int(curr_state[human_move_idx][1:])
             hmove_to_loc = action.split(' ')[2]
             # the box str will be of the form b0 l1, b1 l3, etc..
             split_str = curr_state[box_idx].split(', ')
-            split_str[int(b_idx[-1])] = f'{b_idx} {hmove_to_loc}'
+            split_str[int(b_idx[1:])] = f'{b_idx} {hmove_to_loc}'
             curr_state[box_idx] = ', '.join(split_str)
             # update robot configuration based on current robot configuration if the human moves a box        
             if curr_state[rConf_idx].startswith('in-transit'):
@@ -1816,7 +1816,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
         elif action.startswith('grasp'):
             if curr_state[rConf_idx].startswith('to-obj'):
                 box: str = curr_state[rConf_idx].split(' ')[1]
-                b_idx = int(box[-1])
+                b_idx = int(box[1:])
                 # the box str will of the form b0 l1, b1 l3, etc..
                 split_str = curr_state[box_idx].split(', ')
                 l_idx = split_str[b_idx].split(' ')[1] 

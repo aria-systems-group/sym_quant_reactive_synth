@@ -481,11 +481,11 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
         elif action.startswith('hmove'):
             # update box configuration
             b_idx = action.split(' ')[1]
-            kval = int(curr_state[human_move_idx][-1])
+            kval = int(curr_state[human_move_idx][1:])
             hmove_to_loc = action.split(' ')[2]
             # the box str will be of the form b0 l1, b1 l3, etc..
             split_str = curr_state[box_idx].split(', ')
-            split_str[int(b_idx[-1])] = f'{b_idx} {hmove_to_loc}'
+            split_str[int(b_idx[1:])] = f'{b_idx} {hmove_to_loc}'
             curr_state[box_idx] = ', '.join(split_str)
             # update robot configuration based on current robot configuration if the human moves a box        
             if curr_state[rConf_idx].startswith('in-transit'):
@@ -532,7 +532,7 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
             if curr_state[rConf_idx].startswith('to-obj'):
                 box: str = curr_state[rConf_idx].split(' ')[1]
                 # TODO: Will not work for boxes > 10. FIX THIS!!!
-                b_idx = int(box[-1])
+                b_idx = int(box[1:])
                 # the box str will of the form b0 l1, b1 l3, etc..
                 split_str = curr_state[box_idx].split(', ')
                 l_idx = split_str[b_idx].split(' ')[1] 
