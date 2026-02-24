@@ -260,10 +260,8 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                 lVals.add(int(leaf_value))
         
         for val in lVals:
-            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds #& ~self.goal_latch
-        
-        # self.states_per_cost[0] |= self.goal_latch & self.monolithic_relevant_box_preds
-    
+            self.states_per_cost[val] |= self.weight.bddInterval(val, val).toADD() & self.monolithic_relevant_box_preds
+      
 
     def create_utility_transition_relation(self):
         """
@@ -1270,7 +1268,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
             state_cost: int = 0
         else:
             state_cost: int = int(list((self.weight.cofactor(curr_state_sym & self.action_map_sym[act_name])).generate_cubes())[0][1])
-        state_utl: int = int(curr_utl_state_val[-1])
+        state_utl: int = int(curr_utl_state_val[1:])
 
         if state_utl + state_cost <= self.budget:
             next_uVar_sym = self.uVar_map_sym[f'u{state_utl + state_cost}']
