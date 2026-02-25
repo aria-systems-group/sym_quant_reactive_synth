@@ -17,8 +17,8 @@ class FrankaWorldDynamicRatioTurnBasedElseNoPrime(FrankaWorldDynamicRatioTurnBas
      This class inherits from FrankaWorldDyanmicRatioTurnBased aand makes the following change:
      In TR, when the human moves a box, the robot transit to an "else" state rather than going to original state.
     """
-    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], enable_reordering: bool = False):
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering)
+    def __init__(self, boxes: int, locs: int, ratio: int, init: tuple, goal: tuple, restricted_human_locs: List[int], restricted_human_boxes: List[int], weight_factor: int = 1, enable_reordering: bool = False):
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering, weight_factor)
     
 
     def create_ready_holding_to_obj_vars(self) -> List[ADD]:
