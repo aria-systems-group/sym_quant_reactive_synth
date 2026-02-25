@@ -8,6 +8,7 @@ BOXES: int = 3
 LOCS: int = 18
 BUDGET: int = 25
 RATIO: int = 1
+WEIGHT_FACTOR: int = 1
 HUMAN_LOCS: range = range(5, LOCS + 1)
 HUMAN_BOXES: List[int] = [2]
 
