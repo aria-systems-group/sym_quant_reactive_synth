@@ -121,6 +121,26 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         self.prime_qVars: List[ADD] = self.dfa_handle.prime_qVars
         self.prime_qVars_bdd = [var.bddPattern() for var in self.prime_qVars]
     
+    
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.qVars) + len(self.prime_latches) + len(self.prime_qVars) + len(self.rVars),
+            'latches': len(self.latches) + len(self.qVars),
+            'prime_latches': len(self.prime_latches) + len(self.prime_qVars),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVar),
+            'ratio_vars': len(self.kVars),
+            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
+            'dfa_latches': len(self.qVars),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_opt_sVals': self.comp_winning_states.countLeaves()
+            }
+        return abs_dict
+    
 
     def create_dfa_latches_and_maps(self):
         """
@@ -509,6 +529,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
         # then evolve over the game
         dfa_preimage_primed = dfa_preimage.swapVariables(self.latches, self.prime_latches)
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        self.iteration_bookkeeping.append([dfa_preimage_primed.size(), preimage.size()])
 
         return preimage
     
@@ -530,6 +551,7 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
 
     def iros23_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        bookkeeping_size = defaultdict(lambda: list)
         for sval, succ_states in win_state_bucket.items():
             # prime the vars
             dfa_succ_states_primed = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
@@ -542,7 +564,9 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             if not pre_states.isZero():
                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                 pre_buckets[sval] |= pre_states
+                bookkeeping_size[sval] = [dfa_pre_states_primed.size(), pre_states.size()]
 
+        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()
