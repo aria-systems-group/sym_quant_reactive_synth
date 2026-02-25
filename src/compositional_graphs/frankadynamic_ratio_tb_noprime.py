@@ -31,7 +31,7 @@ class FrankaWorldDynamicRatioTurnBasedNoPrime():
                  goal: tuple, restricted_human_locs: List[int],
                  restricted_human_boxes: List[int],
                  enable_reordering: bool = False,
-                 weight_factor: int = 3):
+                 weight_factor: int = 1):
         self.boxes: int = boxes
         self.locs: int = locs
         self.ratio: int = ratio

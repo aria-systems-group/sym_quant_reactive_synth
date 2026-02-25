@@ -35,6 +35,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                  restricted_human_boxes: List[int],
                  budget: int,
                  ltlf_flag: bool = True,
+                 weight_factor: int = 1,
                  enable_reordering: bool = False,
                  only_reachable_states: bool = False):
         self.budget: int = budget
@@ -54,7 +55,7 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.gobr_ts_bdd_transition_fun_list: List[BDD] = []
         self.regret_game_only_reachable_states: bool = only_reachable_states
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, restricted_human_boxes, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering, only_reachable_states=False)
+        super().__init__(boxes, locs, ratio, init, goal, formula, restricted_human_locs, restricted_human_boxes, weight_factor=weight_factor, ltlf_flag=ltlf_flag, enable_reordering=enable_reordering, only_reachable_states=False)
         self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
         self.uVars_transition_relation = None
         self.brVars_transition_relation = None
