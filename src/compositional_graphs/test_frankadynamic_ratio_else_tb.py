@@ -264,8 +264,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                             self.transition_relation[self.pVars[sidx].bddPattern().__str__()] |= robot_transition_cube
                     
                     # create s a_s s' transitions
-                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
-                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
+                    if self.only_reachable_states:
+                        prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f"in-transit b{b}"] & self.prime_xVar_map_sym[curr_box_pred]
+                        self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
     
     def create_transfer_actions(self):
         """
@@ -305,8 +306,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                             self.transition_relation[self.bVars[b][sidx].bddPattern().__str__()] |= robot_transition_cube
                     
                     # create s a_s s' transitions
-                    prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f'in-transfer l{to_loc}'] & self.prime_xVar_map_sym[curr_box_pred]
-                    self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
+                    if self.only_reachable_states:
+                        prime_state_cube: ADD = self.prime_tVar_map_sym['human'] & self.prime_xVar_map_sym[f'in-transfer l{to_loc}'] & self.prime_xVar_map_sym[curr_box_pred]
+                        self.monolithic_valid_state_robot_actions_prime_state |= robot_transition_cube.ite(prime_state_cube, self.manager.addZero())
     
 
     def create_human_move_transit(self) -> None:
@@ -355,8 +357,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
                             
                             # create s a_s s' transitions - human
-                            prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'ready l{self.locs + 1}'] & self.prime_kVar_map_sym[f'k{k + 1}']
-                            self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                            if self.only_reachable_states:
+                                prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'ready l{self.locs + 1}'] & self.prime_kVar_map_sym[f'k{k + 1}']
+                                self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
 
                         # the human has reached the max number of interventions in this robot turn;
                         # all they can do is noop so we add all hmove to invalid move case
@@ -375,8 +378,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
                 
                 # create s a_s s' transitions - human
-                prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'to-obj b{b}'] & self.prime_kVar_map_sym['k0']
-                self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                if self.only_reachable_states:
+                    prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'to-obj b{b}'] & self.prime_kVar_map_sym['k0']
+                    self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
                 self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
     def create_human_move_transfer(self) -> None:
@@ -424,8 +428,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                                     self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |=  hmove_cube
                             
                             # create s a_s s' transitions - human
-                            prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{self.locs + 1}'] & self.prime_kVar_map_sym[f'k{k + 1}']
-                            self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                            if self.only_reachable_states:
+                                prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{self.locs + 1}'] & self.prime_kVar_map_sym[f'k{k + 1}']
+                                self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
                         else:
                             invalid_hmove_cube |= hmove_cube
 
@@ -442,8 +447,9 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                         self.transition_relation[self.kVars[sidx].bddPattern().__str__()] |= hmove_cube
                 
                 # create s a_s s' transitions - human
-                prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{to_loc}'] & self.prime_kVar_map_sym['k0']
-                self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
+                if self.only_reachable_states:
+                    prime_state_cube: ADD = self.prime_tVar_map_sym['robot'] & self.prime_xVar_map_sym[f'holding l{to_loc}'] & self.prime_kVar_map_sym['k0']
+                    self.monolithic_valid_state_human_actions_prime_state |= hmove_cube.ite(prime_state_cube, self.manager.addZero())
                 self.weight |= hmove_cube.ite(self.manager.addOne(), self.weight)
     
     
