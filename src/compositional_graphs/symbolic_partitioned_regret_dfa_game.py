@@ -1488,7 +1488,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
-        # self.logger.comp_time['GoU_Synth_Time'] = toc - tic
         # if strategy is not None:
         #     self.gou_roll_out_strategy(strategy=strategy, verbose=True)
         # return
@@ -1498,7 +1497,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.compute_best_alternate_response(verbose=False)
         toc = time.time()
         print(f"Time to compute Best-Alternate Response: {toc - tic} seconds")
-        # self.logger.comp_time['BA_Comp_Time'] = toc - tic
         # sys.exit(-1)
 
         # create boolean vars and their prime versions for Best-alternate response values computed
@@ -1509,7 +1507,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
         self.create_best_alternate_response_transition_relation()
         toc = time.time()
         print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
-        # self.logger.comp_time['GoBR_TR_Creation_Time'] = toc - tic
 
     
 
