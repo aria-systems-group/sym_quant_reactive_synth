@@ -498,6 +498,106 @@ class SymbolicPartitionedDFAGame(FrankaWorldDynamicRatioTurnBasedElse):
             if verbose:
                 print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
     
+    
+    def get_next_dfa_state(self, curr_dfa_state, curr_game_state_sym) -> ADD:
+        for dfa_state_sym in self.qVar_map_sym.values():
+            dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
+            dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+            edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym)).isZero()
+
+            if edge_exists:
+                curr_dfa_state: ADD = dfa_state_sym.swapVariables(self.prime_qVars, self.qVars)
+                break
+        
+        return curr_dfa_state
+    
+    def _get_state_val(self, curr_state_sym):
+        try:
+            opt_sval: int = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+        except IndexError:
+            opt_sval: int = 0
+        return opt_sval
+
+
+    def roll_out_strategy_manual(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a given strategy. Here we as the user to choose the action for us.
+        """
+        curr_state_sym = self.init_latch  & self.dfa_handle.init_latch
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, state_flag=True, action=False, table_header=True, verbose=False)
+            # first get the optimum state value
+            opt_sval = self._get_state_val(curr_state_sym)
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)], headers=['State', 'Opt value']))
+
+            # get the action to be taken at the current state
+            act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.action_map.inv[act_cube_string]
+            except KeyError:
+                print("No robot action found!!")
+                return
+        
+            turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
+            if turn == 'robot':
+                print(f"Robot Action: {act_name}")
+            else:
+                _, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
+                print(f"Human Action: {act_name}")
+            
+            curr_dfa_state: int = curr_state_exp[0][0][0][1]
+
+            state_action_cube = self.manager.addZero()
+            for tr in self.transition_relation.values():
+                curr_sym_state_action = curr_state_sym & tr
+                if not curr_sym_state_action.isZero():
+                    state_action_cube |= curr_sym_state_action
+            
+            # get all the act names
+            curr_state_exp_list = []
+            for cube in self.get_all_cubes(state_action_cube, relevant_vars=self.latches + self.qVars + self.rVars):
+                curr_state_exp_list.append(cube[0])
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            next_state_action_list = []
+            next_sym_state_list = []
+            idx = 0 
+            for cube in curr_state_exp_list:
+                act_cube: BDD = cube.restrict(curr_state_sym).bddInterval(1, 1)
+                act_cube_string = act_cube.cubeString().replace('-', '')
+                act_name = self.action_map.inv[act_cube_string]
+                if turn == 'robot':
+                    if not act_name.startswith('hmove'): 
+                        tmp_state_sym: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0][0]), act_name)
+                        tmp_state_exp = self.convert_cube_to_state_ADD(tmp_state_sym, state_flag=True, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0])})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+                else:
+                    if act_name.startswith('hmove'):
+                        tmp_state_sym, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0][0]), act_name)
+                        tmp_state_exp = self.convert_cube_to_state_ADD(tmp_state_sym, state_flag=True, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0])})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+            
+            print(tabulate(next_state_action_list, headers=['Idx', 'Action', 'Next State', 'DFA State', 'State Value']))
+
+            print("Enter the action you want to take from the above valid actions: ")
+            act_num = input()
+            act_num = int(act_num)
+            curr_state_sym = next_sym_state_list[act_num]
+    
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # prime the vars
