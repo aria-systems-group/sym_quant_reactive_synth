@@ -1050,6 +1050,106 @@ class SymbolicPartitionedRegretDFAGameNoPrime(SymbolicPartitionedDFAGameNoPrime)
                 print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
     
 
+    def _get_state_val(self, curr_state_sym: ADD) -> int:
+        try:
+            opt_sval = list((curr_state_sym & self.rVals).generate_cubes())[0][1]
+        except IndexError:
+            opt_sval = 0
+        return opt_sval
+
+    
+    def gobr_roll_out_strategy_manual(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a strategy on the graph of utility game.
+        """
+        curr_state_sym = self.init_latch & self.dfa_handle.init_latch & self.brVar_map_sym[math.inf]
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
+                                                                            state_flag=True,
+                                                                            action=False,
+                                                                            verbose=False,
+                                                                            table_header=False,
+                                                                            print_val=False)
+
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+            "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            opt_sval = self._get_state_val(curr_state_sym)
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
+
+            # for state with optimal state value of 0, the restruct operation returns zero ADD.
+            act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.action_map.inv[act_cube_string]
+            except KeyError:
+                print("No action found!!")
+                return
+
+            turn = 'robot' if curr_state_exp[0][0][0][0][0][0] == 'robot' else'human'
+            if turn == 'robot':
+                print(f"Robot Action: {act_name}")
+            else:
+                _, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
+                print(f"Human Action: {act_name}")
+            
+            curr_dfa_state: int = curr_state_exp[0][0][0][0][1]
+
+            state_action_cube = self.manager.addZero()
+            for tr in self.transition_relation.values() :
+                curr_sym_state_action = curr_state_sym & tr
+                if not curr_sym_state_action.isZero():
+                    state_action_cube |= curr_sym_state_action
+
+            # get all the act names
+            curr_state_exp_list = []
+            for cube in self.get_all_cubes(state_action_cube, relevant_vars=self.gobr_game_latches + self.rVars):
+                curr_state_exp_list.append(cube[0])
+
+            next_state_action_list = []
+            next_sym_state_list = []
+            idx = 0 
+            for cube in curr_state_exp_list:
+                act_cube: BDD = cube.restrict(curr_state_sym).bddInterval(1, 1)
+                act_cube_string = act_cube.cubeString().replace('-', '')
+                act_name = self.action_map.inv[act_cube_string]
+                if turn == 'robot':
+                    if not act_name.startswith('hmove'): 
+                        tmp_gou_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
+                        tmp_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, curr_action_sym=act_cube.toADD())
+                        tmp_state_sym = tmp_gou_game_state_sym & tmp_gobr_br_sym
+                        tmp_state_exp = self.gobr_convert_cube_to_state_ADD(tmp_state_sym, state_flag=True, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0][0])}, {tmp_state_exp[0][0][0][0][2]}, {tmp_state_exp[0][0][0][-1]})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+                else:
+                    if act_name.startswith('hmove'):
+                        tmp_gou_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
+                        tmp_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, curr_action_sym=act_cube.toADD())
+                        tmp_state_sym = tmp_gou_game_state_sym & tmp_gobr_br_sym
+                        tmp_state_exp = self.gobr_convert_cube_to_state_ADD(tmp_state_sym, state_flag=True, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0][0])}, {tmp_state_exp[0][0][0][0][2]}, {tmp_state_exp[0][0][0][-1]})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+            
+            print(tabulate(next_state_action_list, headers=['Idx', 'Action', 'Next State', 'DFA State', 'State Value']))
+
+            print("Enter the action you want to take from the above valid actions: ")
+            act_num = input()
+            act_num = int(act_num)
+            curr_state_sym = next_sym_state_list[act_num]
+    
+
     def get_next_state(self, turn: str, curr_state_exp: List[str], act_name: str, **kwargs) -> Tuple[ADD, str]:
         # get the next state in the game in explicit form
         curr_game_state = list(curr_state_exp[0][0][0][0])

@@ -1447,7 +1447,6 @@ class SymbolicPartitionedRegretDFAGame(SymbolicPartitionedDFAGame):
                         tmp_gou_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
                         tmp_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, curr_action_sym=act_cube.toADD())
                         tmp_state_sym = tmp_gou_game_state_sym & tmp_gobr_br_sym
-                        # tmp_state_sym = self.get_next_state_symbolic(tmp_game_state_sym)
                         tmp_state_exp = self.gobr_convert_cube_to_state_ADD(tmp_state_sym, state_flag=True, action=False, table_header=False, verbose=False)
                         tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
                         tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
