@@ -1,14 +1,25 @@
+import sys
 import math
 
+from enum import Enum
 from functools import reduce
+from itertools import product
 
 from bidict import bidict
 from tabulate import tabulate
 
 from collections import defaultdict
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Union
 
 from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
+
+
+class Moves(Enum):
+    NORTH = (1, 0)
+    SOUTH = (-1, 0)
+    WEST = (0, -1)
+    EAST = (0, 1)
+    STAY = (0, 0)
 
 
 class GridWorldDynamic():
@@ -70,6 +81,24 @@ class GridWorldDynamic():
         self.weight = self.manager.addZero()
         self.create_sym_weight_dict(debug=False)
 
+        # for printing 
+        self.xVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.xVars]
+        self.prime_xVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_xVars]
+        self.yVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.yVars]
+        self.prime_yVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_yVars]
+
+        # for solver 
+        self.env_action_cube_list = []
+        self.sys_action_cube_list = []
+        for act_str, act_dd in self.action_map_sym.items():
+            if act_str.startswith('env'):
+                self.env_action_cube_list.append(act_dd)
+            else:
+                self.sys_action_cube_list.append(act_dd)
+        
+        self.env_action_cube_list_bdd: List[BDD] = [act_dd.bddPattern() for act_dd in self.env_action_cube_list]
+        self.sys_action_cube_list_bdd: List[BDD] = [act_dd.bddPattern() for act_dd in self.sys_action_cube_list]
+
         if enable_reordering:
             self.manager.autodynEnable()
     
@@ -93,8 +122,8 @@ class GridWorldDynamic():
         """
          The main method that creates all boolean variables for the FrankaDynamic Turn-Based Game.
           1. turn variables - tVars
-          2. column variables - xVars
-          3. row variables - yVars
+          2. row variables - xVars
+          3. column variables - yVars
         """
         offset = self.manager.size()
         self.prime_tVar: List[ADD] = [self.manager.addVar(offset, 'pt0')]
@@ -252,14 +281,331 @@ class GridWorldDynamic():
         if debug:
             print("Debug: Dumping computed weights (state-action pairs):")
             self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
-
     
+
+    def get_valid_row_transitions(self, rPos: int) -> List[str]:
+        # sys can always choose to stay
+        valid_actions = set({'STAY', 'EAST', 'WEST'})
+        if rPos + 1 < self.rows:
+            valid_actions.add('NORTH')
+        if rPos - 1 >= 0:
+            valid_actions.add('SOUTH')
+        
+        return valid_actions
+
+    def get_valid_column_transitions(self, cPos: int) -> List[str]:
+        # sys can always choose to stay
+        valid_actions = set({'STAY', 'NORTH', 'SOUTH'})
+        if cPos + 1 < self.columns:
+            valid_actions.add('EAST')
+        if cPos - 1 >= 0:
+            valid_actions.add('WEST')
+        
+        return valid_actions
+    
+
+    def add_turn_var_update_rule(self):
+        """
+         A method to add turn variable update rule. Irrespective of the action taken, after every turn, the turn variable is flipped.
+        """
+        curr_pred = [self.tVar_map_sym['sys'], self.tVar_map_sym['env']]
+        next_pred_str = [self.tVar_map['env'], self.tVar_map['sys']]
+        for turn_bit, turn_prime_string in zip(curr_pred, next_pred_str):
+            for sidx, s in enumerate(turn_prime_string):
+                if s == '1':
+                    self.transition_relation[self.tVar[sidx].bddPattern().__str__()] |= turn_bit
+    
+
+    def create_actions(self, player: str):
+        turn_bit: ADD = self.tVar_map_sym[player]
+        p_idx = 0 if player == 'sys' else 1
+
+        # for row variables
+        for r in range(self.rows):
+            rVar_add: ADD = self.cube_to_add(self.xVar_map[p_idx][r], self.xVars[p_idx])
+            valid_actions = self.get_valid_row_transitions(rPos=r)
+
+            for act in valid_actions:
+                rAct_cube: str = self.action_map_sym[f'{player}_{act}']
+                nxt_rPos = r + Moves[act].value[0]
+
+                for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
+                    if prime_rVar == '1':
+                        self.transition_relation[self.xVars[p_idx][idx].bddPattern().__str__()] |= turn_bit & rVar_add & rAct_cube
+        
+
+        # for column variables
+        for c in range(self.columns):
+            cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
+            valid_actions = self.get_valid_column_transitions(cPos=c)
+
+            for act in valid_actions:
+                rAct_cube: str = self.action_map_sym[f'{player}_{act}']
+                nxt_cPos = c + Moves[act].value[1]
+
+                for idx, prime_rVar in enumerate(self.yVar_map[p_idx][nxt_cPos]):
+                    if prime_rVar == '1':
+                        self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= turn_bit & cVar_add & rAct_cube
+    
+
+    def add_robot_frame_axioms(self):
+        for rPos in range(self.rows):
+            for cPos in range(self.columns):
+                rVar_add = self.cube_to_add(self.xVar_map[0][rPos], self.xVars[0])
+                cVar_add = self.cube_to_add(self.yVar_map[0][cPos], self.yVars[0])
+                for act in self.action_map:
+                    if not act.startswith('env'):
+                        continue
+                    rAct_cube: str = self.action_map_sym[act]
+                    for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars[0][idx].bddPattern().__str__()] |= rVar_add & rAct_cube
+                    
+                    for idx, prime_rVar in enumerate(self.yVar_map[0][cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars[0][idx].bddPattern().__str__()] |= cVar_add & rAct_cube
+    
+    def add_env_frame_axioms(self):
+        for rPos in range(self.rows):
+            for cPos in range(self.columns):
+                rVar_add = self.cube_to_add(self.xVar_map[1][rPos], self.xVars[1])
+                cVar_add = self.cube_to_add(self.yVar_map[1][cPos], self.yVars[1])
+                for act in self.action_map:
+                    if not act.startswith('sys'):
+                        continue
+                    rAct_cube: str = self.action_map_sym[act]
+                    for idx, prime_rVar in enumerate(self.xVar_map[1][rPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.xVars[1][idx].bddPattern().__str__()] |= rVar_add & rAct_cube
+                    
+                    for idx, prime_rVar in enumerate(self.yVar_map[1][cPos]):
+                        if prime_rVar == '1':
+                            self.transition_relation[self.yVars[1][idx].bddPattern().__str__()] |= cVar_add & rAct_cube
+    
+
     def create_transition_relation(self):
         """
          Create the transition relation for the gridworld. We will create a transition relation for each action and then combine them together at the end. 
         """
-        pass
+        for player in ['sys', 'env']:
+            self.create_actions(player=player)
+        
+        # need to add frame axioms, i.e., when it is env move Sys variables remain the same and vice versa.
+        self.add_robot_frame_axioms()
+        self.add_env_frame_axioms()
 
+        self.add_turn_var_update_rule()
+    
+
+    def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD]):
+        """
+        Eliminates variables by taking the minimum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in variables_to_abstract:
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.min(neg_cofactor) 
+            
+        return result_add
+    
+
+    def symbolic_max_abstract(self, add_function, variables_to_abstract: List[ADD]) -> ADD:
+        """
+        Eliminates variables by taking the maximum of the cofactor branches.
+         This replaces explicit loops over action lists.
+        """
+        result_add = add_function
+
+        for var_add in variables_to_abstract:
+            pos_cofactor = result_add.cofactor(var_add)
+            neg_cofactor = result_add.cofactor((~var_add))
+            result_add = pos_cofactor.max(neg_cofactor) 
+            
+        return result_add
+    
+
+    def compute_min_max_preimage(self, preimage: ADD, valid_env_action_mask: ADD) -> ADD:
+        robot_states = preimage.cofactor(self.tVar_map_sym['sys'])
+        next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
+        
+        # take max over Env player states; but first map the invalid env actions and robot action from these states to -inf
+        env_states = preimage.cofactor(self.tVar_map_sym['env'])
+        preimage_for_max = valid_env_action_mask.ite(env_states, self.manager.minusInfinity()) 
+        next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+
+        next_winning_states = self.tVar[0].ite(next_winning_states_robot, next_winning_states_env)
+        return next_winning_states
+
+
+    def compute_preimage(self, curr_winning_states: ADD) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
+        preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+
+        return preimage
+    
+
+    def solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
+        """
+        # initialize goal state with 0 state value and add it to the winning region
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        curr_winning_states = self.manager.plusInfinity().min(goal)
+
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not retuen cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            self.convert_cube_to_state_ADD(curr_winning_states.bddInterval(0, 0).toADD(), action=False, verbose=True)
+        
+        # intialize the iteration counter
+        layer = 0
+        valid_env_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            preimage: ADD = self.compute_preimage(curr_winning_states)
+            preimage = preimage + self.weight
+            
+            # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
+            if cooperative_game:
+                next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
+            else:
+                next_winning_states = self.compute_min_max_preimage(preimage, valid_env_action_mask=valid_env_action_mask)
+            
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.convert_cube_to_state_ADD(next_winning_states, action=False, verbose=verbose)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
+                    if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                    self.comp_winning_states = curr_winning_states
+                    if init_val < math.inf:
+                        return preimage.min(goal), curr_winning_states
+                    else:
+                        return None, None
+                else:
+                    print(f"No Winning Strategy Exists!! The State value is {math.inf}")
+                return None, None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+    
+
+    def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a given strategy
+        """
+        curr_state = self.init_latch
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+
+        while (curr_state & self.goal_latch).isZero():
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=False)
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            try:
+                opt_sval: int = list((curr_state & self.comp_winning_states).generate_cubes())[0][1]
+            except IndexError:
+                opt_sval: int = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
+
+            # get the action to be taken at the current state
+            act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.action_map.inv[act_cube_string]
+            except KeyError:
+                print("No robot action found!!")
+                return
+        
+            turn = 'sys' if curr_state_exp[0][0][0][0] == 'sys' else'env'
+           
+            # get the next state
+            if turn == 'sys':
+                curr_state: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0]), act_name)
+            elif turn == 'env':
+                curr_state, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            if verbose:
+                print(f"Sys Action: {act_name}") if turn == 'sys' else print(f"Env Action: {act_name}")
+
+    
+
+    def test_preimage(self):
+        sys_pos = (1, 1)
+        goal_cube_sys = self.xVar_map_sym[0][sys_pos[0]] & self.yVar_map_sym[0][sys_pos[1]]
+        env_pos = (1, 0)
+        goal_cube_env = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
+        goal_cube = self.tVar_map_sym['sys'] & goal_cube_env & goal_cube_sys
+        print('Goal state:', goal_cube)
+        # compute preimage 
+        From = goal_cube.swapVariables(self.latches, self.prime_latches)
+        preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        print('Preimage of goal state:', preimage)
+        self.convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=True)
+
+        # now let takes min and max
+        new_preimage = self.compute_min_max_preimage(preimage, valid_env_action_mask=reduce(lambda x, y: x | y, self.env_action_cube_list))
+        print('Preimage after min max abstraction:', new_preimage)
+        self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=True, verbose=True)
+    
+
+    def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
+        cubes = []
+        for cube_list, val in dd.generate_cubes():
+            if val == math.inf:
+                continue
+            _amb_var = []
+            var_list = []
+            for _idx, var in enumerate(cube_list):
+                if self.manager.addVar(_idx) not in relevant_vars:
+                    continue
+
+                if var == 2:
+                    _amb_var.append([self.manager.addVar(_idx), ~self.manager.addVar(_idx)])
+                elif var == 0:
+                    var_list.append(~self.manager.addVar(_idx))
+                elif var == 1:
+                    var_list.append(self.manager.addVar(_idx))
+                else:
+                    print("CUDD ERRROR, A variable is assigned an unaccounted integer assignment. FIX THIS!!")
+                    sys.exit(-1)
+            
+            # check if it is not full defined
+            if len(_amb_var) != 0:
+                cart_prod = list(product(*_amb_var))
+                for _ele in cart_prod:
+                    var_list.extend(_ele)
+                    cubes.append((reduce(lambda a, b: a & b, var_list), val))
+                    var_list = list(set(var_list) - set(_ele))
+            else:
+                cubes.append((reduce(lambda a, b: a & b, var_list), val))
+        
+        return cubes
 
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:
@@ -267,4 +613,83 @@ class GridWorldDynamic():
          Convert a cube to a state representation. Set the flag to True if you want to print the state only. 
          If you want to print the action as well, set action to True. 
         """
-        raise NotImplementedError()
+        relevant_vars = []
+        if state_flag:
+            relevant_vars.extend(self.latches)
+        if action:
+            relevant_vars.extend(self.rVars)
+
+        headers = []
+        if verbose and action:
+            headers = ['state', 'action', 'value']
+        elif verbose and not action:
+            headers = ['state', 'value']
+        
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+        # create turn abstraction cube
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        xConf_exist_cube = dict({})
+        # TODO: hard coding for 2 agents, need to update for n agents
+        for pidx in range(2):
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+        
+        yConf_exist_cube = dict({})
+        # TODO: hard coding for 2 agents, need to update for n agents
+        for pidx in range(2):
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+        
+
+         # print the states
+        states_action_pairs = []
+        states_bookkeeping = [] 
+        for cube, val in cubes:
+            state = None
+            action_str = None
+            tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            xCube_str = []
+            for e in xConf_exist_cube.values():
+                xCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            yCube_str = []
+            for e in yConf_exist_cube.values():
+                yCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            try:
+                row_states = [self.xVar_map[pidx].inv[e] for pidx, e in enumerate(xCube_str)]
+            except KeyError:
+                continue
+
+            try:
+                column_states = [self.yVar_map[pidx].inv[e] for pidx, e in enumerate(yCube_str)]
+            except KeyError:
+                continue
+            
+            try:
+                pos = []
+                for r, c in zip(row_states, column_states):
+                    pos.append((r, c))
+                state = [self.tVar_map.inv[tConf_cube_str]] + pos
+                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos), val), None])
+            except KeyError:
+                continue
+            
+            if action:
+                rCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
+                try:
+                    action_str = self.action_map_sym.inv[self.cube_to_add(rCube_str, self.rVars)]
+                except KeyError:
+                    continue
+            
+            # if you made it till here then print stuff or store them
+            if action:
+                states_bookkeeping.append((state, action_str, val))
+            else:
+                states_bookkeeping.append((state, val))
+        
+        if verbose and table_header:
+            print(tabulate(states_bookkeeping, headers=headers))
+        elif verbose and not table_header:
+            print(tabulate(states_bookkeeping))
+        
+        return states_action_pairs
