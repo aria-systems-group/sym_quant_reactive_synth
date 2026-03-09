@@ -348,7 +348,7 @@ class GridWorldDynamic():
                         self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= turn_bit & cVar_add & rAct_cube
     
 
-    def add_robot_frame_axioms(self):
+    def add_sys_frame_axioms(self):
         for rPos in range(self.rows):
             for cPos in range(self.columns):
                 rVar_add = self.cube_to_add(self.xVar_map[0][rPos], self.xVars[0])
@@ -391,7 +391,7 @@ class GridWorldDynamic():
             self.create_actions(player=player)
         
         # need to add frame axioms, i.e., when it is env move Sys variables remain the same and vice versa.
-        self.add_robot_frame_axioms()
+        self.add_sys_frame_axioms()
         self.add_env_frame_axioms()
 
         self.add_turn_var_update_rule()
@@ -509,6 +509,23 @@ class GridWorldDynamic():
             # swap the winning states
             curr_winning_states = next_winning_states
     
+    def convert_exlpicit_state_to_cube(self, state) -> ADD:
+        """
+         A smaller helper function to convert an explicit state representation to a cube. This is useful for debugging and printing purposes.
+        """
+        state_cube = self.manager.addOne()
+        # TODO: hard coding for now, need to update so the idx macthes the respective player
+        p_idx = 0
+        for e in state:
+            if 'sys' in e or 'env' in e:
+                state_cube &= self.tVar_map_sym[e]
+            elif isinstance(e, list):
+                x, y = e[0], e[1]
+                state_cube &= self.xVar_map_sym[p_idx][x] & self.yVar_map_sym[p_idx][y]
+                p_idx += 1
+        
+        return state_cube
+    
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
         """
@@ -516,6 +533,12 @@ class GridWorldDynamic():
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+        # NOt sure if this is the best way to do it
+        sys_action_mask = reduce(lambda x, y: x | y, self.sys_action_cube_list)
+        env_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+
+        # we always stars with Sys player turn
+        turn: str ='sys'
 
         while (curr_state & self.goal_latch).isZero():
             curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=False)
@@ -531,7 +554,11 @@ class GridWorldDynamic():
                 print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
 
             # get the action to be taken at the current state
-            act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            if turn == 'sys':
+                strategy_mask = sys_action_mask.ite(strategy, self.manager.plusInfinity())
+            else:
+                strategy_mask = env_action_mask.ite(strategy, self.manager.plusInfinity())
+            act_cube: BDD = (strategy_mask.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
 
             try:
@@ -541,13 +568,17 @@ class GridWorldDynamic():
                 return
         
             turn = 'sys' if curr_state_exp[0][0][0][0] == 'sys' else'env'
+            act = act_name.split('_')[1]
            
             # get the next state
             if turn == 'sys':
-                curr_state: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0]), act_name)
+                curr_state_exp[0][0][0][1][0] = curr_state_exp[0][0][0][1][0] + Moves[act].value[0]
+                curr_state_exp[0][0][0][1][1] = curr_state_exp[0][0][0][1][1] + Moves[act].value[1]
             elif turn == 'env':
-                curr_state, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0]), act_name)
+                curr_state_exp[0][0][0][2][0] = curr_state_exp[0][0][0][2][0] + Moves[act].value[0]
+                curr_state_exp[0][0][0][2][1] = curr_state_exp[0][0][0][2][1] + Moves[act].value[1]
             
+            curr_state = self.convert_exlpicit_state_to_cube(curr_state_exp[0][0][0])
             # printing the action here as the human action is overriden above. This because invalid human moves
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
@@ -668,7 +699,7 @@ class GridWorldDynamic():
             try:
                 pos = []
                 for r, c in zip(row_states, column_states):
-                    pos.append((r, c))
+                    pos.append([r, c])
                 state = [self.tVar_map.inv[tConf_cube_str]] + pos
                 states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos), val), None])
             except KeyError:
