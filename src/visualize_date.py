@@ -61,6 +61,7 @@ def parse_logs(log_directory):
                     
                     tr_times = []
                     synth_times = []
+                    memory_per_run = []
 
                     # Iterate through "Run 0", "Run 1", etc.
                     for run_id, run_data in content.items():
@@ -68,6 +69,7 @@ def parse_logs(log_directory):
                             comp_time = run_data['CompTime']
                             tr_times.append(comp_time['TR_time'])
                             synth_times.append(comp_time['Synth_time'])
+                            memory_per_run.append(run_data['MemoryInUse'])
 
                     # Calculate Averages
                     if tr_times:
@@ -76,6 +78,7 @@ def parse_logs(log_directory):
                             'locs': num_locs,
                             'algo': algo_type,
                             'game': game_type,
+                            'memory': (sum(memory_per_run) / len(memory_per_run))/ (1e6),
                             'preimage_size': content['Run 0']['CompTime']['Preimage_size'],
                             'iterations': content['Run 0']['CompTime']['Iterations'],
                             'avg_tr_time': sum(tr_times) / len(tr_times),
@@ -87,6 +90,72 @@ def parse_logs(log_directory):
                     print(f"Error parsing {filename}: {e}")
 
     return pd.DataFrame(data_list)
+
+
+def plot_memory(df, target_boxes, target_game, log_plot: bool = False):
+    """
+     Plots avg memory required for computation vs locs for a specific box count and game type.
+    """
+    # 1. Filter the data for the specific configuration
+    filtered_df = df[(df['boxes'] == target_boxes) & (df['game'] == target_game)].copy()
+    
+    # 2. Sort by locations to ensure lines connect correctly
+    filtered_df = filtered_df.sort_values(by='locs')
+
+    # 3. Set the visual style
+    sns.set_context("talk") # Increases font scaling automatically
+    sns.set_style("white")  # Clean background
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    palette = {"BDD": "#1f77b4", "ADD": "#d62728", "hybrid": "#2ca02c"}
+    dashes = {"BDD": "", "ADD": (4, 1.5), "hybrid": (1, 1)} # Solid, Dashed, Dotted
+
+    # 4. Create the line plot
+    # hue='algo' handles the three different colors
+    # marker='o' adds points to the lines for clarity
+    plot = sns.lineplot(
+        data=filtered_df, 
+        x='locs', 
+        y='memory', 
+        hue='algo', 
+        style='algo',
+        palette=palette,
+        dashes=dashes,
+        marker='o',
+        markersize=10,
+        linewidth=2.5,
+        ax=ax
+    )
+
+    # 5. Apply Log Scale to Y-axis
+    if log_plot:
+        ax.set_yscale('log')
+        # Automatically place ticks at powers of 10 and sensible midpoints
+        ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=10))
+        # ax.yaxis.set_major_locator(Locator())
+        # ax.yaxis.set_major_formatter(ScalarFormatter())
+        # ax.set_yticks([1, 2, 5, 10, 20, 50, 100, 200]) # Common scale points
+
+    sns.despine() # Remove top/right spines
+    ax.grid(True, which='both', linestyle='--', alpha=0.4) # Subtle grid
+
+    # 6. Formatting Labels and Title
+    plt.title(f'Memory Required: {target_boxes} Boxes ({target_game.upper()})', 
+              fontsize=18, fontweight='bold', pad=20)
+    plt.xlabel('Number of Locations', fontsize=14, fontweight='semibold')
+    plt.ylabel('Avg Memory (MB)', fontsize=14, fontweight='semibold')
+    
+    # Legend Placement
+    plt.legend(title='Algorithm', frameon=False, loc='upper left')
+    
+    # plt.legend(title='Algorithm', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+
+    if log_plot:
+        save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+    else:
+        save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+
 
 
 def plot_synthesis_time(df, target_boxes, target_game, log_plot: bool = False):
@@ -294,4 +363,5 @@ if __name__ == "__main__":
 
     # plot a line chart
     # plot_synthesis_time(df=df, target_boxes=4, target_game='dfa_game', log_plot=False)
-    plot_winning_region_size(df=df, boxes=4, locs=13, game='dfa_game')
+    plot_memory(df=df, target_boxes=3, target_game='dfa_game', log_plot=False)
+    # plot_winning_region_size(df=df, boxes=4, locs=13, game='dfa_game')
