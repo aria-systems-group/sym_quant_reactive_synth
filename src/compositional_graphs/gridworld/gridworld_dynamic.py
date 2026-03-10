@@ -22,7 +22,7 @@ class Moves(Enum):
     STAY = (0, 0)
 
 
-class GridWorldDynamic():
+class GridWorldDynamicGame():
     def __init__(self, rows: int, columns: int, init: List[tuple], goal: tuple, enable_reordering: bool = False):
         self.rows = rows
         self.columns = columns
