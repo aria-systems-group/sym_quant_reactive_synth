@@ -379,27 +379,6 @@ class GridWorldDynamicGame():
             print("Debug: Dumping computed weights (state-action pairs):")
             self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
     
-
-    # def get_valid_row_transitions(self, rPos: int) -> List[str]:
-    #     # sys can always choose to stay
-    #     valid_actions = set({'STAY', 'EAST', 'WEST'})
-    #     if rPos + 1 < self.rows:
-    #         valid_actions.add('NORTH')
-    #     if rPos - 1 >= 0:
-    #         valid_actions.add('SOUTH')
-        
-    #     return valid_actions
-
-    # def get_valid_column_transitions(self, cPos: int) -> List[str]:
-    #     # sys can always choose to stay
-    #     valid_actions = set({'STAY', 'NORTH', 'SOUTH'})
-    #     if cPos + 1 < self.columns:
-    #         valid_actions.add('EAST')
-    #     if cPos - 1 >= 0:
-    #         valid_actions.add('WEST')
-        
-    #     return valid_actions
-    
     
     def get_valid_transitions(self, rPos: int, cPos: int) -> List[str]:
         """
@@ -432,40 +411,8 @@ class GridWorldDynamicGame():
     
 
     def create_actions(self, player: str):
-        turn_bit: ADD = self.tVar_map_sym[player]
-        p_idx = 0 if player == 'sys' else 1
-
-        # for row variables
-        for r in range(self.rows):
-            rVar_add: ADD = self.cube_to_add(self.xVar_map[p_idx][r], self.xVars[p_idx])
-            valid_actions = self.get_valid_row_transitions(rPos=r)
-
-            for act in valid_actions:
-                act_cube: str = self.action_map_sym[f'{player}_{act}']
-                nxt_rPos = r + Moves[act].value[0]
-
-                for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
-                    if prime_rVar == '1':
-                        self.transition_relation[self.xVars[p_idx][idx].bddPattern().__str__()] |= turn_bit & rVar_add & act_cube & ~self.obsatcle_constraint_cube
-        
-
-        # for column variables
-        for c in range(self.columns):
-            cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
-            valid_actions = self.get_valid_column_transitions(cPos=c)
-
-            for act in valid_actions:
-                act_cube: str = self.action_map_sym[f'{player}_{act}']
-                nxt_cPos = c + Moves[act].value[1]
-
-                for idx, prime_rVar in enumerate(self.yVar_map[p_idx][nxt_cPos]):
-                    if prime_rVar == '1':
-                        self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= turn_bit & cVar_add & act_cube & ~self.obsatcle_constraint_cube
-    
-
-    def create_actions_new(self, player: str):
         """
-         New method where, I reasons the product of row and column transitions together.
+        New method where, I reasons the product of row and column transitions together.
           The main motivation is that, when we reaosn over Env player, I can map invalid moves to STAY action.
 
         Else, I had  to remove the invalid Env transition and remap those to STAY action which is more computational expensive.
@@ -556,7 +503,6 @@ class GridWorldDynamicGame():
     
     def build_valid_state_constraint(self) -> ADD:
         for p in self.xVar_map_sym.keys():
-            # player_str = 'sys' if p == 0 else 'env'
             valid_player_state_constraint = self.manager.addZero()
             for pos in product(range(self.rows), range(self.columns)):
                 valid_player_state_constraint |= self.xVar_map_sym[p][pos[0]] & self.yVar_map_sym[p][pos[1]]
@@ -572,7 +518,6 @@ class GridWorldDynamicGame():
         for obst in self.obstacles:
             if obst not in self.grid.keys():
                 continue
-            # for p in range(2):
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
             for pos in self.grid[obst]:
                 tr_to_remove |=  self.compute_preimage(self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]])
@@ -592,7 +537,7 @@ class GridWorldDynamicGame():
          Create the transition relation for the gridworld. We will create a transition relation for each action and then combine them together at the end. 
         """
         for player in ['sys', 'env']:
-            self.create_actions_new(player=player)
+            self.create_actions(player=player)
         
         # need to add frame axioms, i.e., when it is env move Sys variables remain the same and vice versa.
         self.add_sys_frame_axioms()
@@ -804,9 +749,6 @@ class GridWorldDynamicGame():
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
                 print(f"Sys Action: {act_name}") if turn == 'sys' else print(f"Env Action: {act_name}")
-            
-            # turn = 'sys' if turn == 'env' else 'env'  # switch turns
-
     
 
     def test_preimage(self):
