@@ -6,11 +6,23 @@ from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWo
 
 
 def game_main():
-    # create a gridworld of size n x m
-    gridworld = GridWorldDynamicGame(rows=10, columns=10, init=[(0, 0), (1, 1)], goal=[(9, 9)])
+    # create grid dictionary
+    rows = 100
+    columns = 100
+    goal = [(0, 2)]
+    # init = []
+    # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
+    grid = {'wall': [(0, 1)], 'goal': goal}
 
-    print('****************Action Map:****************')
-    for k, v in gridworld.action_map.items():
+    # create a gridworld of size n x m
+    gridworld = GridWorldDynamicGame(rows=rows, columns=columns, init=[(0, 0), (1, 0)], goal=goal, grid=grid)
+
+    print('****************Sys Action Map:****************')
+    for k, v in gridworld.sys_action_map.items():
+        print(f"{k} : {v}")
+
+    print('****************Env Action Map:****************')
+    for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
 
     tic = time.time()
@@ -77,4 +89,6 @@ def dfa_game_main():
 
 
 if __name__ == "__main__":
-    dfa_game_main()
+    game_main()
+
+    # dfa_game_main()
