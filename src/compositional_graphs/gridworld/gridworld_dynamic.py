@@ -23,7 +23,7 @@ class Moves(Enum):
 
 
 class GridWorldDynamicGame():
-    def __init__(self, rows: int, columns: int, init: List[tuple], goal: tuple, grid: Optional[Dict] = None, enable_reordering: bool = False):
+    def __init__(self, rows: int, columns: int, init: List[tuple], goal: tuple, grid: Optional[Dict] = dict({}), enable_reordering: bool = False):
         """
         Initializes the GridWorldDynamicGame with the given parameters. Give, n x m gridworld, we create a turn-based game where the robot and the environment take turns to move. 
         The robot can choose to move in one of the four cardinal directions or stay in place, and the environment can do the same. 
@@ -60,19 +60,9 @@ class GridWorldDynamicGame():
         self.prime_xVar_map_sym = {p: bidict({}) for p in range(2)}
         self.prime_yVar_map_sym = {p: bidict({}) for p in range(2)}
 
-        # create latches - tVars + kVars + pVars + bVars
-        self.create_all_boolean_state_vars_and_maps()
-        self.set_latches()
-
-         # create prime latches - prime tVars + prime kVars + prime pVars + prime bVars
-        self.create_all_prime_boolean_state_vars_and_maps()
-        self.set_prime_latches()
-
-        # create lbl - different manipulator domain
-        self.lVars_map = bidict({})
-        self.lVars = self.create_state_lbls_vars()
-        self.create_lbl_map()
-        self.lVars_map_sym = bidict({k: self.cube_to_add(v, self.lVars) for k, v in self.lVars_map.items()})
+        # main method to create boolean variables for the game and the maps for both prime and non-prime variables
+        self.parent_boolean_state_vars_and_maps()
+        
         self.obstacles = set({'wall', 'lava'})
 
         self.tVar_map_sym = bidict({'sys': self.cube_to_add(self.tVar_map['sys'], self.tVar),
@@ -127,6 +117,16 @@ class GridWorldDynamicGame():
 
         if enable_reordering:
             self.manager.autodynEnable()
+    
+
+    def parent_boolean_state_vars_and_maps(self):
+        # create latches - tVars + xVars + yVars
+        self.create_all_boolean_state_vars_and_maps()
+        self.set_latches()
+
+         # create prime latches - prime tVars + prime kVars + prime pVars + prime bVars
+        self.create_all_prime_boolean_state_vars_and_maps()
+        self.set_prime_latches()
     
 
     def create_all_boolean_state_vars_and_maps(self):
@@ -202,35 +202,15 @@ class GridWorldDynamicGame():
 
     def create_action_vars(self) -> Tuple[List[ADD], List[ADD]]:
         """
-         Create a single method wehre we create robot action and env actions using the same of variables.
+        Create a single method wehre we create robot action and env actions using the same of variables.
          
-         This will lead to savings in the # of boolean vars needed. 
-         This approach will require log(num_robot_actions + num_env_actions) boolean vars.
+        This will lead to savings in the # of boolean vars needed. This approach will require
+         log(num_robot_actions + num_env_actions) boolean vars.
         """
         varsize = self.manager.size()
         rVars_size = math.ceil(math.log2(len(self.sys_actions) + len(self.env_actions)))
         rVars: List[ADD] =  [self.manager.addVar(r + varsize , 'r' + str(r)) for r in range(rVars_size)]
-        return rVars#, eVars
-
-
-    def create_state_lbls_vars(self) -> List[ADD]:
-        """
-         A method to create state labels for the gridworld. This is used for labeling states with propositions for LTL synthesis. 
-        """
-        # collision ap is always part of the state lbl
-        varsize = self.manager.size()
-        num_of_lbls =  len(self.grid.keys()) + 1  # for collision ap
-        lVars_size = math.ceil(math.log2(num_of_lbls))
-        lVars: List[ADD] =  [self.manager.addVar(l + varsize , f'l{l}') for l in range(lVars_size)]
-        return lVars
-    
-    
-    def create_lbl_map(self):
-        # collision ap is always the first label
-        self.lVars_map['c'] = f"{0:0{len(self.lVars)}b}"
-        for ap_idx, ap in enumerate(self.grid.keys()):
-            bit_str = f"{ap_idx + 1:0{len(self.lVars)}b}"
-            self.lVars_map[ap] = bit_str
+        return rVars
     
 
     def miscellanoues_helper_stuff(self):
@@ -242,7 +222,6 @@ class GridWorldDynamicGame():
         # used during rollout to check of the action is valid or not
         self.invalid_env_state_action_cube = self.manager.addZero()
         self.create_obstacle_constraint()
-        self.create_state_lbls()
         
 
     def create_obstacle_constraint(self):    
@@ -256,27 +235,6 @@ class GridWorldDynamicGame():
                 for pos in self.grid[obst]:
                     player_obst_const |= self.tVar_map_sym[player_str] & self.xVar_map_sym[p][pos[0]] & self.yVar_map_sym[p][pos[1]]
                 self.obsatcle_constraint_cube |= player_obst_const
-    
-    
-    def create_state_lbls(self):
-        for r in range(self.rows):
-            for c in range(self.columns):
-                self.state_lbl |= reduce(lambda a, b: a & b, [self.xVar_map_sym[p][r] & self.yVar_map_sym[p][c] for p in range(2)]) & self.lVars_map_sym['c']
-                if (r, c) in self.grid.get('wall', []):
-                    # TODO: hard coding for two agents: update for all agents in the future
-                    for p in range(2):
-                        self.state_lbl |= self.xVar_map_sym[p][r] & self.yVar_map_sym[p][c] & self.lVars_map_sym['wall']
-                
-                if (r, c) in self.grid.get('lava', []):
-                    # TODO: hard coding for two agents: update for all agents in the future
-                    for p in range(2):
-                        self.state_lbl |= self.xVar_map_sym[p][r] & self.yVar_map_sym[p][c] & self.lVars_map_sym['lava']
-                
-                if (r, c) in self.grid.get('goal', []):
-                    # TODO: hard coding for 1 Sys agent: update for multiple agents in the future
-                    # for p in range(2):
-                    self.state_lbl |= self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c] & self.lVars_map_sym['goal']
-
 
 
     def set_latches(self):
@@ -415,7 +373,7 @@ class GridWorldDynamicGame():
         New method where, I reasons the product of row and column transitions together.
           The main motivation is that, when we reaosn over Env player, I can map invalid moves to STAY action.
 
-        Else, I had  to remove the invalid Env transition and remap those to STAY action which is more computational expensive.
+        Else, I had to remove the invalid Env transition and remap those to STAY action which is more computational expensive.
          The remap, could convert cubes to cubestring , an expensive process which I do not see scaling well (for 3 or more players).
         """
         turn_bit: ADD = self.tVar_map_sym[player]
@@ -502,6 +460,7 @@ class GridWorldDynamicGame():
     
     
     def build_valid_state_constraint(self) -> ADD:
+        # TODO: remove this in future if I am not using it.
         for p in self.xVar_map_sym.keys():
             valid_player_state_constraint = self.manager.addZero()
             for pos in product(range(self.rows), range(self.columns)):
@@ -520,7 +479,9 @@ class GridWorldDynamicGame():
                 continue
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
             for pos in self.grid[obst]:
-                tr_to_remove |=  self.compute_preimage(self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]])
+                state_primed: ADD = (self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]]).swapVariables(self.latches, self.prime_latches)
+                tr_to_remove |= state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+                # tr_to_remove |=  self.compute_preimage(self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]])
         
         # remove the edges
         for tr in self.transition_relation.keys():

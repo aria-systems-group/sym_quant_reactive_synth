@@ -7,9 +7,9 @@ from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWo
 
 def game_main():
     # create grid dictionary
-    rows = 100
-    columns = 100
-    goal = [(0, 2)]
+    rows = 2
+    columns = 2
+    goal = [(1, 1)]
     # init = []
     # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
     grid = {'wall': [(0, 1)], 'goal': goal}
@@ -43,15 +43,16 @@ def game_main():
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
     
-    # if strategy is not None:
-    #     gridworld.roll_out_strategy(strategy=strategy, verbose=True)
+    if strategy is not None:
+        gridworld.roll_out_strategy(strategy=strategy, verbose=True)
 
 
 def dfa_game_main():
     # small wrapper that convert goal to formula
-    rows = 10
-    columns = 10
-    goal = [(9, 9)]
+    rows = 2
+    columns = 2
+    goal = [(1, 1)]
+    grid = {'wall': [(0, 1)], 'goal': goal}
     # for idx, g in enumerate(goal):
     # {c + 1:0{len(str(rows))}b}
     # formula = f"F(p{goal[0][0]}{goal[0][1]})"
@@ -59,11 +60,15 @@ def dfa_game_main():
     # create a gridworld of size n x m
     gridworld = GridWorldDynamicDFAGame(rows=rows, columns=columns,
                                         init=[(0, 0), (1, 1)],
-                                        goal=goal, formula='F(p0g)',
-                                        ltlf_flag=True)
+                                        grid=grid, goal=goal,
+                                        formula='F(goal)', ltlf_flag=True)
 
-    print('****************Action Map:****************')
-    for k, v in gridworld.action_map.items():
+    print('****************Sys Action Map:****************')
+    for k, v in gridworld.sys_action_map.items():
+        print(f"{k} : {v}")
+
+    print('****************Env Action Map:****************')
+    for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
 
     tic = time.time()
@@ -89,6 +94,6 @@ def dfa_game_main():
 
 
 if __name__ == "__main__":
-    game_main()
+    # game_main()
 
-    # dfa_game_main()
+    dfa_game_main()
