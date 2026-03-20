@@ -568,7 +568,8 @@ class GridWorldDynamicGame():
           to reach the goal state.
         """
         # initialize goal state with 0 state value and add it to the winning region
-        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        # goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
+        goal = (self.goal_latch & self.state_lbl).ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
 
         if verbose:

@@ -78,11 +78,12 @@ def dfa_game_main():
 
     # test preimage computation
     # gridworld.test_preimage()
-    # sys.exit(-1)
+    gridworld.test_preimage_2()
+    sys.exit(-1)
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
+    strategy, opt_sval = gridworld.solve(verbose=True, cooperative_game=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
