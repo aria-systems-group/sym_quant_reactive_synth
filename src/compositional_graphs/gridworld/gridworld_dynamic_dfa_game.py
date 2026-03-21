@@ -180,59 +180,15 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         ap_conditions = {
             'goal': add_goal,
             'c': add_collision}
-        
-        test = self.manager.addZero()
-
-        # Iterate through all possible label combinations (for 2 labels, 4 combos)
-        for bits in itertools.product([0, 1], repeat=len(ap_conditions)):
-            # Create the label cube (e.g., l0 & ~l1)
-            label_cube = self.manager.addOne()
-            state_condition = self.manager.addOne()
-            
-            for (name, bdd_cond), bit in zip(ap_conditions.items(), bits):
-                l_var = self.lVar_map_sym[name]
-                label_cube &= l_var if bit else ~l_var
-                state_condition &= bdd_cond if bit else ~bdd_cond
-            
-            # Add this mapping to the global ADD
-            test |= (state_condition & label_cube)
 
         self.state_lbl = self.manager.addOne()
         for name, condition in ap_conditions.items():
             l_var = self.lVar_map_sym[name]
             self.state_lbl &= (l_var.ite(condition, ~condition))
         
-        assert test == self.state_lbl , "Error: Efficient State label mapping is incorrect. Please check the logic for creating state_lbl ADD."
         if debug:
             print("--- State labels ADDs  ---")
             self.convert_cube_to_state_ADD(self.state_lbl , state_flag=True, dfa_flag=True, lbl_flag=True, action=False, verbose=True)
-
-        # game_latch = self.tVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
-        # game_prime_latch = self.prime_tVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
-        
-        # primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
-        # pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
-        
-        # assert pre_state_nxt_lbl.findMax().isOne(), "[Error] We have more that one lbl cube in the next state. Fix this!!" 
-        
-        # # build the TR for lbl Vars
-        # # for lVar in self.lVars:
-        # #     # l_var = self.lVar_map_sym[name]
-        # #     self.transition_relation[lVar.bddPattern().__str__()] |= pre_state_nxt_lbl & lVar
-
-        # for cube_string in itertools.product([0, 1], repeat=len(self.lVars)):
-        #     lbl_cube = reduce(lambda a,b: a & b, [self.lVars[idx] if bit else ~self.lVars[idx] for idx, bit in enumerate(cube_string)])
-        #     pre_state_action: ADD = pre_state_nxt_lbl.restrict(lbl_cube)
-        #     for idx, prime_lVar in enumerate(cube_string):
-        #         if prime_lVar == 1:
-        #             self.transition_relation[self.lVars[idx].bddPattern().__str__()] |= pre_state_action & self.state_lbl
-        
-        # # iterate through the tVars, xVars, yVars and add state lbls to all cubes
-        # for k in self.transition_relation.keys():
-        #     # if we skip the lable vars in the TR as they are taken care of by the above code.
-        #     if k.startswith('l'):
-        #         continue
-        #     self.transition_relation[k] &= self.state_lbl
         
 
     def add_lbl_evolution_to_TR(self):
@@ -246,11 +202,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
         
         assert pre_state_nxt_lbl.findMax().isOne(), "[Error] We have more that one lbl cube in the next state. Fix this!!" 
-        
-        # build the TR for lbl Vars
-        # for lVar in self.lVars:
-        #     # l_var = self.lVar_map_sym[name]
-        #     self.transition_relation[lVar.bddPattern().__str__()] |= pre_state_nxt_lbl & lVar
 
         for cube_string in itertools.product([0, 1], repeat=len(self.lVars)):
             lbl_cube = reduce(lambda a,b: a & b, [self.lVars[idx] if bit else ~self.lVars[idx] for idx, bit in enumerate(cube_string)])
@@ -312,11 +263,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
             for c in range(self.columns):
                 cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
-                # curr_state_lbl_cube = self.state_lbl_map_sym[(r, c)] if player == 'sys' else reduce(lambda x, y: x & y, [~e for e in self.lVars])
-                # curr_state_lbls = self.state_lbl_map[(r, c)]
-                # curr_state_lbl_cube = reduce(lambda a, b: a & b, [self.lVar_map_sym[ap] for ap in curr_state_lbls])
-                # curr_state_lbl_cube = reduce(lambda a, b: a & b, [self.lVar_map_sym[lbl] if lbl in curr_state_lbls else ~self.lVar_map_sym[lbl] for lbl in self.lVar_map_sym.keys()])
-                # assert self.state_lbl_map_sym[(r, c)] == curr_state_lbl_cube, "Error: state_lbl_map_sym and curr_state_lbl_cube do not match for cell ({r}, {c})"
 
                 # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
                 valid_actions = self.get_valid_transitions(rPos=r, cPos=c)
@@ -341,11 +287,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                         self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & invalid_act_cube
                         act_cube |= invalid_act_cube
                     
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube #& self.state_lbl
-                    # nxt_state_lbls_cube = self.state_lbl_map_sym[(nxt_rPos, nxt_cPos)] #if player == 'sys' else reduce(lambda x, y: x & y, [~e for e in self.lVars])
-                    # nxt_state_lbls = self.state_lbl_map[(nxt_rPos, nxt_cPos)]
-                    # nxt_state_lbls_cube = reduce(lambda a, b: a & b, [self.lVar_map_sym[lbl] if lbl in nxt_state_lbls else ~self.lVar_map_sym[lbl] for lbl in self.lVar_map_sym.keys()])
-                    # assert self.state_lbl_map_sym[(nxt_rPos, nxt_cPos)] == nxt_state_lbls_cube, "Error: state_lbl_map_sym and nxt_state_lbls_cube do not match for cell ({nxt_rPos}, {nxt_cPos})"
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
 
                     for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
                         if prime_rVar == '1':
@@ -354,11 +296,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                     for idx, prime_rVar in enumerate(self.yVar_map[p_idx][nxt_cPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= transition_cube
-                    
-                    # add every lbl's evolution to the transition relation
-                    # for idx, prime_lVar in enumerate(nxt_state_lbls_cube.bddPattern().cubeString().replace('-', '')):
-                    #     if prime_lVar == '1':
-                    #         self.transition_relation[self.lVars[idx].bddPattern().__str__()] |= transition_cube
     
 
     def add_sys_frame_axioms(self):
@@ -370,12 +307,9 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             rVar_add = self.cube_to_add(self.xVar_map[0][rPos], self.xVars[0])
             for cPos in range(self.columns):
                 cVar_add = self.cube_to_add(self.yVar_map[0][cPos], self.yVars[0])
-                # curr_state_lbls = self.state_lbl_map[(rPos, cPos)]
-                # curr_state_lbl_cube = reduce(lambda a, b: a & b, [self.lVar_map_sym[lbl] if lbl in curr_state_lbls else ~self.lVar_map_sym[lbl] for lbl in self.lVar_map_sym.keys()])
-                # curr_state_lbl_cube = reduce(lambda x, y: x & y, [~e for e in self.lVars])
                 for act in self.env_action_map.keys():
                     act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube #& curr_state_lbl_cube
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars[0][idx].bddPattern().__str__()] |= transition_cube
@@ -391,11 +325,9 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             rVar_add = self.cube_to_add(self.xVar_map[1][rPos], self.xVars[1])
             for cPos in range(self.columns):
                 cVar_add = self.cube_to_add(self.yVar_map[1][cPos], self.yVars[1])
-                # curr_state_lbls = self.state_lbl_map[(rPos, cPos)]
-                # curr_state_lbl_cube = reduce(lambda a, b: a & b, [self.lVar_map_sym[lbl] if lbl in curr_state_lbls else ~self.lVar_map_sym[lbl] for lbl in self.lVar_map_sym.keys()])
                 for act in self.sys_action_map.keys():
                     act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube #& curr_state_lbl_cube
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[1][rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars[1][idx].bddPattern().__str__()] |= transition_cube
