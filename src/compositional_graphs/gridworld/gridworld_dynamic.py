@@ -44,6 +44,7 @@ class GridWorldDynamicGame():
         self.columns = columns
         self.sys_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
         self.env_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
+        self.obstacles = set({'wall', 'lava'})
         self.init = init
         self.goal = goal
         self.grid = grid
@@ -63,8 +64,7 @@ class GridWorldDynamicGame():
         # main method to create boolean variables for the game and the maps for both prime and non-prime variables
         self.parent_boolean_state_vars_and_maps()
         
-        self.obstacles = set({'wall', 'lava'})
-
+        
         self.tVar_map_sym = bidict({'sys': self.cube_to_add(self.tVar_map['sys'], self.tVar),
                                     'env': self.cube_to_add(self.tVar_map['env'], self.tVar)})
         
@@ -568,8 +568,7 @@ class GridWorldDynamicGame():
           to reach the goal state.
         """
         # initialize goal state with 0 state value and add it to the winning region
-        # goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
-        goal = (self.goal_latch & self.state_lbl).ite(self.manager.addZero(), self.manager.plusInfinity())
+        goal = self.goal_latch.ite(self.manager.addZero(), self.manager.plusInfinity())
         curr_winning_states = self.manager.plusInfinity().min(goal)
 
         if verbose:
@@ -642,35 +641,35 @@ class GridWorldDynamicGame():
         return state_cube
     
 
-    def get_next_state(self, turn: str, curr_state_exp: ADD, act: str) -> Tuple[ADD, str]:        
+    def get_next_state(self, turn: str, curr_state_exp: ADD, act: str) -> Tuple[ADD, str, Tuple]:        
         act_name = act.split('_')[1]
-        next_state = [i for i in curr_state_exp[0][0][0]]
+        next_state = [i for i in curr_state_exp]
         # get the next state
         if turn == 'sys':
             # Sys action are always valid
-            nxt_x = curr_state_exp[0][0][0][1][0] + Moves[act_name].value[0]
-            nxt_y = curr_state_exp[0][0][0][1][1] + Moves[act_name].value[1]
+            nxt_x = curr_state_exp[1][0] + Moves[act_name].value[0]
+            nxt_y = curr_state_exp[1][1] + Moves[act_name].value[1]
             next_state[0] = 'env'  # switch turn after sys move
             next_state[1] = [nxt_x, nxt_y]  # sys pos
-            return self.convert_exlpicit_state_to_cube(next_state), act
+            return self.convert_exlpicit_state_to_cube(next_state), act, next_state
         
         elif turn == 'env':
             # first check if it is a valid move or not; if not valid, then map it to STAY action
-            if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp[0][0][0]) & self.action_map_sym[act]).isZero() is False:
+            if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp) & self.action_map_sym[act]).isZero() is False:
                 # invalid Env action, map it to STAY action
-                nxt_x = curr_state_exp[0][0][0][2][0]
-                nxt_y = curr_state_exp[0][0][0][2][1]
+                nxt_x = curr_state_exp[2][0]
+                nxt_y = curr_state_exp[2][1]
                 next_state[0] = 'sys'  # switch turn after sys move 
                 next_state[2] = [nxt_x, nxt_y]
 
-                return self.convert_exlpicit_state_to_cube(next_state), 'ENV_STAY'  # return the STAY action for invalid Env action
+                return self.convert_exlpicit_state_to_cube(next_state), 'ENV_STAY', next_state  # return the STAY action for invalid Env action
             
-            nxt_x = curr_state_exp[0][0][0][2][0] + Moves[act_name].value[0]
-            nxt_y = curr_state_exp[0][0][0][2][1] + Moves[act_name].value[1]
+            nxt_x = curr_state_exp[2][0] + Moves[act_name].value[0]
+            nxt_y = curr_state_exp[2][1] + Moves[act_name].value[1]
             next_state[0] = 'sys'  # switch turn after sys move 
             next_state[2] = [nxt_x, nxt_y]  # env pos
 
-            return self.convert_exlpicit_state_to_cube(next_state), act
+            return self.convert_exlpicit_state_to_cube(next_state), act, next_state
     
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
@@ -705,7 +704,7 @@ class GridWorldDynamicGame():
                 return
 
             # get the next state
-            curr_state, act_name = self.get_next_state(turn=turn, curr_state_exp=curr_state_exp, act=act_name)       
+            curr_state, act_name, _ = self.get_next_state(turn=turn, curr_state_exp=curr_state_exp[0][0][0], act=act_name)       
             
             # printing the action here as the human action is overriden above. This because invalid human moves
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
