@@ -304,7 +304,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
-
     
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
@@ -320,6 +319,31 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
 
         return preimage
+    
+
+    def hybrid_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval, succ_states in win_state_bucket.items():
+            # prime the vars
+            dfa_succ_states_primed = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
+            # dfa_pre_states: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+            dfa_pre_states: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+
+            dfa_pre_states_primed = dfa_pre_states.swapVariables(self.latches_bdd, self.prime_latches_bdd)
+            pre_states: BDD = dfa_pre_states_primed.vectorCompose(self.prime_latches_bdd, self.ts_bdd_transition_fun_list)
+
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
     
     
     def convert_cube_to_state_ADD(self,
