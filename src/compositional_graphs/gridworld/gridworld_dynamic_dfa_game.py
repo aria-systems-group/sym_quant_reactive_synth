@@ -57,7 +57,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.create_state_lbls()
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
-        # call it 2nd time here to override the base method - is this the best way?
+        # call it 2nd time here to override the base method
         self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl
         self.goal_latch: ADD = self.set_goal_latch() & self.state_lbl
 
@@ -164,22 +164,21 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
     def create_state_lbls(self, debug: bool = False):
         # Create the characteristic ADD for each property
-        add_goal = self.manager.addZero()
-        for r, c in self.grid.get('goal', []):
-            # Only Sys player (0) position matters for goal
-            add_goal |= (self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c])
+        ap_conditions = defaultdict(lambda: self.manager.addZero())
+        for lbl in self.lbls_list:
+            # we handle collision label separately as it is not associated with a single player's cell but is a function of both players position. We add this later.
+            if lbl == 'c':
+                continue
+            for r, c in self.grid.get(lbl, []):
+                # Only Sys player (0) position matters for lbls
+                ap_conditions[lbl] |= (self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c])
 
-        add_collision = self.manager.addZero()
         for r in range(self.rows):
             for c in range(self.columns):
                 # Both players at same (r,c)
                 sys_at = self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c]
                 env_at = self.xVar_map_sym[1][r] & self.yVar_map_sym[1][c]
-                add_collision |= (sys_at & env_at)
-
-        ap_conditions = {
-            'goal': add_goal,
-            'c': add_collision}
+                ap_conditions['c'] |= (sys_at & env_at)
 
         self.state_lbl = self.manager.addOne()
         for name, condition in ap_conditions.items():
@@ -201,8 +200,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
         
-        assert pre_state_nxt_lbl.findMax().isOne(), "[Error] We have more that one lbl cube in the next state. Fix this!!" 
-
         for cube_string in itertools.product([0, 1], repeat=len(self.lVars)):
             lbl_cube = reduce(lambda a,b: a & b, [self.lVars[idx] if bit else ~self.lVars[idx] for idx, bit in enumerate(cube_string)])
             pre_state_action: ADD = pre_state_nxt_lbl.restrict(lbl_cube)
@@ -250,91 +247,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_latches = dfa_handle.qVars
         self.qVar_map = dfa_handle.qVar_map
         self.qVar_map_sym = dfa_handle.qVar_map_sym
-    
-
-    def create_actions(self, player: str):
-        """
-         This method is simialr to the base method except with have additional set of state lbl variables that we add to the transition cube/
-        """
-        turn_bit: ADD = self.tVar_map_sym[player]
-        p_idx = 0 if player == 'sys' else 1
-        for r in range(self.rows):
-            rVar_add: ADD = self.cube_to_add(self.xVar_map[p_idx][r], self.xVars[p_idx])
-
-            for c in range(self.columns):
-                cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
-
-                # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
-                valid_actions = self.get_valid_transitions(rPos=r, cPos=c)
-                invalid_actions = set(self.env_actions) - valid_actions
-
-                for act in valid_actions:
-                    act_cube: str = self.action_map_sym[f'{player}_{act}']
-                    nxt_rPos = r + Moves[act].value[0]
-                    nxt_cPos = c + Moves[act].value[1]
-
-                    # check if the next position is valid or not - only for Env player
-                    if player == 'env' and (self.obsatcle_constraint_cube & self.tVar_map_sym[player] & self.xVar_map_sym[p_idx][nxt_rPos] & self.yVar_map_sym[p_idx][nxt_cPos]) != self.manager.addZero():
-                        # invalid Env action must be mapped as STAY action
-                        nxt_rPos, nxt_cPos = r, c
-                        # book keeping
-                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube
-
-                    # check if the next position is valid or not
-                    if player == 'env' and act == 'STAY' and len(invalid_actions) > 0:
-                        # invalid action must mapped as STAY action
-                        invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
-                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & invalid_act_cube
-                        act_cube |= invalid_act_cube
-                    
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
-
-                    for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.xVars[p_idx][idx].bddPattern().__str__()] |= transition_cube
-
-                    for idx, prime_rVar in enumerate(self.yVar_map[p_idx][nxt_cPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= transition_cube
-    
-
-    def add_sys_frame_axioms(self):
-        """
-         This method is similar to the base method except with have additional set of state lbl variables that we add to the transition cube.
-        """
-        turn_bit: ADD = self.tVar_map_sym['env']
-        for rPos in range(self.rows):
-            rVar_add = self.cube_to_add(self.xVar_map[0][rPos], self.xVars[0])
-            for cPos in range(self.columns):
-                cVar_add = self.cube_to_add(self.yVar_map[0][cPos], self.yVars[0])
-                for act in self.env_action_map.keys():
-                    act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
-                    for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.xVars[0][idx].bddPattern().__str__()] |= transition_cube
-                    
-                    for idx, prime_rVar in enumerate(self.yVar_map[0][cPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.yVars[0][idx].bddPattern().__str__()] |= transition_cube
-    
-    
-    def add_env_frame_axioms(self):
-        turn_bit: ADD = self.tVar_map_sym['sys']
-        for rPos in range(self.rows):
-            rVar_add = self.cube_to_add(self.xVar_map[1][rPos], self.xVars[1])
-            for cPos in range(self.columns):
-                cVar_add = self.cube_to_add(self.yVar_map[1][cPos], self.yVars[1])
-                for act in self.sys_action_map.keys():
-                    act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
-                    for idx, prime_rVar in enumerate(self.xVar_map[1][rPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.xVars[1][idx].bddPattern().__str__()] |= transition_cube
-                    
-                    for idx, prime_rVar in enumerate(self.yVar_map[1][cPos]):
-                        if prime_rVar == '1':
-                            self.transition_relation[self.yVars[1][idx].bddPattern().__str__()] |= transition_cube
     
 
     def create_transition_relation(self):

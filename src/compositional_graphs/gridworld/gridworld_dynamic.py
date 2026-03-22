@@ -222,6 +222,18 @@ class GridWorldDynamicGame():
         # used during rollout to check of the action is valid or not
         self.invalid_env_state_action_cube = self.manager.addZero()
         self.create_obstacle_constraint()
+    
+    def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
+        """
+         A method to to compute the |Sys States| and |Env states| in the game.
+         Sys States = rows x columns x turn variables
+         Env States = rows x columns x turn variables
+        """
+        sys_states = self.rows * self.columns
+        env_states = self.rows * self.columns  
+        if verbose:
+            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
+        return sys_states, env_states
         
 
     def create_obstacle_constraint(self):    
@@ -425,8 +437,6 @@ class GridWorldDynamicGame():
             for cPos in range(self.columns):
                 cVar_add = self.cube_to_add(self.yVar_map[0][cPos], self.yVars[0])
                 for act in self.env_action_map.keys():
-                    # if not act.startswith('env'):
-                    #     continue
                     act_cube: str = self.action_map_sym[act]
                     transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
@@ -446,8 +456,6 @@ class GridWorldDynamicGame():
             for cPos in range(self.columns):
                 cVar_add = self.cube_to_add(self.yVar_map[1][cPos], self.yVars[1])
                 for act in self.sys_action_map.keys():
-                    # if not act.startswith('sys'):
-                    #     continue
                     act_cube: str = self.action_map_sym[act]
                     transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[1][rPos]):

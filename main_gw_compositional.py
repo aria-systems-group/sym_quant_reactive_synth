@@ -24,6 +24,14 @@ def game_main():
     print('****************Env Action Map:****************')
     for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
+    
+    # print the number of explicit states
+    sys_states, env_states = gridworld.get_number_of_states(verbose=True)
+
+     # print DFA Game Info
+    print("*****************Printing DFA Game Info*****************")
+    print("Total num of latches: ", len(gridworld.latches))
+    print("Total boolean vars: ", len(gridworld.latches) + len(gridworld.rVars))
 
     tic = time.time()
     gridworld.create_transition_relation()
@@ -49,17 +57,16 @@ def game_main():
 
 def dfa_game_main():
     # small wrapper that convert goal to formula
-    rows = 2
-    columns = 2
-    goal = [(1, 1)]
-    grid = {'wall': [(0, 1)], 'goal': goal}
-    # for idx, g in enumerate(goal):
-    # {c + 1:0{len(str(rows))}b}
-    # formula = f"F(p{goal[0][0]}{goal[0][1]})"
+    rows = 10
+    columns = 10
+    goal = [(2, 2)]
+    goal1 = [(2, 0)]
+    grid = {'wall': [(2, 1)], 'goal': goal, 'goal1': goal1}
+    # grid = {'wall': [(0, 1)], 'goal': goal}
 
     # create a gridworld of size n x m
     gridworld = GridWorldDynamicDFAGame(rows=rows, columns=columns,
-                                        init=[(0, 0), (1, 1)],
+                                        init=[(0, 0), (2, 0)],
                                         grid=grid, goal=goal,
                                         formula='F(goal)', ltlf_flag=True)
 
@@ -71,6 +78,26 @@ def dfa_game_main():
     for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
 
+    print("*****************Label Map:*****************")
+    for k, v in gridworld.lVar_map.items():
+        print(f"{k} : {v}")
+    
+    # print the number of explicit states
+    sys_states, env_states = gridworld.get_number_of_states(verbose=True)
+    
+    # print DFA Info
+    print("*****************Printing Game Info*****************")
+    for k, v in gridworld.dfa_handle.qVar_map.items():
+        print(f"{k} : {v}")
+
+    # print DFA Game Info
+    print("*****************Printing DFA Game Info*****************")
+    print("Total num of latches: ", len(gridworld.latches) + len(gridworld.qVars))
+    print("Total boolean vars: ", len(gridworld.latches) + len(gridworld.qVars) + len(gridworld.rVars))
+    print("********************************************************")
+    print(f"Total num of explicit states in DFA Game: {gridworld.dfa_handle.num_of_states * (env_states + sys_states):,}")
+    print("********************************************************")
+
     tic = time.time()
     gridworld.create_transition_relation()
     toc = time.time()
@@ -78,20 +105,20 @@ def dfa_game_main():
 
     # test preimage computation
     # gridworld.test_preimage()
-    gridworld.test_preimage_2()
-    sys.exit(-1)
+    # gridworld.test_preimage_2()
+    # sys.exit(-1)
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=True, cooperative_game=False)
+    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
     
-    # if strategy is not None:
-    #     gridworld.roll_out_strategy(strategy=strategy, verbose=True)
+    if strategy is not None:
+        gridworld.roll_out_strategy(strategy=strategy, verbose=True)
 
 
 if __name__ == "__main__":
