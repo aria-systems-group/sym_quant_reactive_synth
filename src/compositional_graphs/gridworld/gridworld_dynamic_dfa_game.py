@@ -25,6 +25,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                  init: List[tuple], goal: tuple,
                  formula: str, 
                  grid: Optional[Dict['str', List[CELL]]] = dict({}),
+                 camera: bool = False,
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
         """
@@ -39,6 +40,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             init (tuple): Initial state configuration.
             goal (tuple): Goal state configuration.
             ltlf_flag (bool): Flag indicating whether the formula is LTLf (True) or LTL (False).
+            camera (bool): Flag indicating whether to include the camera predicate in the state labeling. 
             formula (str): The LTL/LTLf formula specifying the objective of the game.
         """
         self.formula: str = formula
@@ -47,6 +49,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.qVar_map: List[ADD] = {} 
         self.qVar_map_sym: List[ADD] = {} 
         self.ltlf_flag: bool = ltlf_flag
+        self.camera: bool = camera
         self.dfa_handle: Union[SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot] = None
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
@@ -74,7 +77,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         super().create_all_boolean_state_vars_and_maps()
 
         self.state_lbl_map: Dict[CELL, Set[str]] = defaultdict(lambda: set())
-        self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c']  # list of labels excluding obstacle label - including collision
+         # list of labels excluding obstacle label - including collision and camera if specified.
+        self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c'] + ['p'] if self.camera else []
         self.lVar_map = bidict({})
         self.lVar_map_sym = dict({}) 
         self.lVars = self.create_state_lbls_vars()
@@ -160,14 +164,52 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         for ap_idx, ap in enumerate(self.lbls_list):
             self.lVar_map[ap] = self.lVars[ap_idx].bddPattern().__str__()
             self.lVar_map_sym[ap] = self.lVars[ap_idx]
+    
+
+    def compute_photograph_predicate(self) -> ADD:
+        """
+        Computes the symbolic set (ADD) of states where the Env player is in the 
+        Sys player's 3x3 camera field of view.
+        
+        Field of View:
+        XXX
+        RXX
+        XXX
+        where R is Sys player at (r, c), and X are the 3x3 relative cells:
+        Rows: [r-1, r, r+1], Columns: [c, c+1, c+2]
+        """
+        # 1. Construct the Row Relation: r_env \in {r_sys-1, r_sys, r_sys+1}
+        row_rel = self.manager.addZero()
+        for dr in [-1, 0, 1]:
+            for r in range(self.rows):
+                nr = r + dr
+                if 0 <= nr < self.rows:
+                    # Relation: (Sys is at r) AND (Env is at nr)
+                    row_rel |= (self.xVar_map_sym[0][r] & self.xVar_map_sym[1][nr])
+        
+        # 2. Construct the Col Relation: c_env \in {c_sys, c_sys+1, c_sys+2}
+        col_rel = self.manager.addZero()
+        for dc in [0, 1, 2]:
+            for c in range(self.columns):
+                nc = c + dc
+                if 0 <= nc < self.columns:
+                    col_rel |= (self.yVar_map_sym[0][c] & self.yVar_map_sym[1][nc])
+        
+        # 3. The predicate p is simply the conjunction of these two independent relations
+        p_true_set = row_rel & col_rel
+        return p_true_set
  
 
     def create_state_lbls(self, debug: bool = False):
-        # Create the characteristic ADD for each property
         ap_conditions = defaultdict(lambda: self.manager.addZero())
+        # Create the characteristic ADD for each property
+        if self.camera:
+            # self.compute_photograph_predicate()
+            ap_conditions['p'] |= self.compute_photograph_predicate()
+        
         for lbl in self.lbls_list:
-            # we handle collision label separately as it is not associated with a single player's cell but is a function of both players position. We add this later.
-            if lbl == 'c':
+            # we handle collision/photograph label separately as it is not associated with a single player's cell but is a function of both players position. We add this later.
+            if lbl == 'c' or lbl == 'p':
                 continue
             for r, c in self.grid.get(lbl, []):
                 # Only Sys player (0) position matters for lbls

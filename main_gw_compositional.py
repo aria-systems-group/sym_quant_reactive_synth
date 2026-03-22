@@ -68,7 +68,8 @@ def dfa_game_main():
     gridworld = GridWorldDynamicDFAGame(rows=rows, columns=columns,
                                         init=[(0, 0), (2, 0)],
                                         grid=grid, goal=goal,
-                                        formula='F(goal)', ltlf_flag=True)
+                                        camera=True,
+                                        formula='F(p) & G(!c)', ltlf_flag=True)
 
     print('****************Sys Action Map:****************')
     for k, v in gridworld.sys_action_map.items():
