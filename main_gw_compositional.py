@@ -44,9 +44,17 @@ def game_main():
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
+    # strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
+    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False, cooperative_game=False)
+    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False, cooperative_game=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    # if strategy.compare(bdd_strategy, 2):
+    #     print("The strategies from both methods are the same!")
+    # if opt_sval.compare(bdd_opt_sval, 2):
+    #     print("The optimal state values from both methods are the same!")
+    strategy = bdd_strategy
 
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
@@ -111,10 +119,18 @@ def dfa_game_main():
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
+    # strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
+    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False, cooperative_game=False)
+    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False, cooperative_game=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
+    # if bdd_strategy.compare(strategy, 2):
+    #     print("The strategies from both methods are the same!")
+    # if bdd_opt_sval.compare(opt_sval, 2):
+    #     print("The optimal state values from both methods are the same!")
+    strategy = bdd_strategy
+    
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
     

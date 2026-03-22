@@ -75,6 +75,7 @@ class GridWorldDynamicGame():
         # now that the maps are initialized we create init and goal states
         self.init_latch: ADD = self.set_init_latch() 
         self.goal_latch: ADD = self.set_goal_latch()
+        self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.bddZero())
 
         # monolithic transition relation
         self.transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.latches}
@@ -467,6 +468,36 @@ class GridWorldDynamicGame():
     def convert_mono_tr_to_action_tr(self):
         for tr_bdd in self.transition_relation.values():
             self.ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
+    
+    def get_states_per_cost(self):
+        """
+         A helper function that takes in the ADD weight and return a vector of 0-1 BDD per cost.
+        """
+        for w in self.weight_dict.values():
+            self.states_per_cost[w] = self.weight.bddInterval(w, w)
+        
+        # manually add env action to cost zero
+        self.states_per_cost[0] |= self.tVar_map_sym['env'].bddPattern() & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd)
+    
+
+    def convert_vector_of_bdd_to_add(self, bdd_vector: Dict[int, BDD]) -> ADD:
+        """
+         A helper function that converts a vector of BDDs to an ADD. Used in pure BDD solver method for 
+          (1) printing the winning states
+          (2) returning the preimage strategy
+        """
+        result_add = self.manager.plusInfinity()
+        for sval, sbdd in bdd_vector.items():
+            result_add = sbdd.toADD().ite(self.manager.addConst(sval), result_add)
+        return result_add
+    
+    
+    def check_reached_fixpoint_bdd(self, curr_winning_states: Dict[int, BDD], next_winning_states: Dict[int, BDD]) -> bool:
+        curr_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+        next_winning_states_add = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
+        if not next_winning_states_add.compare(curr_winning_states_add, 2):
+            return False
+        return True
         
     
     def post_process_transition_relation(self, debug: bool = False):
@@ -563,6 +594,74 @@ class GridWorldDynamicGame():
         return preimage
     
 
+    def compute_min_preimage_pure_bdd(self, preimage: Dict[int, BDD]) -> Dict[int, BDD]:
+        minmin_preimage = defaultdict(self.manager.bddZero) 
+        rVars_cube_bdd = self.rVars_cube.bddPattern()
+        states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
+        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
+        for sval in sorted(preimage.keys()):
+            # intersect with finite valued states for Sys and Env player
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & states
+            minmin_preimage[sval] |= sval_to_keep
+            states &= ~sval_to_keep
+        assert states.isZero() == True, "Error in computing min for system and env states"
+
+        return minmin_preimage
+
+
+    def compute_min_max_preimage_pure_bdd(self, preimage: Dict[int, BDD], debug: bool = False) -> Dict[int, BDD]:
+        minmax_preimage = defaultdict(self.manager.bddZero)
+        rVars_cube_bdd = self.rVars_cube.bddPattern()
+        env_turn_bdd: BDD = self.tVar_map_sym['env'].bddPattern()
+        states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
+        # now take univ abstraction to remove edges to states with infinity value
+        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
+        
+        robot_state_bdd: BDD = states & ~env_turn_bdd
+
+        # remove Env state that do not have a finite value value under all actions
+        env_state_w_inf_val = env_turn_bdd & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd) & ~states_action_pairs
+        env_state_w_inf_val = env_state_w_inf_val.existAbstract(rVars_cube_bdd)
+        
+        # debug states without inf value are
+        env_finite_valued_states = states & env_turn_bdd & ~env_state_w_inf_val
+        
+        for sval in sorted(preimage.keys(), reverse=True):
+            # intersect with env finite valued states
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & env_finite_valued_states
+            minmax_preimage[sval] |= sval_to_keep
+            env_finite_valued_states &= ~sval_to_keep
+        
+        if debug:
+            assert env_finite_valued_states.isZero() == True, "Error in computing max for env states"
+
+        for sval in sorted(preimage.keys()):
+            # intersect with env finite valued states
+            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & robot_state_bdd
+            minmax_preimage[sval] |= sval_to_keep
+            robot_state_bdd &= ~sval_to_keep
+        
+        if debug:
+            assert robot_state_bdd.isZero() == True, "Error in computing min for system states"
+
+        return minmax_preimage
+
+
+    def compute_min_goal_states(self, preimage: Dict[int, BDD], goal: Dict[int, BDD]) -> Dict[int, BDD]:
+        for goal_sval in sorted(goal.keys()):
+            for sval in sorted(preimage.keys()):
+                # if there exists states in goal state, then we override the state value in preimage
+                if sval != goal_sval:
+                    sval_to_update = preimage[sval] & goal[goal_sval]
+                    if not sval_to_update.isZero():
+                        preimage[sval] &= ~sval_to_update
+                        preimage[goal_sval] |= sval_to_update
+                    
+                    # add the goal states back to the preimage with their respective goal sval
+                    preimage[goal_sval] |= goal[goal_sval]
+        return preimage
+    
+
     def hybrid_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for sval, succ_states in win_state_bucket.items():
@@ -622,7 +721,7 @@ class GridWorldDynamicGame():
             preimage: ADD = self.compute_preimage(curr_winning_states)
             preimage = preimage + self.weight
             
-            # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
+            # take min over Sys player states; as invalid actions and env action are mapped to inf, they will not affect the min operation
             if cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
@@ -639,7 +738,7 @@ class GridWorldDynamicGame():
                 print("**************************Reached fixpoint**************************")
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
-                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
                         init_val: int = 0
                     else:
                         init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
@@ -689,7 +788,7 @@ class GridWorldDynamicGame():
                     
             # add the action costs associated with the robot actions
             preimage = preimage + self.weight
-            # take min over Sys player states; as invalid actions and human action are mapped to inf, they will not affect the min operation
+            # take min over Sys player states; as invalid actions and env action are mapped to inf, they will not affect the min operation
             if cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
@@ -705,7 +804,7 @@ class GridWorldDynamicGame():
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
-                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
                         init_val: int = 0
                     else:
                         init_val: int = list((self.init_latch & curr_winning_states).generate_cubes())[0][1]
@@ -725,6 +824,92 @@ class GridWorldDynamicGame():
 
             # swap the winning states
             curr_winning_states = next_winning_states
+    
+
+    def pure_bdd_solve(self, verbose: bool = False, cooperative_game: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
+          to reach the goal state.
+        """
+        # create Partitioned TR based on actions
+        self.convert_mono_tr_to_action_tr()
+        self.get_states_per_cost()
+        goal_states_buckets = defaultdict(lambda: self.manager.bddZero())
+
+        # initialize goal state with 0 state value and add it to the winning region
+        curr_winning_states = defaultdict(lambda: self.manager.bddZero())
+        next_winning_states = defaultdict(lambda: self.manager.bddZero())
+        
+        # initialize the goal state bucket with 0 cost
+        curr_winning_states[0] |= self.goal_latch.bddPattern()
+        goal_states_buckets[0] |= self.goal_latch.bddPattern()
+       
+        # intialize the iteration counter
+        layer = 0
+
+        # print the initial winning states
+        if verbose:
+            print("Initial Winning States:")
+            # by default generate cubes does not return cubes that point to 0 leaf. 
+            # So, we manually convert the 0 leaf to a cube with leaf value 1 here for printing.
+            self.convert_cube_to_state_ADD(curr_winning_states[0].toADD(), action=False, verbose=True)
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # compute preimage
+            vector_preimage: Dict[int, BDD] = self.hybrid_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
+            
+            # add the action costs associated with the robot actions
+            next_winning_states = defaultdict(lambda: self.manager.bddZero())
+            for sCost, sbdd in self.states_per_cost.items():
+                for pre_sVal, pre_sbdd in vector_preimage.items():
+                    total_cost: int = sCost + pre_sVal
+                    
+                    common_states: BDD = sbdd & pre_sbdd
+                    if not common_states.isZero():
+                        next_winning_states[total_cost] |= common_states
+            
+            # take min over Sys player states; as invalid actions and env action are mapped to inf, they will not affect the min operation
+            if cooperative_game:
+                next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=next_winning_states)
+            else:
+                next_winning_states_opt = self.compute_min_max_preimage_pure_bdd(preimage=next_winning_states, debug=False)
+            # retain the min over goal states - here all goal states are at 0 cost
+            next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                # unions of all predecessors along with their state values - ADD used for easy printing only
+                preimage = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states_opt)
+                self.convert_cube_to_state_ADD(preimage, action=False, verbose=verbose)
+            
+            
+            if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
+                print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                init_val = math.inf
+                for sval, sbdd in curr_winning_states.items():
+                    if sbdd & self.init_latch.bddPattern() != self.manager.bddZero():
+                        init_val: int = sval
+                        print(f"A Winning Strategy Exists!!. The State value is {init_val}")
+                        break
+                self.comp_winning_states = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+                # post process the strategy to return as monolithic ADD that corresponds to strategy
+                strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
+                goal: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=goal_states_buckets)
+                if init_val < math.inf:
+                    return strategy.min(goal), self.comp_winning_states.min(goal)
+                else:
+                    print(f"No Winning Strategy Exists!! The State value is {math.inf}")
+                    return None, None
+            
+            # update the counter
+            layer += 1
+
+            # swap the winning states; can't do  curr_winning_states = next_winning_states_opt as python is pass by value of reference
+            curr_winning_states = defaultdict(lambda: self.manager.bddZero())
+            for sval in next_winning_states_opt.keys():
+                curr_winning_states[sval] |= next_winning_states_opt[sval]
 
     
     
@@ -811,7 +996,7 @@ class GridWorldDynamicGame():
             # get the next state
             curr_state, act_name, _ = self.get_next_state(turn=turn, curr_state_exp=curr_state_exp[0][0][0], act=act_name)       
             
-            # printing the action here as the human action is overriden above. This because invalid human moves
+            # printing the action here as the Env action is overriden above. This because invalid Env moves
             # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
             if verbose:
                 print(f"Sys Action: {act_name}") if turn == 'sys' else print(f"Env Action: {act_name}")
