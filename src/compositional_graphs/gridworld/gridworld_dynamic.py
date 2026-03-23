@@ -25,7 +25,7 @@ class Moves(Enum):
 
 
 class GridWorldDynamicGame():
-    def __init__(self, rows: int, columns: int, init: List[tuple], goal: tuple, grid: Optional[Dict] = dict({}), enable_reordering: bool = False):
+    def __init__(self, rows: int, columns: int, init: List[CELL], goal: List[CELL], grid: Optional[Dict[str, List[CELL]]] = dict({}), restricted_env_locs: Optional[List[CELL]] = [], enable_reordering: bool = False):
         """
         Initializes the GridWorldDynamicGame with the given parameters. Give, n x m gridworld, we create a turn-based game where the robot and the environment take turns to move. 
         The robot can choose to move in one of the four cardinal directions or stay in place, and the environment can do the same. 
@@ -50,6 +50,7 @@ class GridWorldDynamicGame():
         self.init = init
         self.goal = goal
         self.grid = grid
+        self.restricted_env_locs = restricted_env_locs
         self.manager: Cudd = Cudd(maxMem=16000000000)
         # TODO: hard coding should update to be the same the number of agents
         self.xVar_map = {p: bidict({}) for p in range(2)}
@@ -248,6 +249,9 @@ class GridWorldDynamicGame():
                 for pos in self.grid[obst]:
                     player_obst_const |= self.tVar_map_sym[player_str] & self.xVar_map_sym[p][pos[0]] & self.yVar_map_sym[p][pos[1]]
                 self.obsatcle_constraint_cube |= player_obst_const
+        # add restricted env location to obstacle constraint
+        for pos in self.restricted_env_locs:
+            self.obsatcle_constraint_cube |= self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]]
 
 
     def set_latches(self):
@@ -428,8 +432,7 @@ class GridWorldDynamicGame():
 
                     for idx, prime_rVar in enumerate(self.yVar_map[p_idx][nxt_cPos]):
                         if prime_rVar == '1':
-                            self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= transition_cube
-    
+                            self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= transition_cube  
 
     def add_sys_frame_axioms(self):
         turn_bit: ADD = self.tVar_map_sym['env']
@@ -512,9 +515,8 @@ class GridWorldDynamicGame():
                 continue
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
             for pos in self.grid[obst]:
-                state_primed: ADD = (self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]]).swapVariables(self.latches, self.prime_latches)
+                state_primed: ADD = (self.tVar_map_sym['env'] & self.xVar_map_sym[0][pos[0]] & self.yVar_map_sym[0][pos[1]]).swapVariables(self.latches, self.prime_latches)
                 tr_to_remove |= state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-                # tr_to_remove |=  self.compute_preimage(self.tVar_map_sym['env'] & self.xVar_map_sym[1][pos[0]] & self.yVar_map_sym[1][pos[1]])
         
         # remove the edges
         for tr in self.transition_relation.keys():
@@ -1094,7 +1096,6 @@ class GridWorldDynamicGame():
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
             yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
-        
 
         # print the states
         states_action_pairs = []

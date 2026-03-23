@@ -18,9 +18,10 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
     
     def __init__(self,
                  rows: int, columns: int,
-                 init: List[tuple], goal: tuple,
+                 init: List[CELL], goal: List[CELL],
                  formula: str, 
                  grid: Optional[Dict['str', List[CELL]]] = dict({}),
+                 restricted_env_locs: Optional[List[CELL]] = [],
                  camera: bool = False,
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
@@ -50,7 +51,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid, enable_reordering=False)
+        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid,restricted_env_locs=restricted_env_locs, enable_reordering=False)
 
         # set up dfa init and goal states
         self.create_state_lbls(debug=False)
@@ -295,8 +296,18 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_handle.create_dfa_transition_relation()
 
         # game TR
-        super().create_transition_relation()
+        for player in ['sys', 'env']:
+            self.create_actions(player=player)
+        
+        # need to add frame axioms, i.e., when it is env move Sys variables remain the same and vice versa.
+        self.add_sys_frame_axioms()
+        self.add_env_frame_axioms()
+
+        self.add_turn_var_update_rule()
         self.add_lbl_evolution_to_TR()
+
+        # remove invalid Sys moves to wall
+        self.post_process_transition_relation(debug=False)
 
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq

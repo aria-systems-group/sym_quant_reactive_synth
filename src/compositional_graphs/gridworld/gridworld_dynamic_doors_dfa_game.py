@@ -4,27 +4,31 @@ from bidict import bidict
 from tabulate import tabulate
 
 from functools import reduce
-from collections import defaultdict
 from typing import List, Union, Optional, Dict, Tuple, Set
 
-from cudd import Cudd, ADD, BDD
+from cudd import ADD, BDD
 
-from src.compositional_graphs.gridworld.gridworld_dynamic_doors import GridWorldDynamicDoorsGame, CELL
+from src.compositional_graphs.gridworld.gridworld_dynamic import CELL
+from src.compositional_graphs.gridworld.gridworld_dynamic_doors import GridWorldDynamicDoorsGame
 from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWorldDynamicDFAGame
-from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot
-
 
 
 class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoorsGame):
     def __init__(self, 
                  rows: int, columns: int,
                  formula: str, 
-                 init: List[Tuple[int, int]], goal: List[Tuple[int, int]],
-                 grid: Dict[str, List[Tuple[int, int]]],
+                 init: List[CELL], goal: List[CELL],
+                 grid: Dict[str, List[CELL]],
+                 restricted_env_locs: Optional[List[CELL]] = [],
                  camera: bool = False,
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
-        super().__init__(rows=rows, columns=columns, formula=formula, init=init, goal=goal, grid=grid, camera=camera, ltlf_flag=ltlf_flag, enable_reordering=False)
+        super().__init__(rows=rows, columns=columns,
+                         formula=formula, init=init,
+                         goal=goal, grid=grid, camera=camera,
+                         ltlf_flag=ltlf_flag,
+                         restricted_env_locs=restricted_env_locs,
+                         enable_reordering=False)
         # call it 3rd time here to override the base method
         self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.all_door_uncalimed
         if enable_reordering:

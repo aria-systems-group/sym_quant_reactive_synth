@@ -12,7 +12,7 @@ from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynami
 
 
 class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
-    def __init__(self, rows: int, columns: int, init: List[Tuple[int, int]], goal: List[Tuple[int, int]], grid: Dict[str, List[Tuple[int, int]]], enable_reordering=False):
+    def __init__(self, rows: int, columns: int, init: List[Tuple[int, int]], goal: List[Tuple[int, int]], grid: Dict[str, List[Tuple[int, int]]], restricted_env_locs: Optional[List[CELL]] = None, enable_reordering=False):
         """
          Inherit the Gridworld Dyanmic Game and augment it with doors.  
         """
@@ -20,7 +20,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         self._door_status = ['unclaimed', 'sys', 'env']
         self.dVar_map = {d: bidict({}) for d in range(len(grid['door']))}
         self.dVar_map_sym = {d: bidict({}) for d in range(len(grid['door']))}
-        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid, enable_reordering=enable_reordering)
+        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid, restricted_env_locs=restricted_env_locs, enable_reordering=enable_reordering)
 
     def create_all_boolean_state_vars_and_maps(self):
         super().create_all_boolean_state_vars_and_maps()    
@@ -104,14 +104,6 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         
         return ~door_constraint
 
-
-    def get_door_idx(self, cell: CELL) -> Optional[int]:
-        """
-         A helper method that looks up if there is a door in the cell. If yes, it returns the index of the door in the self.grid['door'] list.
-        """
-        if cell in self.grid['door']:
-            return self.grid['door'].index(cell)
-        return None
     
     def create_door_transitions(self):
         for didx, (dr, dc) in enumerate(self.grid['door']):
