@@ -1,4 +1,3 @@
-import math
 import itertools
 
 from functools import reduce
@@ -11,11 +10,8 @@ from typing import List, Union, Optional, Dict, Tuple, Set
 
 from cudd import Cudd, ADD, BDD
 
-from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame, Moves
+from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame, Moves, CELL
 from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot
-
-
-CELL = Tuple[int, int]
 
 
 class GridWorldDynamicDFAGame(GridWorldDynamicGame):
@@ -57,7 +53,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid, enable_reordering=False)
 
         # set up dfa init and goal states
-        self.create_state_lbls()
+        self.create_state_lbls(debug=False)
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
         # call it 2nd time here to override the base method

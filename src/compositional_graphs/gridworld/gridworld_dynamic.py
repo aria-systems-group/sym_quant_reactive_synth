@@ -11,8 +11,10 @@ from tabulate import tabulate
 from collections import defaultdict
 from typing import List, Tuple, Dict, Union, Optional
 
-from cudd import Cudd, ADD, BDD, REORDER_GROUP_SIFT_CONV
+from cudd import Cudd, ADD, BDD
 
+# Custom Types
+CELL = Tuple[int, int]
 
 class Moves(Enum):
     NORTH = (1, 0)
@@ -441,7 +443,6 @@ class GridWorldDynamicGame():
                     for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars[0][idx].bddPattern().__str__()] |= transition_cube
-    
                     
                     for idx, prime_rVar in enumerate(self.yVar_map[0][cPos]):
                         if prime_rVar == '1':
@@ -1095,7 +1096,7 @@ class GridWorldDynamicGame():
             yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
 
-         # print the states
+        # print the states
         states_action_pairs = []
         states_bookkeeping = [] 
         for cube, val in cubes:

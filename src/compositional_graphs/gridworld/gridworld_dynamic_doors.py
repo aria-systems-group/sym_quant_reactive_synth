@@ -10,8 +10,9 @@ from cudd import Cudd, ADD, BDD
 
 from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame, Moves, CELL
 
+
 class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
-    def __init__(self, rows: int, columns: int, init: List[Tuple[int, int]], goal: List[Tuple[int, int]], grid: Dict[str, List[Tuple[int, int]]]):
+    def __init__(self, rows: int, columns: int, init: List[Tuple[int, int]], goal: List[Tuple[int, int]], grid: Dict[str, List[Tuple[int, int]]], enable_reordering=False):
         """
          Inherit the Gridworld Dyanmic Game and augment it with doors.  
         """
@@ -19,9 +20,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         self._door_status = ['unclaimed', 'sys', 'env']
         self.dVar_map = {d: bidict({}) for d in range(len(grid['door']))}
         self.dVar_map_sym = {d: bidict({}) for d in range(len(grid['door']))}
-        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid)
-        
-    
+        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid, enable_reordering=enable_reordering)
 
     def create_all_boolean_state_vars_and_maps(self):
         super().create_all_boolean_state_vars_and_maps()    
@@ -64,11 +63,6 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                     self.dVar_map_sym[d_idx][d_status] = self.cube_to_add(bit_str, self.dVars[d_idx])
     
 
-    # def miscellanoues_helper_stuff(self):
-    #     super().miscellanoues_helper_stuff()
-    #     self.all_door_uncalimed = reduce(lambda a, b: a & b, [self.dVar_map_sym[d_idx]['unclaimed'] for d_idx in range(len(self.grid['door']))])
-    
-
     def set_latches(self):
         super().set_latches()
         self.latches += [var for dVar_adds in self.dVars for var in dVar_adds]
@@ -83,6 +77,18 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
     def set_init_latch(self) -> ADD:
         return super().set_init_latch() & self.all_door_uncalimed
     
+
+    def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
+        """
+        A method to to compute the |Sys States| and |Env states| in the game.
+         Sys States = rows x columns x |door_status|^number_of_doors
+         Env States = rows x columns x |door_status|^number_of_doors
+        """
+        sys_states = self.rows * self.columns * (len(self._door_status) ** len(self.grid['door']))
+        env_states = self.rows * self.columns * (len(self._door_status) ** len(self.grid['door']))
+        if verbose:
+            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
+        return sys_states, env_states
 
     def get_door_constraint(self, cell: CELL, player: str) -> ADD:
         """
@@ -185,25 +191,6 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                                 for idx, prime_dVar in enumerate(self.dVar_map[d_idx][d_status]):
                                     if prime_dVar == '1':
                                         self.transition_relation[self.dVars[d_idx][idx].bddPattern().__str__()] |= transition_cube
-    
-
-    # def _update_door_status_during_rollout(self, curr_state_exp: List[str], player: str) -> List[str]:
-    #     """
-    #     A helper method that checks if the player is passing through a door cell during the rollout and updates the door status accordingly. 
-    #      We need to check this for both Sys and Env player because the door status can be changed by either of them.
-         
-    #      We check for the door status update when the player is at the door cell because that is the only time when the door status can change.
-    #     """
-    #     # TODO: hardcoding for 2 agents, need to update for n agents
-    #     sys_pos = curr_state_exp[1]
-    #     env_pos = curr_state_exp[2]
-    #     for d_idx, (dr, dc) in enumerate(self.grid['door']):
-    #         if curr_state_exp[1] == [dr, dc]:  # Sys is at the door cell
-    #             if curr_state_exp[0] == 'sys' and curr_state_exp[3 + d_idx] == 'unclaimed':
-    #                 curr_state_exp[3 + d_idx] = 'sys'  # door becomes claimed by Sys
-    #             elif curr_state_exp[0] == 'env' and curr_state_exp[3 + d_idx] == 'unclaimed':
-    #                 curr_state_exp[3 + d_idx] = 'env'  # door becomes claimed by Env
-    #     return curr_state_exp
     
 
     def get_next_state(self, turn: str, curr_state_exp: ADD, act: str) -> Tuple[ADD, str, Tuple]:        
