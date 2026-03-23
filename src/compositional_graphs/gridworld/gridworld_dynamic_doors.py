@@ -1,4 +1,5 @@
 import math
+import warnings
 
 from bidict import bidict
 from tabulate import tabulate
@@ -137,8 +138,14 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                         cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
                         
                         # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
-                        valid_actions = self.get_valid_transitions(rPos=r, cPos=c)
+                        valid_actions = self.get_valid_transitions(rPos=r, cPos=c, player=player)
                         invalid_actions = set(self.env_actions) - valid_actions
+
+                        if player == 'env' and len(invalid_actions) > 0:
+                            # invalid action must be mapped to an error state
+                            invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
+                            self.invalid_env_state_action_cube |= turn_bit & dConf_cube & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube 
+                            self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & dConf_cube & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
 
                         for act in valid_actions:
                             act_cube: str = self.action_map_sym[f'{player}_{act}']
@@ -147,17 +154,10 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
 
                             # check if the next position is valid or not - only for Env player
                             if player == 'env' and (self.obsatcle_constraint_cube & self.tVar_map_sym[player] & self.xVar_map_sym[p_idx][nxt_rPos] & self.yVar_map_sym[p_idx][nxt_cPos]) != self.manager.addZero():
-                                # invalid Env action must be mapped as STAY action
-                                nxt_rPos, nxt_cPos = r, c
-                                # book keeping
-                                self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube #& dConf_cube
-
-                            # check if the next position is valid or not
-                            if player == 'env' and act == 'STAY' and len(invalid_actions) > 0:
-                                # invalid action must mapped as STAY action
-                                invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
-                                self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & invalid_act_cube #& dConf_cube
-                                act_cube |= invalid_act_cube
+                                # invalid Env action must be mapped to error state
+                                self.invalid_env_state_action_cube |= turn_bit & dConf_cube & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
+                                self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & dConf_cube & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
+                                continue
                             
                             transition_cube: ADD = turn_bit & dConf_cube & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
 
@@ -187,7 +187,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
 
     def get_next_state(self, turn: str, curr_state_exp: ADD, act: str) -> Tuple[ADD, str, Tuple]:        
         """
-        In addition updating the state, we need to update the door status as well. So, we need to check if a player is passing through a door or not. 
+        In addition to updating the state, we need to update the door status as well. So, we need to check if a player is passing through a door or not. 
          If yes, then we need to update the door status accordingly. We update the dorr status, when the player is at the door cell.
         """
         act_name = act.split('_')[1]
@@ -209,13 +209,14 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                     # if the door is unclaimed and the Sys is passing through it, then the door becomes claimed by Sys
                     next_state[curr_state_exp.index(d_status)] = 'env'
             
-            door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:])])
+            door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:-1])])
 
-            return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses, act, next_state
+            return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses & ~self.eVar[0], act, next_state
         
         elif turn == 'env':
             # first check if it is a valid move or not; if not valid, then map it to STAY action
             if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp[:3]) & self.action_map_sym[act]).isZero() is False:
+                raise warnings.warn(f"Invalid Env action {act_name} taken at state {curr_state_exp}. This should not happen. Fix this!!!")
                 # invalid Env action, map it to STAY action
                 nxt_x = curr_state_exp[2][0]
                 nxt_y = curr_state_exp[2][1]
@@ -228,9 +229,9 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                         # if the door is unclaimed and the Sys is passing through it, then the door becomes claimed by Sys
                         next_state[curr_state_exp.index(d_status)] = 'sys'
                 
-                door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:])])
+                door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:-1])])
 
-                return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses, 'ENV_STAY', next_state  # return the STAY action for invalid Env action
+                return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses & ~self.eVar[0], 'ENV_STAY', next_state  # return the STAY action for invalid Env action
             
             nxt_x = curr_state_exp[2][0] + Moves[act_name].value[0]
             nxt_y = curr_state_exp[2][1] + Moves[act_name].value[1]
@@ -243,9 +244,9 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                     # if the door is unclaimed and the Sys is passing through it, then the door becomes claimed by Sys
                     next_state[curr_state_exp.index(d_status)] = 'sys'
                 
-                door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:])])
+                door_statuses: ADD = reduce(lambda a, b: a & b, [self.dVar_map_sym[idx][e] for idx, e in enumerate(next_state[3:-1])])
 
-            return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses, act, next_state
+            return self.convert_exlpicit_state_to_cube(next_state[:3]) & door_statuses & ~self.eVar[0], act, next_state
     
     
 
@@ -272,24 +273,25 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+        eidx = self.manager.addVariables().index(self.eVar[0])
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds])
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds])
         dConf_exist_cube = dict({})
         for didx in range(len(self.dVars)):
             if len(self.grid['door']) == 1:
-                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds])
+                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.eVar +  self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds])
             else:
-                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.dVars[:didx] + self.dVars[didx+1:])
+                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.dVars[:didx] + self.dVars[didx+1:])
         
         xConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
         
         yConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
 
         # print the states
         states_action_pairs = []
@@ -329,9 +331,9 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                
-                state = [self.tVar_map.inv[tConf_cube_str]] + pos + door_states
-                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos, *door_states), val), None])
+                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                state = [self.tVar_map.inv[tConf_cube_str]] + pos + door_states + [eVar_state]
+                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos, *door_states, eVar_state), val), None])
             except KeyError:
                 continue
             

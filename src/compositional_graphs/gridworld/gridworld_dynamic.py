@@ -1,5 +1,6 @@
 import sys
 import math
+import warnings
 
 from enum import Enum
 from functools import reduce
@@ -45,7 +46,7 @@ class GridWorldDynamicGame():
         self.rows = rows
         self.columns = columns
         self.sys_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
-        self.env_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
+        self.env_actions: List[str] = ['NORTH', 'SOUTH', 'EAST', 'WEST']
         self.obstacles = set({'wall', 'lava'})
         self.init = init
         self.goal = goal
@@ -57,6 +58,7 @@ class GridWorldDynamicGame():
         self.yVar_map = {p: bidict({}) for p in range(2)}
 
         self.tVar_map = bidict({'sys': '1', 'env': '0'})  # fixed turn variable map
+        self.eVar_map = bidict({'e': '1', 'ne': '0'})  # fixed error variable map
 
         # Predicate to Cube maps - needed for symbolic operations; also avoid multiple calls to cube_to_add()
         self.xVar_map_sym = {p: bidict({}) for p in range(2)}
@@ -67,13 +69,11 @@ class GridWorldDynamicGame():
         # main method to create boolean variables for the game and the maps for both prime and non-prime variables
         self.parent_boolean_state_vars_and_maps()
         
-        
         self.tVar_map_sym = bidict({'sys': self.cube_to_add(self.tVar_map['sys'], self.tVar),
                                     'env': self.cube_to_add(self.tVar_map['env'], self.tVar)})
         
         self.prime_tVar_map_sym = bidict({'sys': self.cube_to_add(self.tVar_map['sys'], self.prime_tVar),
                                           'env': self.cube_to_add(self.tVar_map['env'], self.prime_tVar)})
-        
 
         # now that the maps are initialized we create init and goal states
         self.init_latch: ADD = self.set_init_latch() 
@@ -135,14 +135,16 @@ class GridWorldDynamicGame():
 
     def create_all_boolean_state_vars_and_maps(self):
         """
-         The main method that creates all boolean variables for the FrankaDynamic Turn-Based Game.
+         The main method that creates all boolean variables for the GridWorld Turn-Based Game.
           1. turn variables - tVars
           2. column variables - xVars
           3. row variables - yVars
+          4. error variable - eVar - used to map invalid Env actions to this error state
         """
         offset = self.manager.size()
         self.tVar: List[ADD] = [self.manager.addVar(offset, 't0')]
         self.xVars, self.yVars = self.create_latches()
+        self.eVar = [self.manager.addVar(self.manager.size(), 'e')]
         self.create_xVar_map()
         self.create_yVar_map()
         self.create_symbolic_maps(prime=False)
@@ -150,14 +152,16 @@ class GridWorldDynamicGame():
 
     def create_all_prime_boolean_state_vars_and_maps(self):
         """
-         The main method that creates all boolean variables for the FrankaDynamic Turn-Based Game.
+         The main method that creates all boolean variables for the GridWorld Turn-Based Game.
           1. turn variables - tVars
           2. row variables - xVars
           3. column variables - yVars
+          4. error variable - eVar - used to map invalid Env actions to this error state
         """
         offset = self.manager.size()
         self.prime_tVar: List[ADD] = [self.manager.addVar(offset, 'pt0')]
         self.prime_xVars, self.prime_yVars = self.create_prime_latches()
+        self.prime_eVar = [self.manager.addVar(self.manager.size(), 'pe')]
         self.create_symbolic_maps(prime=True)
     
 
@@ -255,12 +259,12 @@ class GridWorldDynamicGame():
 
 
     def set_latches(self):
-        self.latches: List[ADD] = self.tVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
+        self.latches: List[ADD] = self.tVar + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
         self.latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.latches]
     
 
     def set_prime_latches(self):
-        self.prime_latches: List[ADD] = self.prime_tVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
+        self.prime_latches: List[ADD] = self.prime_tVar + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
         self.prime_latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.prime_latches]
     
 
@@ -271,7 +275,7 @@ class GridWorldDynamicGame():
         init_cube = self.tVar_map_sym['sys']
         for i, (x, y) in enumerate(self.init):
             init_cube &= self.xVar_map_sym[i][x] & self.yVar_map_sym[i][y]
-        return init_cube
+        return init_cube & ~self.eVar[0]
     
 
     def set_goal_latch(self) -> ADD:
@@ -280,7 +284,9 @@ class GridWorldDynamicGame():
         for x, y in self.goal:
             # TODO: hard coding; should update such that the goal is associated with the Sys player state
             goal_cube &= self.xVar_map_sym[0][x] & self.yVar_map_sym[0][y]
-        return goal_cube
+        # if the env takes an illegal action, then we want transition to an error state where the goal is also satisfied
+        # because the environment has made an illegal move and the game terminates.
+        return (goal_cube & ~self.eVar[0]) | self.eVar[0]
 
 
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
@@ -355,12 +361,12 @@ class GridWorldDynamicGame():
             self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
     
     
-    def get_valid_transitions(self, rPos: int, cPos: int) -> List[str]:
+    def get_valid_transitions(self, rPos: int, cPos: int, player: str) -> List[str]:
         """
          Returns a list valid agent actions you can take given  row and column position
         """
         # sys can always choose to stay
-        valid_actions = set({'STAY'})
+        valid_actions = set({'STAY'}) if player == 'sys' else set({})
         if rPos + 1 < self.rows:
             valid_actions.add('NORTH')
         if rPos - 1 >= 0:
@@ -402,29 +408,29 @@ class GridWorldDynamicGame():
                 cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
                 
                 # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
-                valid_actions = self.get_valid_transitions(rPos=r, cPos=c)
+                valid_actions = self.get_valid_transitions(rPos=r, cPos=c, player=player)
                 invalid_actions = set(self.env_actions) - valid_actions
+
+                # check if the next position is valid or not - here the next pos is invalid as it is going outside the gridworld boundary.
+                if player == 'env' and len(invalid_actions) > 0:
+                    # invalid action must be mapped to an error state
+                    invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
+                    self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
+                    self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
 
                 for act in valid_actions:
                     act_cube: str = self.action_map_sym[f'{player}_{act}']
                     nxt_rPos = r + Moves[act].value[0]
                     nxt_cPos = c + Moves[act].value[1]
 
-                    # check if the next position is valid or not - only for Env player
+                    # check if the next position is valid or not - only for Env player - here the next pos belongs to an obstacle cell.
                     if player == 'env' and (self.obsatcle_constraint_cube & self.tVar_map_sym[player] & self.xVar_map_sym[p_idx][nxt_rPos] & self.yVar_map_sym[p_idx][nxt_cPos]) != self.manager.addZero():
-                        # invalid Env action must be mapped as STAY action
-                        nxt_rPos, nxt_cPos = r, c
-                        # book keeping
-                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube
-
-                    # check if the next position is valid or not
-                    if player == 'env' and act == 'STAY' and len(invalid_actions) > 0:
-                        # invalid action must mapped as STAY action
-                        invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
-                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & invalid_act_cube
-                        act_cube |= invalid_act_cube
+                        # invalid Env action must be mapped to error state
+                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
+                        self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
+                        continue
                     
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
 
                     for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
                         if prime_rVar == '1':
@@ -442,7 +448,7 @@ class GridWorldDynamicGame():
                 cVar_add = self.cube_to_add(self.yVar_map[0][cPos], self.yVars[0])
                 for act in self.env_action_map.keys():
                     act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[0][rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars[0][idx].bddPattern().__str__()] |= transition_cube
@@ -460,7 +466,7 @@ class GridWorldDynamicGame():
                 cVar_add = self.cube_to_add(self.yVar_map[1][cPos], self.yVars[1])
                 for act in self.sys_action_map.keys():
                     act_cube: str = self.action_map_sym[act]
-                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.obsatcle_constraint_cube
+                    transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                     for idx, prime_rVar in enumerate(self.xVar_map[1][rPos]):
                         if prime_rVar == '1':
                             self.transition_relation[self.xVars[1][idx].bddPattern().__str__()] |= transition_cube
@@ -944,25 +950,26 @@ class GridWorldDynamicGame():
             nxt_y = curr_state_exp[1][1] + Moves[act_name].value[1]
             next_state[0] = 'env'  # switch turn after sys move
             next_state[1] = [nxt_x, nxt_y]  # sys pos
-            return self.convert_exlpicit_state_to_cube(next_state), act, next_state
+            return self.convert_exlpicit_state_to_cube(next_state[:3]) & ~self.eVar[0], act, next_state
         
         elif turn == 'env':
             # first check if it is a valid move or not; if not valid, then map it to STAY action
             if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp) & self.action_map_sym[act]).isZero() is False:
+                raise warnings.warn(f"Invalid Env action {act_name} taken at state {curr_state_exp}. This should not happen. Fix this!!!")
                 # invalid Env action, map it to STAY action
                 nxt_x = curr_state_exp[2][0]
                 nxt_y = curr_state_exp[2][1]
                 next_state[0] = 'sys'  # switch turn after sys move 
                 next_state[2] = [nxt_x, nxt_y]
 
-                return self.convert_exlpicit_state_to_cube(next_state), 'ENV_STAY', next_state  # return the STAY action for invalid Env action
+                return self.convert_exlpicit_state_to_cube(next_state[:3]) & ~self.eVar[0], 'ENV_STAY', next_state  # return the STAY action for invalid Env action
             
             nxt_x = curr_state_exp[2][0] + Moves[act_name].value[0]
             nxt_y = curr_state_exp[2][1] + Moves[act_name].value[1]
             next_state[0] = 'sys'  # switch turn after sys move 
             next_state[2] = [nxt_x, nxt_y]  # env pos
 
-            return self.convert_exlpicit_state_to_cube(next_state), act, next_state
+            return self.convert_exlpicit_state_to_cube(next_state[:3]) & ~self.eVar[0], act, next_state
     
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
@@ -987,6 +994,10 @@ class GridWorldDynamicGame():
             # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
+            # only choose valid action. By constuction env will always have atleast one valid action. 
+            while not (curr_state & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
+                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+                act_cube_string = act_cube.cubeString().replace('-', '')
 
             # get the action to be taken at the current state
             turn = 'sys' if curr_state_exp[0][0][0][0] == 'sys' else 'env'
@@ -1060,6 +1071,14 @@ class GridWorldDynamicGame():
                 cubes.append((reduce(lambda a, b: a & b, var_list), val))
         
         return cubes
+    
+
+    # def get_existential_cube(self, var: str):
+    #     """
+    #      A small helper function that returns the existential cube for a given variable. This is useful for abstracting away variables when converting cubes to state representations.
+    #     """
+    #     # flatten Vars that are store as nested list
+    #     xVars =  [var for xVar_adds in self.xVars for var in xVar_adds]
 
 
     def convert_cube_to_state_ADD(self,
@@ -1084,18 +1103,19 @@ class GridWorldDynamicGame():
         
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+        eidx = self.manager.addVariables().index(self.eVar[0])
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
         xConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
 
         # print the states
         states_action_pairs = []
@@ -1126,8 +1146,9 @@ class GridWorldDynamicGame():
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                state = [self.tVar_map.inv[tConf_cube_str]] + pos
-                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos), val), None])
+                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                state = [self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]
+                states_action_pairs.append([((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), val), None])
             except KeyError:
                 continue
             
