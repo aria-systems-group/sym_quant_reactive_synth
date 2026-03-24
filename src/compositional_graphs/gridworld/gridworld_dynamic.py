@@ -954,7 +954,7 @@ class GridWorldDynamicGame():
         
         elif turn == 'env':
             # first check if it is a valid move or not; if not valid, then map it to STAY action
-            if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp) & self.action_map_sym[act]).isZero() is False:
+            if (self.invalid_env_state_action_cube & self.convert_exlpicit_state_to_cube(curr_state_exp[:3]) & self.action_map_sym[act]).isZero() is False:
                 raise warnings.warn(f"Invalid Env action {act_name} taken at state {curr_state_exp}. This should not happen. Fix this!!!")
                 # invalid Env action, map it to STAY action
                 nxt_x = curr_state_exp[2][0]

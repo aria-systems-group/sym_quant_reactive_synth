@@ -30,7 +30,7 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
                          restricted_env_locs=restricted_env_locs,
                          enable_reordering=False)
         # call it 3rd time here to override the base method
-        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.all_door_uncalimed
+        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.all_door_uncalimed & ~self.eVar[0]
         if enable_reordering:
             self.manager.autodynEnable()
     
@@ -39,8 +39,8 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
         """
          A function that add the state lbl evolution to the existing the TR. We override the base method to incorporate door vars (dVars) from the door game.
         """
-        game_latch: List[ADD] = self.tVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]
-        game_prime_latch: List[ADD] = self.prime_tVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds] + [var for prime_dVar_adds in self.prime_dVars for var in prime_dVar_adds]
+        game_latch: List[ADD] = self.tVar + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds]
+        game_prime_latch: List[ADD] = self.prime_tVar + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds] + [var for prime_dVar_adds in self.prime_dVars for var in prime_dVar_adds]
         
         primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
@@ -92,25 +92,26 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
         cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + self.lVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.rVars + self.eVar + self.lVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.rVars)
+        eidx = self.manager.addVariables().index(self.eVar[0])
         
         dConf_exist_cube = dict({})
         for didx in range(len(self.dVars)):
             if len(self.grid['door']) == 1:
-                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds] + self.qVars)
+                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds] + self.qVars)
             else:
-                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.dVars[:didx] + self.dVars[didx+1:])
+                dConf_exist_cube[didx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for xVar_adds in self.xVars for var in xVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.dVars[:didx] + self.dVars[didx+1:])
         
         xConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
         
         yConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for dVar_adds in self.dVars for var in dVar_adds] + self.qVars) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
 
         # print the states
         states_action_pairs = []
@@ -151,9 +152,9 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                
-                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + door_states), self.dfa_handle.qVar_map.inv[qConf_cube_str])
-                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, *door_states), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
+                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + door_states + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str])
+                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, *door_states, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
             except KeyError:
                 continue
             

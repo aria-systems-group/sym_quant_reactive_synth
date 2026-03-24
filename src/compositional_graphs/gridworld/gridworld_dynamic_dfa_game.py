@@ -58,8 +58,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
         # call it 2nd time here to override the base method
-        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl
-        self.goal_latch: ADD = self.set_goal_latch() & self.state_lbl
+        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & ~self.eVar[0]
+        self.goal_latch: ADD = (self.set_goal_latch() & self.state_lbl & ~self.eVar[0]) | self.eVar[0]
 
         # now we create the TR for the dfa
         self.dfa_handle.game_latches = self.latches
@@ -89,13 +89,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
     
 
     def create_all_prime_boolean_state_vars_and_maps(self):
-        """
-         The main method that creates all primed version of the boolean variables for the FrankaDynamic Turn-Based Game.
-          1. prime turn variables - tVars
-          2. prime ratio variables - kVars
-          3. prime predicate variables - pVars
-          4. prime box predicate variables - bVars
-        """
         super().create_all_prime_boolean_state_vars_and_maps()
         self.prime_lVars = self.create_prime_state_lbls_vars()
         self.prime_lVar_map_sym = {lbl: cube.swapVariables(self.lVars, self.prime_lVars) for lbl, cube in self.lVar_map_sym.items()}
@@ -233,8 +226,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
          A function that add the state lbl evolution to the existing the TR
         """
-        game_latch = self.tVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
-        game_prime_latch = self.prime_tVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
+        game_latch = self.tVar + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
+        game_prime_latch = self.prime_tVar + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
         
         primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
@@ -388,20 +381,21 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         
         # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+        eidx = self.manager.addVariables().index(self.eVar[0])
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.rVars)     
         xConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
         # TODO: hard coding for 2 agents, need to update for n agents
         for pidx in range(2):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
         
         # print the states
@@ -434,8 +428,9 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                state = (([self.tVar_map.inv[tConf_cube_str]] + pos), self.dfa_handle.qVar_map.inv[qConf_cube_str])
-                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
+                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str])
+                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
                 
             except KeyError:
                 continue
@@ -509,6 +504,11 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
+            # only choose valid action. By constuction env will always have atleast one valid action. 
+            while not (curr_state & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
+                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+                act_cube_string = act_cube.cubeString().replace('-', '')
+            
             curr_dfa_state: int = curr_state_exp[0][0][0][1]
 
             # get the action to be taken at the current state
