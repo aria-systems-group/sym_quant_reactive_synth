@@ -251,13 +251,14 @@ class GridWorldDynamicGame():
         self.sys_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('sys')])
         self.env_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('env')])
         # create cubes of valid env and sys player action.
-        self.sys_action_cube = reduce(lambda x, y: x | y, self.sys_action_cube_list)
-        self.env_action_cube = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        self.sys_action_cube: Dict[str, ADD] = {f'sys{player}': reduce (lambda x, y: x | y, sact_list) for player, sact_list in enumerate(self.sys_action_cube_list)}
+        self.env_action_cube: Dict[str, ADD] = {f'env{player}': reduce (lambda x, y: x | y, eact_list) for player, eact_list in enumerate(self.env_action_cube_list)}
         # ADD for set of valid state
         self.obsatcle_constraint_cube = self.manager.addZero()
         self.state_lbl = self.manager.addZero()
         # used during rollout to check of the action is valid or not
         self.invalid_env_state_action_cube = self.manager.addZero()
+        self.invalid_sys_state_action_cube = self.manager.addZero()
         self.create_obstacle_constraint()
     
     def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
@@ -461,14 +462,16 @@ class GridWorldDynamicGame():
                 # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
                 valid_actions = self.get_valid_transitions(rPos=r, cPos=c, player=player)
                 # all env players have same action set. If not, this must be updated to be per player.
-                invalid_actions = set(self.env_actions) - valid_actions if player.startswith('env') else set({})
+                invalid_actions = set(self.env_actions) - valid_actions if player.startswith('env') else set(self.sys_actions) - valid_actions
 
                 # check if the next position is valid or not - here the next pos is invalid as it is going outside the gridworld boundary.
-                if player.startswith('env') and len(invalid_actions) > 0:
+                if len(invalid_actions) > 0:
                     # invalid action must be mapped to an error state
-                    invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{e_act}'] for e_act in invalid_actions])
-                    self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
-                    self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
+                    invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{act}'] for act in invalid_actions])
+                    if player.startswith('sys'):
+                        self.invalid_sys_state_action_cube |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
+                    if player.startswith('env'):
+                        self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & ~self.eVar[0] & invalid_act_cube & ~self.obsatcle_constraint_cube
 
                 for act in valid_actions:
                     act_cube: str = self.action_map_sym[f'{player}_{act}']
@@ -478,7 +481,7 @@ class GridWorldDynamicGame():
                     # check if the next position is valid or not - only for Env player - here the next pos belongs to an obstacle cell.
                     if player.startswith('env') and (self.obsatcle_constraint_cube & self.tVar_map_sym[player] & self.xVar_map_sym[p_idx][nxt_rPos] & self.yVar_map_sym[p_idx][nxt_cPos]) != self.manager.addZero():
                         # invalid Env action must be mapped to error state
-                        self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
+                        # self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                         self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                         continue
                     
@@ -505,7 +508,7 @@ class GridWorldDynamicGame():
                     rVar_add = self.cube_to_add(self.xVar_map[pidx][rPos], self.xVars[pidx])
                     for cPos in range(self.columns):
                         cVar_add = self.cube_to_add(self.yVar_map[pidx][cPos], self.yVars[pidx])
-                        act_cube: dict = self.sys_action_cube if active_player.startswith('sys') else self.env_action_cube
+                        act_cube: dict = self.sys_action_cube[active_player] if active_player.startswith('sys') else self.env_action_cube[active_player]
                         transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
 
                         for idx, prime_rVar in enumerate(self.xVar_map[pidx][rPos]):
@@ -572,6 +575,7 @@ class GridWorldDynamicGame():
                     tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
         
         # remove the edges
+        tr_to_remove |= self.invalid_sys_state_action_cube
         for tr in self.transition_relation.keys():
             self.transition_relation[tr] &= ~tr_to_remove
         
@@ -1006,6 +1010,7 @@ class GridWorldDynamicGame():
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+        self.invalid_env_state_action_cube = self.transition_relation['e']
         while (curr_state & self.goal_latch).isZero():
             curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, state_flag=True, action=False, table_header=False, verbose=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
