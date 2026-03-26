@@ -112,16 +112,17 @@ class GridWorldDynamicGame():
         self.prime_yVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_yVars]
 
         # for solver 
-        self.env_action_cube_list = []
-        self.sys_action_cube_list = []
+        self.env_action_cube_list = [[] for _ in range(self.players['env'])]
+        self.sys_action_cube_list = [[] for _ in range(self.players['sys'])]
         for act_str, act_dd in self.action_map_sym.items():
+            pidx = int(act_str.split('_')[0][-1])
             if act_str.startswith('env'):
-                self.env_action_cube_list.append(act_dd)
+                self.env_action_cube_list[pidx].append(act_dd)
             else:
-                self.sys_action_cube_list.append(act_dd)
+                self.sys_action_cube_list[pidx].append(act_dd)
         
-        self.env_action_cube_list_bdd: List[BDD] = [act_dd.bddPattern() for act_dd in self.env_action_cube_list]
-        self.sys_action_cube_list_bdd: List[BDD] = [act_dd.bddPattern() for act_dd in self.sys_action_cube_list]
+        self.env_action_cube_list_bdd: List[BDD] = [act.bddPattern() for act_dd in self.env_action_cube_list for act in act_dd]
+        self.sys_action_cube_list_bdd: List[BDD] = [act.bddPattern() for act_dd in self.sys_action_cube_list for act in act_dd]
 
         self.miscellanoues_helper_stuff()
 
@@ -481,7 +482,6 @@ class GridWorldDynamicGame():
                     # check if the next position is valid or not - only for Env player - here the next pos belongs to an obstacle cell.
                     if player.startswith('env') and (self.obsatcle_constraint_cube & self.tVar_map_sym[player] & self.xVar_map_sym[p_idx][nxt_rPos] & self.yVar_map_sym[p_idx][nxt_cPos]) != self.manager.addZero():
                         # invalid Env action must be mapped to error state
-                        # self.invalid_env_state_action_cube |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                         self.transition_relation[self.eVar[0].bddPattern().__str__()] |= turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
                         continue
                     
@@ -532,7 +532,7 @@ class GridWorldDynamicGame():
             self.states_per_cost[w] = self.weight.bddInterval(w, w)
         
         # manually add env action to cost zero
-        self.states_per_cost[0] |= self.tVar_map_sym['env'].bddPattern() & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd)
+        self.states_per_cost[0] |= self.env_tVar_cube.bddPattern() & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd)
     
 
     def convert_vector_of_bdd_to_add(self, bdd_vector: Dict[int, BDD]) -> ADD:
@@ -673,7 +673,7 @@ class GridWorldDynamicGame():
     def compute_min_max_preimage_pure_bdd(self, preimage: Dict[int, BDD], debug: bool = False) -> Dict[int, BDD]:
         minmax_preimage = defaultdict(self.manager.bddZero)
         rVars_cube_bdd = self.rVars_cube.bddPattern()
-        env_turn_bdd: BDD = self.tVar_map_sym['env'].bddPattern()
+        env_turn_bdd: BDD = self.env_tVar_cube.bddPattern()
         states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
         # now take univ abstraction to remove edges to states with infinity value
         states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
@@ -775,7 +775,7 @@ class GridWorldDynamicGame():
         
         # intialize the iteration counter
         layer = 0
-        valid_env_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        valid_env_action_mask = reduce(lambda x, y: x | y, list(self.env_action_cube.values()))
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -840,7 +840,7 @@ class GridWorldDynamicGame():
         layer = 0
         c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
         
-        valid_env_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
+        valid_env_action_mask = reduce(lambda x, y: x | y, list(self.env_action_cube.values()))
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -1050,11 +1050,13 @@ class GridWorldDynamicGame():
     
 
     def test_preimage(self):
-        sys_pos = (1, 1)
-        goal_cube_sys = self.xVar_map_sym[0][sys_pos[0]] & self.yVar_map_sym[0][sys_pos[1]]
-        env_pos = (0, 2)
-        goal_cube_env = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
-        goal_cube = self.tVar_map_sym['env'] & goal_cube_sys #& goal_cube_env
+        sys_pos0 = (1, 1)
+        goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
+        sys_pos1 = (1, 0)
+        goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
+        env_pos = (0, 1)
+        goal_cube_env = self.xVar_map_sym[2][env_pos[0]] & self.yVar_map_sym[2][env_pos[1]]
+        goal_cube = self.tVar_map_sym['sys1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
@@ -1067,7 +1069,7 @@ class GridWorldDynamicGame():
 
         # now let takes min and max
         new_preimage = self.compute_min_max_preimage(preimage,
-                                                     valid_env_action_mask=reduce(lambda x, y: x | y, self.env_action_cube_list))
+                                                     valid_env_action_mask=reduce(lambda x, y: x | y, list(self.env_action_cube.values())))
         # print('Preimage after min max abstraction:', new_preimage)
         self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)
     
