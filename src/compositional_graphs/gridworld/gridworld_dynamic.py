@@ -632,7 +632,6 @@ class GridWorldDynamicGame():
     
 
     def compute_min_max_preimage(self, preimage: ADD, valid_env_action_mask: ADD) -> ADD:
-        # robot_states = preimage.cofactor(self.tVar_map_sym['sys'])
         robot_states = preimage & self.sys_tVar_cube
         next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
         
@@ -642,8 +641,6 @@ class GridWorldDynamicGame():
         next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
 
         # hardcoding, need to see if this logic works in the future when we multiple agents
-        # next_winning_states = self.tVars[0].ite(next_winning_states_robot, next_winning_states_env)
-        # next_winning_states = next_winning_states_robot | next_winning_states_env
         return next_winning_states_robot | next_winning_states_env
 
 
