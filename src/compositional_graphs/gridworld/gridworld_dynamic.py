@@ -569,8 +569,6 @@ class GridWorldDynamicGame():
                 if player_str.startswith('env'):
                     continue
                 for pos in self.grid[obst]:
-                    # state_primed: ADD = (self.tVar_map_sym['env'] & self.xVar_map_sym[0][pos[0]] & self.yVar_map_sym[0][pos[1]]).swapVariables(self.latches, self.prime_latches)
-                    # tr_to_remove |= state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
                     state_primed: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]).swapVariables(self.latches, self.prime_latches)
                     tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
         

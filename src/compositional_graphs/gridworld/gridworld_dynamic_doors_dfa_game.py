@@ -19,14 +19,17 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
                  formula: str, 
                  init: List[CELL], goal: List[CELL],
                  grid: Dict[str, List[CELL]],
+                 players: Dict[str, int] = {'sys': 1, 'env': 1},
                  restricted_env_locs: Optional[List[CELL]] = [],
                  camera: bool = False,
+                 cooperative_game: bool = False,
                  ltlf_flag: bool = True,
                  enable_reordering: bool = False):
         super().__init__(rows=rows, columns=columns,
                          formula=formula, init=init,
                          goal=goal, grid=grid, camera=camera,
-                         ltlf_flag=ltlf_flag,
+                         ltlf_flag=ltlf_flag, players=players,
+                         cooperative_game=cooperative_game,
                          restricted_env_locs=restricted_env_locs,
                          enable_reordering=False)
         # call it 3rd time here to override the base method

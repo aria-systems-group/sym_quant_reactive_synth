@@ -21,9 +21,11 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                  init: List[CELL], goal: List[CELL],
                  formula: str, 
                  grid: Optional[Dict['str', List[CELL]]] = dict({}),
+                 players: Dict[str, int] = {'sys': 1, 'env': 1},
                  restricted_env_locs: Optional[List[CELL]] = [],
                  camera: bool = False,
                  ltlf_flag: bool = True,
+                 cooperative_game: bool = False,
                  enable_reordering: bool = False):
         """
         Initializes the GridWorldDynamicDFAGame with the given parameters. 
@@ -51,7 +53,12 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(rows=rows, columns=columns, init=init, goal=goal, grid=grid,restricted_env_locs=restricted_env_locs, enable_reordering=False)
+        super().__init__(rows=rows, columns=columns,
+                         init=init, goal=goal,
+                         grid=grid, players=players,
+                         restricted_env_locs=restricted_env_locs,
+                         cooperative_game=cooperative_game,
+                         enable_reordering=False)
 
         # set up dfa init and goal states
         self.create_state_lbls(debug=False)
@@ -75,7 +82,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
         self.state_lbl_map: Dict[CELL, Set[str]] = defaultdict(lambda: set())
          # list of labels excluding obstacle label - including collision and camera if specified.
-        self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c'] + ['p'] if self.camera else []
+        self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c'] + (['p'] if self.camera else [])
         self.lVar_map = bidict({})
         self.lVar_map_sym = dict({}) 
         self.lVars = self.create_state_lbls_vars()
@@ -170,20 +177,25 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
         # 1. Construct the Row Relation: r_env \in {r_sys-1, r_sys, r_sys+1}
         row_rel = self.manager.addZero()
-        for dr in [-1, 0, 1]:
-            for r in range(self.rows):
-                nr = r + dr
-                if 0 <= nr < self.rows:
-                    # Relation: (Sys is at r) AND (Env is at nr)
-                    row_rel |= (self.xVar_map_sym[0][r] & self.xVar_map_sym[1][nr])
+        # TODO: every player is equipped with camera? and photographing any Env player is sufficient?
+        for sys_p in range(self.players['sys']): # for each player
+            for env_p in range(self.players['env']):
+                for dr in [-1, 0, 1]:
+                    for r in range(self.rows):
+                        nr = r + dr
+                        if 0 <= nr < self.rows:
+                            # Relation: (Sys is at r) AND (Env is at nr)
+                            row_rel |= (self.xVar_map_sym[sys_p][r] & self.xVar_map_sym[env_p + self.players['sys']][nr])
         
         # 2. Construct the Col Relation: c_env \in {c_sys, c_sys+1, c_sys+2}
         col_rel = self.manager.addZero()
-        for dc in [0, 1, 2]:
-            for c in range(self.columns):
-                nc = c + dc
-                if 0 <= nc < self.columns:
-                    col_rel |= (self.yVar_map_sym[0][c] & self.yVar_map_sym[1][nc])
+        for sys_p in range(self.players['sys']):
+            for env_p in range(self.players['env']):
+                for dc in [0, 1, 2]:
+                    for c in range(self.columns):
+                        nc = c + dc
+                        if 0 <= nc < self.columns:
+                            col_rel |= (self.yVar_map_sym[sys_p][c] & self.yVar_map_sym[env_p + self.players['sys']][nc])
         
         # 3. The predicate p is simply the conjunction of these two independent relations
         p_true_set = row_rel & col_rel
@@ -202,14 +214,16 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             if lbl == 'c' or lbl == 'p':
                 continue
             for r, c in self.grid.get(lbl, []):
-                # Only Sys player (0) position matters for lbls
-                ap_conditions[lbl] |= (self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c])
+                # Only Sys player(s) position matters for lbls
+                for p in range(self.players['sys']):
+                    ap_conditions[lbl] |= (self.xVar_map_sym[p][r] & self.yVar_map_sym[p][c])
 
         for r in range(self.rows):
             for c in range(self.columns):
-                # Both players at same (r,c)
-                sys_at = self.xVar_map_sym[0][r] & self.yVar_map_sym[0][c]
-                env_at = self.xVar_map_sym[1][r] & self.yVar_map_sym[1][c]
+                # Both 2 players are at the same (r,c)
+                sys_at = reduce(lambda a, b: a | b, [self.xVar_map_sym[p][r] & self.yVar_map_sym[p][c] for p in range(self.players['sys'])])
+                env_at = reduce(lambda a, b: a | b, [self.xVar_map_sym[p + self.players['sys']][r] & self.yVar_map_sym[p + self.players['sys']][c] for p in range(self.players['env'])])
+                # TODO: update this to be a uniqe label for collision with each sys player. 
                 ap_conditions['c'] |= (sys_at & env_at)
 
         self.state_lbl = self.manager.addOne()
@@ -226,8 +240,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
          A function that add the state lbl evolution to the existing the TR
         """
-        game_latch = self.tVar + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
-        game_prime_latch = self.prime_tVar + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
+        game_latch = self.tVars + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
+        game_prime_latch = self.prime_tVars + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
         
         primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
@@ -289,13 +303,11 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_handle.create_dfa_transition_relation()
 
         # game TR
-        for player in ['sys', 'env']:
+        for player in self.tVar_map.keys():
             self.create_actions(player=player)
         
         # need to add frame axioms, i.e., when it is env move Sys variables remain the same and vice versa.
-        self.add_sys_frame_axioms()
-        self.add_env_frame_axioms()
-
+        self.add_frame_axioms()
         self.add_turn_var_update_rule()
         self.add_lbl_evolution_to_TR()
 
@@ -387,15 +399,13 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.rVars)     
         xConf_exist_cube = dict({})
-        # TODO: hard coding for 2 agents, need to update for n agents
-        for pidx in range(2):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+        for pidx in range(self.total_players):
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
-        # TODO: hard coding for 2 agents, need to update for n agents
-        for pidx in range(2):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVar + self.eVar + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+        for pidx in range(self.total_players):
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
         
         # print the states
@@ -438,10 +448,10 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             # print the robot and human actions as well
             if action:
                 try:
-                    if self.tVar_map.inv[tConf_cube_str] == 'sys':
+                    if self.tVar_map.inv[tConf_cube_str].startswith('sys'):
                         rCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
                         action_str = self.sys_action_map.inv[rCube_str]
-                    elif self.tVar_map.inv[tConf_cube_str] == 'env':
+                    elif self.tVar_map.inv[tConf_cube_str].startswith('env'):
                         eCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
                         action_str = self.env_action_map.inv[eCube_str]
                 except KeyError:
@@ -512,7 +522,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             curr_dfa_state: int = curr_state_exp[0][0][0][1]
 
             # get the action to be taken at the current state
-            turn = 'sys' if curr_state_exp[0][0][0][0][0] == 'sys' else 'env'
+            turn = 'sys' if curr_state_exp[0][0][0][0][0].startswith('sys') else 'env'
             try:
                 act_name = self.sys_action_map.inv[act_cube_string] if turn == 'sys' else self.env_action_map.inv[act_cube_string]
             except KeyError:
@@ -520,7 +530,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                 return
 
             # get the next state
-            curr_state, act_name, curr_state_exp = self.get_next_state(turn=turn, curr_state_exp=curr_state_exp[0][0][0][0], act=act_name)
+            curr_state, act_name, curr_state_exp = self.get_next_state(curr_state_exp=curr_state_exp[0][0][0][0], act=act_name)
 
             # check if you evolved over the DFA 
             # create DFA edge and check if it satisfies any of the dges or not

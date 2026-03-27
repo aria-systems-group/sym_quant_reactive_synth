@@ -16,7 +16,11 @@ def game_main():
     # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
     door = [(1, 1)]  # list of doors and their locations
     grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
-    restricted_env_locs = [(1, 0)]
+    # restricted_env_locs = [(1, 2)]
+    players = {'sys': 2, 'env': 1}
+    restricted_env_locs = []
+
+    cooperative_game = False
 
     # testing things out
     # rows = 5
@@ -30,9 +34,17 @@ def game_main():
 
     # create a gridworld of size n x m
     if 'door' in grid.keys():
-        gridworld = GridWorldDynamicDoorsGame(rows=rows, columns=columns, init=init, goal=goal, grid=grid, restricted_env_locs=restricted_env_locs)
+        gridworld = GridWorldDynamicDoorsGame(rows=rows, columns=columns,
+                                              init=init, goal=goal,
+                                              grid=grid, players=players,
+                                              cooperative_game=cooperative_game,
+                                              restricted_env_locs=restricted_env_locs)
     else:
-        gridworld = GridWorldDynamicGame(rows=rows, columns=columns, init=init, goal=goal, grid=grid, restricted_env_locs=restricted_env_locs)
+        gridworld = GridWorldDynamicGame(rows=rows, columns=columns,
+                                         init=init, goal=goal,
+                                         grid=grid, players=players,
+                                         cooperative_game=cooperative_game,
+                                         restricted_env_locs=restricted_env_locs)
 
     print('****************Sys Action Map:****************')
     for k, v in gridworld.sys_action_map.items():
@@ -41,6 +53,13 @@ def game_main():
     print('****************Env Action Map:****************')
     for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
+    
+    if 'door' in grid.keys():
+        print("*****************Door Map:*****************")
+        for didx in range(len(grid['door'])):
+            print(f'Door{didx} Vars') 
+            for k, v in gridworld.dVar_map[didx].items():
+                print(f"{k} : {v}")
     
     # print the number of explicit states
     sys_states, env_states = gridworld.get_number_of_states(verbose=True)
@@ -121,6 +140,24 @@ def dfa_game_main():
     formula = 'F(p & F(s & F(goal))) & G(!c)'
     # formula = 'F(s)'
 
+    # testing things out with doors - relatively simple scenario
+    rows = 5
+    columns = 5
+    goal = [(4, 4)]
+    goal1 = [(4, 0)]
+    # init = [(2, 0), (0, 4), (1, 1)]
+    init = [(3, 0), (1, 1), (0, 3)]
+    grid = {'wall': [(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)], 'goal0': goal, 'goal1': goal1}
+    # grid = {'goal0': goal, 'goal1': goal1}
+    players = {'sys': 2, 'env': 1}
+    door = [(1, 1)]  # list of doors and their locations
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
+    # formula = 'F(p & F(goal0)) & F(goal1) & G(!c)'  # p is the proposition for photographing the other agent, c is the proposition for colliding
+    formula = 'F(p & F(goal0)) & F(goal1)'
+    # restricted_env_locs = [(2, 1)]
+    restricted_env_locs = [*goal, *goal1]
+
+    cooperative_game = False
 
     # create a gridworld of size n x m
     if 'door' in grid.keys():
@@ -128,6 +165,8 @@ def dfa_game_main():
                                                   init=init,
                                                   grid=grid, goal=goal,
                                                   camera=True,
+                                                  players=players,
+                                                  cooperative_game=cooperative_game,
                                                   restricted_env_locs=restricted_env_locs,
                                                   formula=formula, ltlf_flag=True)
     else:
@@ -135,6 +174,8 @@ def dfa_game_main():
                                             init=init,
                                             grid=grid, goal=goal,
                                             camera=True,
+                                            players=players,
+                                            cooperative_game=cooperative_game,
                                             restricted_env_locs=restricted_env_locs,
                                             formula=formula, ltlf_flag=True)
 
