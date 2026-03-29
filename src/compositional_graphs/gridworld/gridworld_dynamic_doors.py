@@ -163,6 +163,11 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
 
                             if (r, c) == self.grid['door'][d_idx]:
                                 transition_cube &= self.get_door_constraint(cell=(r, c), player=player)
+                            # if (nxt_rPos, nxt_cPos) == self.grid['door'][d_idx]:
+                            #     transition_cube &= self.get_door_constraint(cell=(nxt_rPos, nxt_cPos), player=player)
+                            
+                            if transition_cube.isZero():
+                                continue
 
                             for idx, prime_rVar in enumerate(self.xVar_map[p_idx][nxt_rPos]):
                                 if prime_rVar == '1':
@@ -173,7 +178,8 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                                     self.transition_relation[self.yVars[p_idx][idx].bddPattern().__str__()] |= transition_cube
                             
                             # updated door status
-                            if d_status == 'unclaimed' and (r, c) == self.grid['door'][d_idx]:
+                            # if d_status == 'unclaimed' and (r, c) == self.grid['door'][d_idx]:
+                            if d_status == 'unclaimed' and (nxt_rPos, nxt_cPos) == self.grid['door'][d_idx]:
                                 # if the door is unclaimed and the player is passing through it, then the door becomes claimed by the player
                                 _door_player = 'sys' if player.startswith('sys') else 'env'
                                 for idx, prime_dVar in enumerate(self.dVar_map[d_idx][_door_player]):
@@ -185,6 +191,34 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                                     if prime_dVar == '1':
                                         self.transition_relation[self.dVars[d_idx][idx].bddPattern().__str__()] |= transition_cube
     
+    def add_frame_axioms(self):
+        for active_player in self.tVar_map.keys():
+            # all other player are passive players
+            for passive_player in self.tVar_map.keys():
+                if active_player == passive_player:
+                    continue
+                turn_bit: ADD = self.tVar_map_sym[active_player]
+                pidx = self.pidx_to_pstr.inv[passive_player]
+                pstr = 'sys' if passive_player.startswith('sys') else 'env'
+                for d_idx in range(len(self.grid['door'])):
+                    for d_status in self._door_status:
+                        dConf_cube: ADD = self.dVar_map_sym[d_idx][d_status]
+                
+                        for rPos in range(self.rows):
+                            rVar_add = self.cube_to_add(self.xVar_map[pidx][rPos], self.xVars[pidx])
+                            for cPos in range(self.columns):
+                                cVar_add = self.cube_to_add(self.yVar_map[pidx][cPos], self.yVars[pidx])
+                                act_cube: dict = self.sys_action_cube[active_player] if active_player.startswith('sys') else self.env_action_cube[active_player]
+                                transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube & dConf_cube & self.get_door_constraint(cell=(rPos, cPos), player=pstr)
+
+                                for idx, prime_rVar in enumerate(self.xVar_map[pidx][rPos]):
+                                    if prime_rVar == '1':
+                                        self.transition_relation[self.xVars[pidx][idx].bddPattern().__str__()] |= transition_cube
+                                
+                                for idx, prime_rVar in enumerate(self.yVar_map[pidx][cPos]):
+                                    if prime_rVar == '1':
+                                        self.transition_relation[self.yVars[pidx][idx].bddPattern().__str__()] |= transition_cube
+
 
     def get_next_state(self, curr_state_exp: ADD, act: str) -> Tuple[ADD, str, Tuple]:
         """
@@ -200,7 +234,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                 continue
             # + 1 is to taccount for the player Var at index 0. The player Var is followed by the position vars for each player and then the door status vars.
             for pidx, pstr in self.pidx_to_pstr.items():
-                if (curr_state_exp[pidx + 1][0], curr_state_exp[pidx + 1][1]) in self.grid['door']:
+                if (next_state[pidx + 1][0], next_state[pidx + 1][1]) in self.grid['door']:
                     # if the door is unclaimed and the Sys is passing through it, then the door becomes claimed by Sys
                     next_state_door[di] = 'sys' if pstr.startswith('sys') else 'env'
         
@@ -208,6 +242,31 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         
         return next_state_sym & door_statuses, act, next_state + next_state_door
 
+
+    def post_process_transition_relation(self, debug: bool = False):
+        super().post_process_transition_relation(debug=debug)
+        # now we remove states wwhere the player is at door but th edoor belong another team
+        bad_state_acts = self.manager.addZero()
+        for didx, (dx, dy) in enumerate(self.grid['door']):
+            for d_status in self._door_status:
+                # if d_status is env then sys player cannot be at this door cell.
+                if d_status == 'env':
+                    for pidx in range(self.players['sys']):
+                        sys_player_at_door = self.xVar_map_sym[pidx][dx] & self.yVar_map_sym[pidx][dy] & ~self.eVar[0]
+                        bad_state_acts |= super().compute_preimage(sys_player_at_door & self.dVar_map_sym[didx][d_status])
+                elif d_status == 'sys':
+                    idx_offset = self.players['sys']
+                    env_player_at_door = reduce(lambda a, b: a | b, [self.xVar_map_sym[pidx + idx_offset][dx] & self.yVar_map_sym[pidx + idx_offset][dy] & ~self.eVar[0] for pidx in range(self.players['env'])])
+                    bad_state_acts |= super().compute_preimage(env_player_at_door & self.dVar_map_sym[didx][d_status])
+        
+        # remove bad state action pairs
+        for var in self.transition_relation.keys():
+            self.transition_relation[var] &= ~bad_state_acts
+        
+        # must map invalid env action to error state
+        self.transition_relation[self.eVar[0].bddPattern().__str__()] |= bad_state_acts & self.env_tVar_cube
+        
+                    
 
     def convert_cube_to_state_ADD(self,
                                   dd: ADD, state_flag: bool = True,
@@ -319,13 +378,17 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
     
 
     def test_preimage(self):
-        sys_pos0 = (0, 0)
+        sys_pos0 = (1, 1)
         goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
-        sys_pos1 = (1, 2)
-        goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
-        env_pos = (1, 2)
-        goal_cube_env = self.xVar_map_sym[2][env_pos[0]] & self.yVar_map_sym[2][env_pos[1]]
-        goal_cube = self.tVar_map_sym['sys0'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env & self.dVar_map_sym[0]['sys'] & ~self.eVar[0]
+        # sys_pos1 = (1, 1)
+        # goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
+        env_pos = (0, 0)
+        goal_cube_env = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
+        env_pos1 = (2, 0)
+        goal_cube_env1 = self.xVar_map_sym[1][env_pos1[0]] & self.yVar_map_sym[1][env_pos1[1]]
+        # goal_cube = self.tVar_map_sym['sys1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env & self.dVar_map_sym[0]['env'] & ~self.eVar[0]
+        # goal_cube = self.tVar_map_sym['sys1'] & self.dVar_map_sym[0]['sys'] & ~self.eVar[0] & goal_cube_sys0 & goal_cube_sys1 #& goal_cube_env
+        goal_cube = self.tVar_map_sym['sys0'] & self.dVar_map_sym[0]['sys'] & ~self.eVar[0] & goal_cube_sys0 & (goal_cube_env | goal_cube_env1) #& goal_cube_env
         print('Goal state:', goal_cube)
         self.convert_cube_to_state_ADD(goal_cube, state_flag=True, action=False, verbose=True)
         
@@ -341,5 +404,5 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         # now let takes min and max
         new_preimage = self.compute_min_max_preimage(preimage,
                                                      valid_env_action_mask=reduce(lambda x, y: x | y,list(self.env_action_cube.values())))
-        # print('Preimage after min max abstraction:', new_preimage)
+        print('Preimage after min max abstraction:', new_preimage)
         self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)
