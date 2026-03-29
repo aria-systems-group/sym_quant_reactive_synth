@@ -438,6 +438,7 @@ class GridWorldDynamicGame():
         curr_pred = list(self.tVar_map_sym.values())
         next_pred_str = [bit_str for k, bit_str in self.tVar_map.items() if k != 'sys0']
         next_pred_str.append(self.tVar_map['sys0'])
+        self.turn_updae_rule = {self.tVar_map_sym.inv[i]: self.tVar_map.inv[j] for i, j in zip(curr_pred, next_pred_str)}
         for turn_bit, turn_prime_string in zip(curr_pred, next_pred_str):
             for sidx, s in enumerate(turn_prime_string):
                 if s == '1':
@@ -565,12 +566,12 @@ class GridWorldDynamicGame():
             if obst not in self.grid.keys():
                 continue
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
-            for pidx, player_str in enumerate(self.tVar_map.keys()):
-                if player_str.startswith('env'):
-                    continue
-                for pos in self.grid[obst]:
-                    state_primed: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]).swapVariables(self.latches, self.prime_latches)
-                    tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
+            for curr_player, succ_player in self.turn_updae_rule.items():
+                if curr_player.startswith('sys'):
+                    pidx = self.pidx_to_pstr.inv[succ_player]
+                    for pos in self.grid[obst]:
+                        state_primed: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]).swapVariables(self.latches, self.prime_latches)
+                        tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
         
         # remove the edges
         tr_to_remove |= self.invalid_sys_state_action_cube
@@ -597,6 +598,7 @@ class GridWorldDynamicGame():
 
         # post process the transition relation to remove transitions that lead to invalid states, such as wall and lava cells.
         self.post_process_transition_relation(debug=False)
+        print("Finished creating transition relation.")
     
 
     def symbolic_min_abstract(self, add_function, variables_to_abstract: List[ADD]):

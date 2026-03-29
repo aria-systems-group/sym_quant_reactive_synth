@@ -81,9 +81,9 @@ def game_main():
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
-    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False, cooperative_game=False)
-    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False, cooperative_game=False)
+    strategy, opt_sval = gridworld.solve(verbose=False)
+    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False)
+    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -227,9 +227,9 @@ def dfa_game_main():
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False, cooperative_game=False)
-    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False, cooperative_game=False)
-    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False, cooperative_game=False)
+    # strategy, opt_sval = gridworld.solve(verbose=False)
+    # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False)
+    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
