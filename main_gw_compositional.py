@@ -9,15 +9,20 @@ from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWo
 
 def game_main():
     # create grid dictionary
-    rows = 2
-    columns = 2
-    goal = [(1, 1)]
-    # init = []
-    # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
+    rows = 3
+    columns = 3
+    goal = [(2, 2)]
+
+    # init = [(0, 0), (2, 0)]
+    init = [(0, 0), (2, 0), (0, 2), (2, 2), (0, 0)]
+    # init = [(0, 0), (2, 0), (0, 2)]
+    # grid = {}
+    # grid = {'wall': [(0, 1)], 'goal': goal}
+    grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
     door = [(1, 1)]  # list of doors and their locations
     grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
     # restricted_env_locs = [(1, 2)]
-    players = {'sys': 2, 'env': 1}
+    players = {'sys': 1, 'env': 4}
     restricted_env_locs = []
 
     cooperative_game = False
@@ -81,9 +86,9 @@ def game_main():
 
     # solve
     tic = time.time()
-    strategy, opt_sval = gridworld.solve(verbose=False)
+    # strategy, opt_sval = gridworld.solve(verbose=False)
     # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False)
-    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
+    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -91,7 +96,7 @@ def game_main():
     #     print("The strategies from both methods are the same!")
     # if opt_sval.compare(bdd_opt_sval, 2):
     #     print("The optimal state values from both methods are the same!")
-    # strategy = bdd_strategy
+    strategy = bdd_strategy
 
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
@@ -110,22 +115,10 @@ def dfa_game_main():
     grid = {'wall': [(0, 1)], 'goal': goal}
     restricted_env_locs = [(1, 0)]
 
-    # testing things out with doors - relatively simple scenario
-    # rows = 3
-    # columns = 3
-    # goal = [(2, 2)]
-    # init = [(0, 0), (2, 0)]
-    # # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
-    # door = [(1, 1)]  # list of doors and their locations
-    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
-    # formula = 'F(p & F(goal))'  # p is the proposition for photographing the other agent, c is the proposition for colliding
-    # restricted_env_locs = [(1, 0)]
-
-
     # testing things out with doors - complex scenario
-    rows = 5
-    columns = 5
-    goal = [(4, 4)]
+    rows = 20
+    columns = 20
+    goal = [(0, 0)]
     init = [(0, 0), (4, 3)]
     # grid = {'wall': [(0, 1), (1, 1)], 'goal': goal}
     door = [(1, 2)]  # list of doors and their locations
@@ -133,12 +126,13 @@ def dfa_game_main():
     # grid = {'wall': [(1, 1), (3, 1), (2, 1), (3, 2), (3, 3), (2, 3), (1, 3)], 'goal': goal, 'door': door, 's': [(2, 2)]}
     # grid = {'wall': [(2, 1), (3, 1), (3, 2), (3, 3), (2, 3)], 'goal': goal, 's': [(2, 2)]}
     # grid = {'wall': [(2, 1), (3, 1), (3, 2), (3, 3), (2, 3)]}
-    grid = {'wall': [(3, 1), (3, 2), (3, 3)], 'goal': goal, 's': [(2, 2)]}
+    # grid = {'wall': [(3, 1), (3, 2), (3, 3)], 'goal': goal, 's': [(2, 2)]}
     # restricted_env_locs = [(1, 0)]
     # formula = 'F(s & F(goal)) & G(!c)'  # p is the proposition for photographing the other agent, c is the proposition for colliding
-    # formula = 'F(p & F(s & F(goal)))' # p is the proposition for photographing the other agent, c is the proposition for colliding
-    formula = 'F(p & F(s & F(goal))) & G(!c)'
-    # formula = 'F(s)'
+    # formula = 'F(p & F(s & F(goal)))'
+    # formula = 'F(p & F(s & F(goal))) & G(!c)'
+    grid = {'g0': goal, 'g1': [(rows - 1, 0)], 'g2': [(0, columns - 1)], 'g3': [(rows - 1, columns - 1)]}
+    formula = 'F(g0) & F(g1) & F(g2) & F(g3)'  # visit all four corners
 
     # testing things out with doors - relatively simple scenario
     rows = 5
@@ -147,13 +141,15 @@ def dfa_game_main():
     goal1 = [(4, 0)]
     # init = [(2, 0), (0, 4), (1, 1)]
     init = [(3, 0), (1, 1), (0, 3)]
-    grid = {'wall': [(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)], 'goal0': goal, 'goal1': goal1}
+    # grid = {'wall': [(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)], 'goal0': goal, 'goal1': goal1}
     # grid = {'goal0': goal, 'goal1': goal1}
     players = {'sys': 2, 'env': 1}
-    door = [(1, 1)]  # list of doors and their locations
+    door = [(2, 2)]  # list of doors and their locations
     # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
+    grid = {'wall': [(2, 0), (2, 1), (2, 3), (2, 4)], 'goal0': goal,  'goal1': goal1, 'door': door}
     # formula = 'F(p & F(goal0)) & F(goal1) & G(!c)'  # p is the proposition for photographing the other agent, c is the proposition for colliding
-    formula = 'F(p & F(goal0)) & F(goal1)'
+    # formula = 'F(p & F(goal0)) & F(goal1) & G!c'
+    formula = 'F(p & F(goal0)) & F(goal1) & G!c'
     # restricted_env_locs = [(2, 1)]
     restricted_env_locs = [*goal, *goal1]
 
@@ -237,7 +233,7 @@ def dfa_game_main():
     #     print("The strategies from both methods are the same!")
     # if bdd_opt_sval.compare(opt_sval, 2):
     #     print("The optimal state values from both methods are the same!")
-    # strategy = bdd_strategy
+    strategy = bdd_strategy
     
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
