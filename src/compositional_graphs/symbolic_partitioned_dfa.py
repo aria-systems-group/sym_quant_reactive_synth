@@ -147,6 +147,7 @@ class SymbolicPartitionedDFA():
             # formula_name = kwargs['formula_name']
             # TODO: Update this when we have more agents
             # return self.predicate_add_sym_map_lbl['x'][f'x{grid[0]}'] & self.predicate_add_sym_map_lbl['y'][f'y{grid[1]}']
+            # TODO: Fix this for negation
             return self.predicate_add_sym_map_lbl[formula_name]
 
 
@@ -207,11 +208,14 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
         if hasattr(formula, 'symbol'):
             # get the corresponding boolean expression
             if '!' in formula.name:
-                box_loc: str = re.search(r'\d+', formula.name).group()
+                if self.domain == 'manipulator':
+                    formula_string: str = re.search(r'\d+', formula.name).group()
+                else:
+                    formula_string: str = formula.symbol.__str__()
                 # return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
-                return ~self.get_predicate_formula(formula_name=formula.name) 
+                return ~self.get_predicate_formula(formula_name=formula_string) 
             else:
-                box_loc: str = re.search(r'\d+', formula.name).group()
+                # box_loc: str = re.search(r'\d+', formula.name).group()
                 # return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 return self.get_predicate_formula(formula_name=formula.name)
         
@@ -259,10 +263,10 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
                 warnings.warn(f"Error while parsing the LTL Formula. Could not parse edge {edge}")
                 sys.exit(-1)
             
-            if self.domain == 'manipulator':
-                self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
-            elif self.domain == 'gridworld':
-                self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
+            # if self.domain == 'manipulator':
+            # self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
+            # elif self.domain == 'gridworld':
+            self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[nxt]
             
             # now we add the transition dfa's transition relation
             for sidx, s in enumerate(dfa_state_prime_str):
@@ -372,10 +376,10 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                     dfa_state_cube: ADD = self.qVar_map_sym[orig_state] 
                     dfa_state_prime_str: str = self.qVar_map[dest_state]
 
-                    if self.domain == 'manipulator':
-                        self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[dest_state]
-                    elif self.domain == 'gridworld':
-                        self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[dest_state]
+                    # if self.domain == 'manipulator':
+                    # self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[dest_state]
+                    # elif self.domain == 'gridworld':
+                    self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[dest_state]
 
                     # now we add the transition dfa's transition relation
                     for sidx, s in enumerate(dfa_state_prime_str):
@@ -507,7 +511,8 @@ class SymbolicPartitionedDFANoPrime():
         else:
             # grid = kwargs['grid']
             # TODO: Update this when we have more agents
-            return self.predicate_add_sym_map_lbl['x'][f'x{grid[0]}'] & self.predicate_add_sym_map_lbl['y'][f'y{grid[1]}']
+            # return self.predicate_add_sym_map_lbl['x'][f'x{grid[0]}'] & self.predicate_add_sym_map_lbl['y'][f'y{grid[1]}']
+            return self.predicate_add_sym_map_lbl[formula_name]
 
 
 

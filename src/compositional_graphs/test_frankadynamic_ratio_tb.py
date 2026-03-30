@@ -2280,7 +2280,7 @@ class FrankaWorldDynamicRatioTurnBased():
 
     def get_states_per_cost(self):
         """
-         A helper function that takes in the ADD weight abd return a vector of 0-1 BDD per cost.
+         A helper function that takes in the ADD weight and return a vector of 0-1 BDD per cost.
         """
         for w in self.weight_dict.values():
             self.states_per_cost[w] = self.weight.bddInterval(w, w)
@@ -2382,7 +2382,7 @@ class FrankaWorldDynamicRatioTurnBased():
         A method that implements the value iteration algorithm to compute the optimal cost strategy for the Sys player (robot)
           to reach the goal state.
 
-          This mwthod replace is different from te pure ADD approach as it first converts the current winning states 
+          This method is different from the pure ADD approach as it first converts the current winning states 
            into BDD buckets based on the state values and then computes the preimage using BDD vectorCompose operation.
         """
         # create Partitiotned TR based on actions

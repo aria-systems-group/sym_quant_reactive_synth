@@ -15,8 +15,8 @@ from matplotlib.figure import Figure
 
 ROOT_PATH = os.path.dirname(os.path.abspath(__file__)) + '/../'
 # LOG_DIR = os.path.join(ROOT_PATH, 'logs/from_home_pc/no_prime/scenario_1')
-LOG_DIR = os.path.join(ROOT_PATH, 'logs/recuv_logs/dfa_game/prime/scenario_1')
-PLOTS_DIR = os.path.join(ROOT_PATH, 'benchmark_plots/')
+LOG_DIR = os.path.join(ROOT_PATH, 'logs/recuv_logs/coop/dfa_game/no_prime/scenario_3')
+PLOTS_DIR = os.path.join(ROOT_PATH, 'benchmark_plots/coop_plots/no_prime/')
 
 
 def save_plot(file_name, plt_handle: plt, fig: Figure):
@@ -33,9 +33,11 @@ def parse_logs(log_directory):
     # Regex to capture: (boxes)b_(locs)l_(algorithm)_(game_type).yaml
     # Example: 3b_10l_BDD_dfa_game.yaml
     # for scneario 1 and 2
-    file_pattern = re.compile(r"(\d+)b_(\d+)l_([a-zA-Z]+)_(.*)\.yaml")
+    # file_pattern = re.compile(r"(\d+)b_(\d+)l_([a-zA-Z]+)_(.*)\.yaml")
     # For scenario 3, we also want to capture the ratio
-    # file_pattern = re.compile(r"(\d+)b_(\d+)l_(\d+)k_([a-zA-Z]+)_(.*)\.yaml")
+    file_pattern = re.compile(r"(\d+)b_(\d+)l_(\d+)k_([a-zA-Z]+)_(.*)\.yaml")
+    # For scenario 4, we also want to capture the ratio
+    # file_pattern = re.compile(r"(\d+)b_(\d+)l_(\d+)f_([a-zA-Z]+)_(.*)\.yaml")
 
     for filename in os.listdir(log_directory):
         if not filename.endswith(".yaml"):
@@ -45,11 +47,14 @@ def parse_logs(log_directory):
         if match:
             num_boxes = int(match.group(1))
             num_locs = int(match.group(2))
-            algo_type = match.group(3)
-            game_type = match.group(4)
+            # algo_type = match.group(3)
+            # game_type = match.group(4)
             # for scenario 3
-            # algo_type = match.group(4)
-            # game_type = match.group(5)
+            algo_type = match.group(4)
+            game_type = match.group(5)
+
+            # for scenario 4
+            # formula_size = match.group(3)
 
             # just load 3b yaml files
             # if num_boxes != 3:
@@ -84,7 +89,8 @@ def parse_logs(log_directory):
                             'locs': num_locs,
                             'algo': algo_type,
                             'game': game_type,
-                            'memory': (sum(memory_per_run) / len(memory_per_run))/ (1e6),
+                            # 'formula_size': int(formula_size),
+                            'avg_memory': (sum(memory_per_run) / len(memory_per_run))/ (1e6),
                             'ratio' : content['Run 0']['Setup']['ratio'],
                             'preimage_size': content['Run 0']['CompTime']['Preimage_size'],
                             'iterations': content['Run 0']['CompTime']['Iterations'],
@@ -165,7 +171,7 @@ def plot_memory(df, target_boxes, target_game, log_plot: bool = False):
 
 
 
-def plot_synthesis_time_scn_1(df, target_boxes, target_game, log_plot: bool = False, prime: bool = False):
+def plot_synthesis_time_scn_1(df, target_boxes, target_game, plot_memory: bool= False, log_plot: bool = False, prime: bool = False):
     """
     Plots avg_synth_time vs locs for a specific box count and game type.
     """
@@ -187,19 +193,34 @@ def plot_synthesis_time_scn_1(df, target_boxes, target_game, log_plot: bool = Fa
     # 4. Create the line plot
     # hue='algo' handles the three different colors
     # marker='o' adds points to the lines for clarity
-    plot = sns.lineplot(
-        data=filtered_df, 
-        x='locs', 
-        y='avg_synth_time', 
-        hue='algo', 
-        style='algo',
-        palette=palette,
-        dashes=dashes,
-        marker='o',
-        markersize=10,
-        linewidth=2.5,
-        ax=ax
-    )
+    if plot_memory:
+            plot = sns.lineplot(
+                data=filtered_df, 
+                x='locs', 
+                y='avg_memory', 
+                hue='algo', 
+                style='algo',
+                palette=palette,
+                dashes=dashes,
+                marker='o',
+                markersize=10,
+                linewidth=2.5,
+                ax=ax
+            )
+    else:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='locs', 
+            y='avg_synth_time', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
 
     # 5. Apply Log Scale to Y-axis
     if log_plot:
@@ -214,11 +235,17 @@ def plot_synthesis_time_scn_1(df, target_boxes, target_game, log_plot: bool = Fa
     ax.grid(True, which='both', linestyle='--', alpha=0.4) # Subtle grid
 
     # 6. Formatting Labels and Title
-    plt.title(f'Synthesis Complexity: {target_boxes} Boxes ({target_game.upper()})', 
+    if plot_memory:
+        plt.title(f'Memory Required: {target_boxes} Boxes ({target_game.upper()})', 
               fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('Number of Locations', fontsize=14, fontweight='semibold')
-    plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
-    
+        plt.xlabel('Number of Locations', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Memory (MB)', fontsize=14, fontweight='semibold')
+    else:
+        plt.title(f'Synthesis Complexity: {target_boxes} Boxes ({target_game.upper()})', 
+                  fontsize=18, fontweight='bold', pad=20)
+        plt.xlabel('Number of Locations', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
+
     # Legend Placement
     plt.legend(title='Algorithm', frameon=False, loc='upper left')
     
@@ -226,14 +253,20 @@ def plot_synthesis_time_scn_1(df, target_boxes, target_game, log_plot: bool = Fa
     plt.tight_layout()
     prime_str = 'prime' if prime else 'no_prime'
 
-    if log_plot:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+    if plot_memory:
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
     else:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
 
 
 
-def plot_synthesis_time_scn_2(df, target_locs, target_game, log_plot: bool = False, prime: bool = False):
+def plot_synthesis_time_scn_2(df, target_locs, target_game, plot_memory: bool= False, log_plot: bool = False, prime: bool = False):
     """
     Plots avg_synth_time vs boxes for a specific location count and game type.
     """
@@ -255,19 +288,34 @@ def plot_synthesis_time_scn_2(df, target_locs, target_game, log_plot: bool = Fal
     # 4. Create the line plot
     # hue='algo' handles the three different colors
     # marker='o' adds points to the lines for clarity
-    plot = sns.lineplot(
-        data=filtered_df, 
-        x='boxes', 
-        y='avg_synth_time', 
-        hue='algo', 
-        style='algo',
-        palette=palette,
-        dashes=dashes,
-        marker='o',
-        markersize=10,
-        linewidth=2.5,
-        ax=ax
-    )
+    if plot_memory:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='boxes', 
+            y='avg_memory', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
+    else:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='boxes', 
+            y='avg_synth_time', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
 
     # 5. Apply Log Scale to Y-axis
     if log_plot:
@@ -282,10 +330,16 @@ def plot_synthesis_time_scn_2(df, target_locs, target_game, log_plot: bool = Fal
     ax.grid(True, which='both', linestyle='--', alpha=0.4) # Subtle grid
 
     # 6. Formatting Labels and Title
-    plt.title(f'Synthesis Complexity: {target_locs} Locs ({target_game.upper()})', 
+    if plot_memory:
+        plt.title(f'Memory Required: {target_locs} Boxes ({target_game.upper()})', 
               fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('Number of Boxes', fontsize=14, fontweight='semibold')
-    plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
+        plt.xlabel('Number of Boxes', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Memory (MB)', fontsize=14, fontweight='semibold')
+    else:
+        plt.title(f'Synthesis Complexity: {target_locs} Locs ({target_game.upper()})', 
+                  fontsize=18, fontweight='bold', pad=20)
+        plt.xlabel('Number of Boxes', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
     
     # Legend Placement
     plt.legend(title='Algorithm', frameon=False, loc='upper left')
@@ -294,13 +348,19 @@ def plot_synthesis_time_scn_2(df, target_locs, target_game, log_plot: bool = Fal
     plt.tight_layout()
     prime_str = 'prime' if prime else 'no_prime'
 
-    if log_plot:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+    if plot_memory:
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
     else:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
 
 
-def plot_synthesis_time_scn_3(df, target_boxes, target_locs, target_game, log_plot: bool = False, prime: bool = False):
+def plot_synthesis_time_scn_3(df, target_boxes, target_locs, target_game, plot_memory: bool =False, log_plot: bool = False, prime: bool = False):
     """
     Plots avg_synth_time vs boxes for a specific location count and game type.
     """
@@ -322,19 +382,34 @@ def plot_synthesis_time_scn_3(df, target_boxes, target_locs, target_game, log_pl
     # 4. Create the line plot
     # hue='algo' handles the three different colors
     # marker='o' adds points to the lines for clarity
-    plot = sns.lineplot(
-        data=filtered_df, 
-        x='ratio', 
-        y='avg_synth_time', 
-        hue='algo', 
-        style='algo',
-        palette=palette,
-        dashes=dashes,
-        marker='o',
-        markersize=10,
-        linewidth=2.5,
-        ax=ax
-    )
+    if plot_memory:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='ratio', 
+            y='avg_memory', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
+    else:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='ratio', 
+            y='avg_synth_time', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
 
     # 5. Apply Log Scale to Y-axis
     if log_plot:
@@ -349,10 +424,16 @@ def plot_synthesis_time_scn_3(df, target_boxes, target_locs, target_game, log_pl
     ax.grid(True, which='both', linestyle='--', alpha=0.4) # Subtle grid
 
     # 6. Formatting Labels and Title
-    plt.title(f'Synthesis Complexity: {target_boxes} Boxes {target_locs} Locs ({target_game.upper()})', 
+    if plot_memory:
+        plt.title(f'Memory Required: {target_locs} Boxes {target_locs} Locs ({target_game.upper()})', 
               fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel('Ratio', fontsize=14, fontweight='semibold')
-    plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
+        plt.xlabel('Ratio', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Memory (MB)', fontsize=14, fontweight='semibold')
+    else:
+        plt.title(f'Synthesis Complexity: {target_boxes} Boxes {target_locs} Locs ({target_game.upper()})', 
+                fontsize=18, fontweight='bold', pad=20)
+        plt.xlabel('Ratio', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
     
     # Legend Placement
     plt.legend(title='Algorithm', frameon=False, loc='upper left')
@@ -361,10 +442,111 @@ def plot_synthesis_time_scn_3(df, target_boxes, target_locs, target_game, log_pl
     plt.tight_layout()
     prime_str = 'prime' if prime else 'no_prime'
 
-    if log_plot:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+    if plot_memory:
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
     else:
-        save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+
+
+
+def plot_synthesis_time_scn_4(df, target_boxes, target_locs, target_game, plot_memory: bool =False, log_plot: bool = False, prime: bool = False):
+    """
+    Plots avg_synth_time vs boxes for a specific location count and game type.
+    """
+    # 1. Filter the data for the specific configuration
+    filtered_df = df[(df['locs'] == target_locs) & (df['game'] == target_game) & (df['boxes'] == target_boxes)].copy()
+    
+    # 2. Sort by locations to ensure lines connect correctly
+    filtered_df = filtered_df.sort_values(by='ratio')
+
+    # 3. Set the visual style
+    # sns.set_theme(style="whitegrid")
+    sns.set_context("talk") # Increases font scaling automatically
+    sns.set_style("white")  # Clean background
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    palette = {"BDD": "#1f77b4", "ADD": "#d62728", "hybrid": "#2ca02c"}
+    dashes = {"BDD": "", "ADD": (4, 1.5), "hybrid": (1, 1)} # Solid, Dashed, Dotted
+
+    # 4. Create the line plot
+    # hue='algo' handles the three different colors
+    # marker='o' adds points to the lines for clarity
+    if plot_memory:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='formula_size', 
+            y='avg_memory', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
+    else:
+        plot = sns.lineplot(
+            data=filtered_df, 
+            x='formula_size', 
+            y='avg_synth_time', 
+            hue='algo', 
+            style='algo',
+            palette=palette,
+            dashes=dashes,
+            marker='o',
+            markersize=10,
+            linewidth=2.5,
+            ax=ax
+        )
+
+    # 5. Apply Log Scale to Y-axis
+    if log_plot:
+        plot.set_yscale('log')
+        # Automatically place ticks at powers of 10 and sensible midpoints
+        ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=10))
+        # ax.yaxis.set_major_locator(Locator())
+        # ax.yaxis.set_major_formatter(ScalarFormatter())
+        # ax.set_yticks([1, 2, 5, 10, 20, 50, 100, 200]) # Common scale points
+
+    sns.despine() # Remove top/right spines
+    ax.grid(True, which='both', linestyle='--', alpha=0.4) # Subtle grid
+
+    # 6. Formatting Labels and Title
+    if plot_memory:
+        plt.title(f'Memory Required: {target_locs} Boxes {target_locs} Locs ({target_game.upper()})', 
+              fontsize=18, fontweight='bold', pad=20)
+        plt.xlabel('Formula Size', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Memory (MB)', fontsize=14, fontweight='semibold')
+    else:
+        plt.title(f'Synthesis Complexity: {target_boxes} Boxes {target_locs} Locs ({target_game.upper()})', 
+                fontsize=18, fontweight='bold', pad=20)
+        plt.xlabel('Formula Size', fontsize=14, fontweight='semibold')
+        plt.ylabel('Avg Synthesis Time (s)', fontsize=14, fontweight='semibold')
+    
+    # Legend Placement
+    plt.legend(title='Algorithm', frameon=False, loc='upper left')
+    
+    # plt.legend(title='Algorithm', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    prime_str = 'prime' if prime else 'no_prime'
+
+    if plot_memory:
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'memory_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}.png', plt_handle=plt, fig=plt.gcf())
+    else:
+        if log_plot:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_formula_log.png', plt_handle=plt, fig=plt.gcf())
+        else:
+            save_plot(file_name=PLOTS_DIR + f'synthesis_time_{target_boxes}b_{target_locs}l_{prime_str}_{target_game}_formula.png', plt_handle=plt, fig=plt.gcf())
 
 
 def plot_winning_region_size(df, boxes: int, locs: int, game: str, fig_title: str = ''):
@@ -505,8 +687,9 @@ if __name__ == "__main__":
     # print(df.sort_values(by=['boxes', 'locs']))
 
     # plot a line chart
-    # plot_synthesis_time_scn_1(df=df, target_boxes=4, target_game='game', prime=False, log_plot=False)
-    # plot_synthesis_time_scn_2(df=df, target_locs=8, target_game='game', prime=False, log_plot=False)
-    # plot_synthesis_time_scn_3(df=df, target_boxes=3, target_locs=8, target_game='dfa_game', prime=False, log_plot=False)
+    # plot_synthesis_time_scn_1(df=df, target_boxes=3, target_game='dfa_game', plot_memory=True, prime=False, log_plot=False)
+    # plot_synthesis_time_scn_2(df=df, target_locs=8, target_game='dfa_game', plot_memory=True, prime=False, log_plot=False)
+    plot_synthesis_time_scn_3(df=df, target_boxes=4, target_locs=8, target_game='dfa_game', plot_memory=True, prime=False, log_plot=False)
+    # plot_synthesis_time_scn_4(df=df, target_boxes=4, target_locs=8, target_game='dfa_game', prime=False, log_plot=False)
     # plot_memory(df=df, target_boxes=3, target_game='dfa_game', log_plot=False)
-    plot_winning_region_size(df=df, boxes=4, locs=13, game='dfa_game')
+    # plot_winning_region_size(df=df, boxes=4, locs=15, game='dfa_game')
