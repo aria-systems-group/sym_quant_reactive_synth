@@ -202,7 +202,7 @@ def dfa_game_main():
     sys_states, env_states = gridworld.get_number_of_states(verbose=True)
     
     # print DFA Info
-    print("*****************Printing Game Info*****************")
+    print("*****************Printing DFA Info*****************")
     for k, v in gridworld.dfa_handle.qVar_map.items():
         print(f"{k} : {v}")
 
