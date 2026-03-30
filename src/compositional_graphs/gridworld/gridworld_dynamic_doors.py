@@ -131,10 +131,10 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                 dConf_cube: ADD = self.dVar_map_sym[d_idx][d_status]
                 
                 for r in range(self.rows):
-                    rVar_add: ADD = self.cube_to_add(self.xVar_map[p_idx][r], self.xVars[p_idx])
+                    rVar_add: ADD = self.xVar_map_sym[p_idx][r]
 
                     for c in range(self.columns):
-                        cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
+                        cVar_add: ADD = self.yVar_map_sym[p_idx][c]
                         
                         # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
                         valid_actions = self.get_valid_transitions(rPos=r, cPos=c, player=player)
@@ -163,8 +163,6 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
 
                             if (r, c) == self.grid['door'][d_idx]:
                                 transition_cube &= self.get_door_constraint(cell=(r, c), player=player)
-                            # if (nxt_rPos, nxt_cPos) == self.grid['door'][d_idx]:
-                            #     transition_cube &= self.get_door_constraint(cell=(nxt_rPos, nxt_cPos), player=player)
                             
                             if transition_cube.isZero():
                                 continue
@@ -205,9 +203,9 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                         dConf_cube: ADD = self.dVar_map_sym[d_idx][d_status]
                 
                         for rPos in range(self.rows):
-                            rVar_add = self.cube_to_add(self.xVar_map[pidx][rPos], self.xVars[pidx])
+                            rVar_add = self.xVar_map_sym[pidx][rPos]
                             for cPos in range(self.columns):
-                                cVar_add = self.cube_to_add(self.yVar_map[pidx][cPos], self.yVars[pidx])
+                                cVar_add = self.yVar_map_sym[pidx][cPos]
                                 act_cube: dict = self.sys_action_cube[active_player] if active_player.startswith('sys') else self.env_action_cube[active_player]
                                 transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube & dConf_cube & self.get_door_constraint(cell=(rPos, cPos), player=pstr)
 
@@ -380,12 +378,12 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
     def test_preimage(self):
         sys_pos0 = (1, 1)
         goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
-        # sys_pos1 = (1, 1)
-        # goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
-        env_pos = (0, 0)
-        goal_cube_env = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
-        env_pos1 = (2, 0)
-        goal_cube_env1 = self.xVar_map_sym[1][env_pos1[0]] & self.yVar_map_sym[1][env_pos1[1]]
+        sys_pos1 = (1, 1)
+        goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
+        env_pos1 = (0, 0)
+        goal_cube_env = self.xVar_map_sym[2][env_pos1[0]] & self.yVar_map_sym[2][env_pos1[1]]
+        env_pos2 = (2, 0)
+        goal_cube_env1 = self.xVar_map_sym[3][env_pos2[0]] & self.yVar_map_sym[3][env_pos2[1]]
         # goal_cube = self.tVar_map_sym['sys1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env & self.dVar_map_sym[0]['env'] & ~self.eVar[0]
         # goal_cube = self.tVar_map_sym['sys1'] & self.dVar_map_sym[0]['sys'] & ~self.eVar[0] & goal_cube_sys0 & goal_cube_sys1 #& goal_cube_env
         goal_cube = self.tVar_map_sym['sys0'] & self.dVar_map_sym[0]['sys'] & ~self.eVar[0] & goal_cube_sys0 & (goal_cube_env | goal_cube_env1) #& goal_cube_env

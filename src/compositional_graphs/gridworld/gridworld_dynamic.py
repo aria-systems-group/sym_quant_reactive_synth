@@ -248,15 +248,16 @@ class GridWorldDynamicGame():
     
 
     def miscellanoues_helper_stuff(self):
+        self.rVars_cube_bdd: BDD = self.rVars_cube.bddPattern()
         # create cubes of valid env and sys turn var
         self.sys_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('sys')])
         self.env_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('env')])
+        self.env_tVar_cube_bdd: BDD = self.env_tVar_cube.bddPattern()
         # create cubes of valid env and sys player action.
         self.sys_action_cube: Dict[str, ADD] = {f'sys{player}': reduce (lambda x, y: x | y, sact_list) for player, sact_list in enumerate(self.sys_action_cube_list)}
         self.env_action_cube: Dict[str, ADD] = {f'env{player}': reduce (lambda x, y: x | y, eact_list) for player, eact_list in enumerate(self.env_action_cube_list)}
         # ADD for set of valid state
         self.obsatcle_constraint_cube = self.manager.addZero()
-        self.state_lbl = self.manager.addZero()
         # used during rollout to check of the action is valid or not
         self.invalid_env_state_action_cube = self.manager.addZero()
         self.invalid_sys_state_action_cube = self.manager.addZero()
@@ -285,6 +286,7 @@ class GridWorldDynamicGame():
                 for pos in self.grid[obst]:
                     player_obst_const |= self.tVar_map_sym[player_str] & self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]
                 self.obsatcle_constraint_cube |= player_obst_const
+        
         # add restricted env location to obstacle constraint
         for pos in self.restricted_env_locs:
             for pidx, player_str in enumerate(self.tVar_map.keys()):
@@ -438,7 +440,7 @@ class GridWorldDynamicGame():
         curr_pred = list(self.tVar_map_sym.values())
         next_pred_str = [bit_str for k, bit_str in self.tVar_map.items() if k != 'sys0']
         next_pred_str.append(self.tVar_map['sys0'])
-        self.turn_updae_rule = {self.tVar_map_sym.inv[i]: self.tVar_map.inv[j] for i, j in zip(curr_pred, next_pred_str)}
+        self.turn_update_rule = {self.tVar_map_sym.inv[i]: self.tVar_map.inv[j] for i, j in zip(curr_pred, next_pred_str)}
         for turn_bit, turn_prime_string in zip(curr_pred, next_pred_str):
             for sidx, s in enumerate(turn_prime_string):
                 if s == '1':
@@ -456,11 +458,11 @@ class GridWorldDynamicGame():
         turn_bit: ADD = self.tVar_map_sym[player]
         p_idx = self.pidx_to_pstr.inv[player]
         for r in range(self.rows):
-            rVar_add: ADD = self.cube_to_add(self.xVar_map[p_idx][r], self.xVars[p_idx])
+            rVar_add: ADD = self.xVar_map_sym[p_idx][r]
 
             for c in range(self.columns):
-                cVar_add: ADD = self.cube_to_add(self.yVar_map[p_idx][c], self.yVars[p_idx])
-                
+                cVar_add: ADD = self.yVar_map_sym[p_idx][c]
+
                 # get valid acts for grid position (r, c) - this does check for wall or other obstacles in the successor step.
                 valid_actions = self.get_valid_transitions(rPos=r, cPos=c, player=player)
                 # all env players have same action set. If not, this must be updated to be per player.
@@ -506,9 +508,9 @@ class GridWorldDynamicGame():
                 turn_bit: ADD = self.tVar_map_sym[active_player]
                 pidx = self.pidx_to_pstr.inv[passive_player]
                 for rPos in range(self.rows):
-                    rVar_add = self.cube_to_add(self.xVar_map[pidx][rPos], self.xVars[pidx])
+                    rVar_add = self.xVar_map_sym[pidx][rPos]
                     for cPos in range(self.columns):
-                        cVar_add = self.cube_to_add(self.yVar_map[pidx][cPos], self.yVars[pidx])
+                        cVar_add = self.yVar_map_sym[pidx][cPos]
                         act_cube: dict = self.sys_action_cube[active_player] if active_player.startswith('sys') else self.env_action_cube[active_player]
                         transition_cube: ADD = turn_bit & rVar_add & cVar_add & act_cube & ~self.eVar[0] & ~self.obsatcle_constraint_cube
 
@@ -533,7 +535,7 @@ class GridWorldDynamicGame():
             self.states_per_cost[w] = self.weight.bddInterval(w, w)
         
         # manually add env action to cost zero
-        self.states_per_cost[0] |= self.env_tVar_cube.bddPattern() & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd)
+        self.states_per_cost[0] |= self.env_tVar_cube_bdd & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd)
     
 
     def convert_vector_of_bdd_to_add(self, bdd_vector: Dict[int, BDD]) -> ADD:
@@ -566,7 +568,7 @@ class GridWorldDynamicGame():
             if obst not in self.grid.keys():
                 continue
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
-            for curr_player, succ_player in self.turn_updae_rule.items():
+            for curr_player, succ_player in self.turn_update_rule.items():
                 if curr_player.startswith('sys'):
                     pidx = self.pidx_to_pstr.inv[succ_player]
                     for pos in self.grid[obst]:
@@ -654,48 +656,49 @@ class GridWorldDynamicGame():
 
     def compute_min_preimage_pure_bdd(self, preimage: Dict[int, BDD]) -> Dict[int, BDD]:
         minmin_preimage = defaultdict(self.manager.bddZero) 
-        rVars_cube_bdd = self.rVars_cube.bddPattern()
         states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
-        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
+        states: BDD = states_action_pairs.existAbstract(self.rVars_cube_bdd)
         for sval in sorted(preimage.keys()):
             # intersect with finite valued states for Sys and Env player
-            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & states
+            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube_bdd) & states
             minmin_preimage[sval] |= sval_to_keep
             states &= ~sval_to_keep
         assert states.isZero() == True, "Error in computing min for system and env states"
 
         return minmin_preimage
-
+    
 
     def compute_min_max_preimage_pure_bdd(self, preimage: Dict[int, BDD], debug: bool = False) -> Dict[int, BDD]:
         minmax_preimage = defaultdict(self.manager.bddZero)
-        rVars_cube_bdd = self.rVars_cube.bddPattern()
-        env_turn_bdd: BDD = self.env_tVar_cube.bddPattern()
         states_action_pairs: BDD = reduce(lambda x, y: x | y, preimage.values())
-        # now take univ abstraction to remove edges to states with infinity value
-        states: BDD = states_action_pairs.existAbstract(rVars_cube_bdd)
-        
-        robot_state_bdd: BDD = states & ~env_turn_bdd
+        states: BDD = states_action_pairs.existAbstract(self.rVars_cube_bdd)
 
-        # remove Env state that do not have a finite value value under all actions
-        env_state_w_inf_val = env_turn_bdd & reduce(lambda x, y: x | y, self.env_action_cube_list_bdd) & ~states_action_pairs
-        env_state_w_inf_val = env_state_w_inf_val.existAbstract(rVars_cube_bdd)
+        # Remove Env state(s) that do not have a finite value under ALL actions. 
+        # For multiple Env player, we do it per player action basis.
+        for player in self.tVar_map.keys():
+            if not player.startswith('env'):
+                continue
+            env_state_w_inf_val = (self.tVar_map_sym[player] & self.env_action_cube[player]).bddPattern() & ~states_action_pairs
+            env_state_w_inf_val = env_state_w_inf_val.existAbstract(self.rVars_cube_bdd)
+            env_finite_valued_states = states & self.tVar_map_sym[player].bddPattern() & ~env_state_w_inf_val
+
+            if env_finite_valued_states.isZero():
+                continue
         
-        # debug states without inf value are
-        env_finite_valued_states = states & env_turn_bdd & ~env_state_w_inf_val
-        
-        for sval in sorted(preimage.keys(), reverse=True):
-            # intersect with env finite valued states
-            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & env_finite_valued_states
-            minmax_preimage[sval] |= sval_to_keep
-            env_finite_valued_states &= ~sval_to_keep
+            for sval in sorted(preimage.keys(), reverse=True):
+                # intersect with env finite valued states
+                sval_to_keep = preimage[sval].existAbstract(self.rVars_cube_bdd) & env_finite_valued_states
+                minmax_preimage[sval] |= sval_to_keep
+                env_finite_valued_states &= ~sval_to_keep
         
         if debug:
             assert env_finite_valued_states.isZero() == True, "Error in computing max for env states"
+        
+        robot_state_bdd: BDD = states & ~self.env_tVar_cube_bdd
 
         for sval in sorted(preimage.keys()):
             # intersect with env finite valued states
-            sval_to_keep = preimage[sval].existAbstract(rVars_cube_bdd) & robot_state_bdd
+            sval_to_keep = preimage[sval].existAbstract(self.rVars_cube_bdd) & robot_state_bdd
             minmax_preimage[sval] |= sval_to_keep
             robot_state_bdd &= ~sval_to_keep
         
@@ -1049,11 +1052,13 @@ class GridWorldDynamicGame():
     def test_preimage(self):
         sys_pos0 = (1, 1)
         goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
-        sys_pos1 = (1, 0)
+        sys_pos1 = (1, 1)
         goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
-        env_pos = (0, 1)
-        goal_cube_env = self.xVar_map_sym[2][env_pos[0]] & self.yVar_map_sym[2][env_pos[1]]
-        goal_cube = self.tVar_map_sym['sys1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env
+        env_pos1 = (1, 2)
+        goal_cube_env1 = self.xVar_map_sym[2][env_pos1[0]] & self.yVar_map_sym[2][env_pos1[1]]
+        env_pos2 = (2, 0)
+        goal_cube_env2 = self.xVar_map_sym[3][env_pos2[0]] & self.yVar_map_sym[3][env_pos2[1]]
+        goal_cube = self.tVar_map_sym['env1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env1 & goal_cube_env2
         print('Goal state:', goal_cube)
         # compute preimage 
         From = goal_cube.swapVariables(self.latches, self.prime_latches)
