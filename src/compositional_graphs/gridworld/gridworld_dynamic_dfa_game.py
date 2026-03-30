@@ -617,8 +617,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
         # dfa_game_preimage = dfa_game_preimage.ite(self.manager.addOne(), self.manager.plusInfinity()) # set the value of states not in preimage to infinity
 
-        valid_env_action_mask = reduce(lambda x, y: x | y, self.env_action_cube_list)
-        winning_states: ADD = self.compute_min_max_preimage(dfa_game_preimage, valid_env_action_mask=valid_env_action_mask)
+        winning_states: ADD = self.compute_min_max_preimage(dfa_game_preimage)
 
         print("After taking Min-Max over Preimage: ", winning_states)
         self.convert_cube_to_state_ADD(winning_states,  lbl_flag=True, action=False, verbose=True)

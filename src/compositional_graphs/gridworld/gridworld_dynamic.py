@@ -633,16 +633,18 @@ class GridWorldDynamicGame():
         return result_add
     
 
-    def compute_min_max_preimage(self, preimage: ADD, valid_env_action_mask: ADD) -> ADD:
+    def compute_min_max_preimage(self, preimage: ADD) -> ADD:
         robot_states = preimage & self.sys_tVar_cube
         next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
         
         # take max over Env player states; but first map the invalid env actions and robot action from these states to -inf
+        next_winning_states_env = self.manager.plusInfinity()
         env_states = preimage & self.env_tVar_cube
-        preimage_for_max = valid_env_action_mask.ite(env_states, self.manager.minusInfinity()) 
-        next_winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+        for pstr, eact_cube in self.env_action_cube.items():
+            preimage_for_max = eact_cube.ite(env_states, self.manager.minusInfinity())
+            winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+            next_winning_states_env = self.tVar_map_sym[pstr].ite(winning_states_env, next_winning_states_env)
 
-        # hardcoding, need to see if this logic works in the future when we multiple agents
         return next_winning_states_robot | next_winning_states_env
 
 
@@ -775,7 +777,6 @@ class GridWorldDynamicGame():
         
         # intialize the iteration counter
         layer = 0
-        valid_env_action_mask = reduce(lambda x, y: x | y, list(self.env_action_cube.values()))
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -786,7 +787,7 @@ class GridWorldDynamicGame():
             if self.cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
-                next_winning_states = self.compute_min_max_preimage(preimage, valid_env_action_mask=valid_env_action_mask)
+                next_winning_states = self.compute_min_max_preimage(preimage)
             
             next_winning_states = next_winning_states.min(goal)
 
@@ -839,8 +840,6 @@ class GridWorldDynamicGame():
         # intialize the iteration counter
         layer = 0
         c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
-        
-        valid_env_action_mask = reduce(lambda x, y: x | y, list(self.env_action_cube.values()))
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -853,7 +852,7 @@ class GridWorldDynamicGame():
             if self.cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
-                next_winning_states = self.compute_min_max_preimage(preimage=preimage, valid_env_action_mask=valid_env_action_mask)
+                next_winning_states = self.compute_min_max_preimage(preimage=preimage)
             next_winning_states = next_winning_states.min(goal)
 
             # adding debugging step
@@ -1070,8 +1069,7 @@ class GridWorldDynamicGame():
         preimage = preimage + self.weight
 
         # now let takes min and max
-        new_preimage = self.compute_min_max_preimage(preimage,
-                                                     valid_env_action_mask=reduce(lambda x, y: x | y, list(self.env_action_cube.values())))
+        new_preimage = self.compute_min_max_preimage(preimage)
         # print('Preimage after min max abstraction:', new_preimage)
         self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)
     

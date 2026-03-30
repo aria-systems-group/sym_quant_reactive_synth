@@ -400,7 +400,6 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
         preimage = preimage + self.weight
 
         # now let takes min and max
-        new_preimage = self.compute_min_max_preimage(preimage,
-                                                     valid_env_action_mask=reduce(lambda x, y: x | y,list(self.env_action_cube.values())))
+        new_preimage = self.compute_min_max_preimage(preimage)
         print('Preimage after min max abstraction:', new_preimage)
         self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)
