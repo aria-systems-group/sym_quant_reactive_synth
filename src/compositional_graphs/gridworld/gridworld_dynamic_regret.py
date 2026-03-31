@@ -6,7 +6,7 @@ from tabulate import tabulate
 
 from functools import reduce 
 from collections import defaultdict
-from typing import List, Dict, Optional, Tuple, Set
+from typing import List, Dict, Optional, Tuple, Set, Union
 
 from cudd import ADD, BDD
 
@@ -170,13 +170,11 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                 for sidx, s in enumerate(uConf_prime_cube_str):
                     if s == '1':
                         self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |= transition_cube     
-                        # self.transition_relation[self.uVars[sidx].bddPattern().__str__()] |= transition_cube      
         
         # add self-loop for the sink state budget + 1
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
-                # self.transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
     
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
         """
@@ -197,19 +195,6 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         return final_goal_add
     
 
-    def create_gou_sys_env_transition_relations(self):
-        """
-         A method to create separate transition relations for the system (robot) and environment (human) actions.
-        """
-        # post-process to get TR for robot and Human actions separately
-        self.sys_gou_transition_relation = []
-        self.env_gou_transition_relation = []
-        for tr_dd in self.graph_of_utility_tr:
-            self.sys_gou_transition_relation.append(tr_dd & self.sys_tVar_cube)
-            self.env_gou_transition_relation.append(tr_dd & self.env_tVar_cube)
-
-    
-
     def create_transition_relation(self):
         # creates game transition relation first and then dfa transition relation
         super().create_transition_relation()
@@ -218,13 +203,14 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         self.create_utility_transition_relation()
 
         tic = time.time()
-        strategy = self.gou_solve(verbose=False, optimized=False)
+        strategy = self.gou_solve(verbose=False)
         # hybrid_strategy = self.hybrid_gou_solve(verbose=False)
+        # assert strategy == hybrid_strategy, "Make sure both the strategies are same!!"
         # bdd_strategy = self.pure_bdd_gou_solve(verbose=False)
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
 
-        self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+        # self.gou_roll_out_strategy(strategy=bdd_strategy, verbose=True)
         # self.test_pre_image()
     
 
@@ -245,49 +231,69 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
 
         return preimage
     
-    def compute_preimage_optimized(self, curr_winning_states: ADD) -> Tuple[ADD, ADD]:
+
+    def hybrid_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
+        pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval, succ_states in win_state_bucket.items():
+            # prime the vars
+            dfa_succ_states_primed: BDD = succ_states.swapVariables(self.qVars_bdd, self.prime_qVars_bdd)
+            # first evolve over the DFA
+            # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
+            dfa_preimage: BDD = dfa_succ_states_primed.vectorCompose(self.prime_qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
+            dfa_preimage_primed: BDD = dfa_preimage.swapVariables(self.latches_bdd + self.uVars_bdd, self.prime_latches_bdd + self.prime_uVars_bdd)
+            pre_states: BDD = dfa_preimage_primed.vectorCompose(self.prime_latches_bdd + self.prime_uVars_bdd, self.gou_ts_bdd_transition_fun_list)
+
+            if not pre_states.isZero():
+                assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
+                pre_buckets[sval] |= pre_states
+
+        # unions of all predecessors
+        if not return_bdd:
+            preimage = self.manager.plusInfinity()
+            for sval, add_bucket in pre_buckets.items():
+                preimage = add_bucket.toADD().ite(self.manager.addConst(sval), preimage)
+            
+            return preimage
+        return pre_buckets
+    
+    def gou_convert_mono_tr_to_action_tr(self):
+        for tr_bdd in self.graph_of_utility_tr:
+            self.gou_ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
+    
+
+    def gou_convert_monolithic_add_to_bdd_buckets(self, monolithic_add: ADD) -> Dict[int, BDD]:
         """
-         Optimized preimage comptuation over the Graph of Utility transition relation.
-        """
-        # prime the vars
-        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+         Given a monolithic ADD of winning states, convert it into buckets of BDDs based on state values.
 
-        # first evolve over the DFA
-        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
-        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+         The values the states can take are from 0 to [Budget] with increment of c_max
+        """    
+        win_state_bucket: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        
+        # convert the winning states into buckets of BDD
+        for sval in range(0, self.budget + 1):
+            # get the states with state value equal to sval and store them in their respective bukcets
+            win_sval = monolithic_add.bddInterval(sval, sval)
 
-        # then evolve over the game
-        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
-        pre_sys = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.sys_gou_transition_relation)
-        pre_env = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.env_gou_transition_relation)
-
-        return pre_sys, pre_env
+            if not win_sval.isZero():
+                win_state_bucket[sval] |= win_sval
+        
+        return win_state_bucket
     
     
-    def gou_solve(self, verbose: bool = False, optimized: bool = False) -> Optional[ADD]:
+    def gou_solve(self, verbose: bool = False) -> Optional[ADD]:
         # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
         self.graph_of_utility_tr = list(self.transition_relation.values())
         self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
-        # if optimized:
-        #     self.create_gou_sys_env_transition_relations()
         
         goal = self.create_goal_nodes_with_utility_values(verbose=False)
         # print("Goal States with Utility values:", goal)
-        curr_winning_states =  self.manager.plusInfinity()
-        curr_winning_states = curr_winning_states.min(goal)
+        curr_winning_states = self.manager.plusInfinity().min(goal)
         
         # intialize the iteration counter
         layer = 0
 
         while True:
             print(f"**************************Layer: {layer}**************************")
-            # if optimized:
-            #     pre_sys, pre_env = self.compute_preimage_optimized(curr_winning_states)
-            #     next_winning_states_sys = self.symbolic_min_abstract(pre_sys, variables_to_abstract=self.rVars)
-            #     next_winning_states_env = self.symbolic_min_abstract(pre_env, variables_to_abstract=self.rVars)
-            #     # TODO: updated for arbitrary number of players
-            #     next_winning_states = self.tVar[0].ite(next_winning_states_sys, next_winning_states_env)
-            # else:
             preimage: ADD = self.gou_compute_preimage(curr_winning_states)
             next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             next_winning_states = next_winning_states.min(goal)
@@ -307,8 +313,6 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                         init_val: int = list((self.gou_init_latch & curr_winning_states).generate_cubes())[0][1]
                     print(f"A Cooperation Strategy Exists!!. The State value is {init_val}")
                     self.cVals = curr_winning_states
-                    # if optimized:
-                    #     preimage = pre_sys.min(pre_env)
                     return preimage.min(goal) if init_val < math.inf else None
                 return None
 
@@ -317,6 +321,120 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
 
             # swap the winning states
             curr_winning_states = next_winning_states
+    
+    
+    def hybrid_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+        # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
+        self.graph_of_utility_tr = list(self.transition_relation.values())
+        self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+
+        # preprocess TR into buckets of BDDs separated based on actions
+        self.gou_convert_mono_tr_to_action_tr()
+        
+        goal = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        # print("Goal States with Utility values:", goal)
+        curr_winning_states = self.manager.plusInfinity().min(goal)
+        
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            win_state_bucket = self.gou_convert_monolithic_add_to_bdd_buckets(monolithic_add=curr_winning_states)
+            preimage: ADD = self.hybrid_gou_compute_preimage(win_state_bucket)
+            next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
+            
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                self.gou_convert_cube_to_state_ADD(next_winning_states, action=False, verbose=True, print_val=True)
+            
+            if next_winning_states.compare(curr_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if self.gou_init_latch  & curr_winning_states != self.manager.plusInfinity():
+                    if self.gou_init_latch & curr_winning_states == self.manager.addZero():
+                        print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.gou_init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Cooperation Strategy Exists!!. The State value is {init_val}")
+                    self.cVals = curr_winning_states
+                    return preimage.min(goal) if init_val < math.inf else None
+                return None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+    
+
+    def pure_bdd_gou_solve(self, verbose: bool = False) -> Optional[ADD]:
+        # extende the DFA game TR to construct TR for Graph of Utility that includes uVars
+        self.graph_of_utility_tr = list(self.transition_relation.values())
+        self.graph_of_utility_tr.extend(list(self.uVars_transition_relation.values()))
+
+        # preprocess TR into buckets of BDDs separated based on actions
+        self.gou_convert_mono_tr_to_action_tr()
+        
+        goal: ADD = self.create_goal_nodes_with_utility_values(verbose=verbose)
+        goal_states_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        curr_winning_states: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        for sval in range(0, self.budget + 1):
+            goal_sval = goal.bddInterval(sval, sval)
+            if not goal_sval.isZero():
+                goal_states_buckets[sval] |= goal_sval
+                curr_winning_states[sval] |= goal_sval
+       
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            # compute preimage
+            vector_preimage: Dict[int, BDD] = self.hybrid_gou_compute_preimage(win_state_bucket=curr_winning_states, return_bdd=True)
+
+            # take min over Sys and Env player states
+            next_winning_states_opt = self.compute_min_preimage_pure_bdd(preimage=vector_preimage)
+            # retain the min over goal states - goal/sink states in GoU do not have outgoing transition. We add them back as preimage will not capture them
+            # this was taken care by min operation in Pure and Hybrid Approach. Here, we have to do it manually
+            next_winning_states_opt = self.compute_min_goal_states(preimage=next_winning_states_opt, goal=goal_states_buckets)
+            for goal_sval in sorted(goal_states_buckets.keys()):
+                next_winning_states_opt[goal_sval] |=  goal_states_buckets[goal_sval]
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                # unions of all predecessors along with their state values - ADD used for easy printing only
+                preimage = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states_opt)
+                self.gou_convert_cube_to_state_ADD(preimage, action=False, verbose=True, print_val=True)
+            
+            if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
+                print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                init_val = math.inf
+                for sval, sbdd in curr_winning_states.items():
+                    if sbdd & self.gou_init_latch.bddPattern() != self.manager.bddZero():
+                        init_val: int = sval
+                        print(f"A Cooperative Opt. Strategy Exists!!. The State value is {init_val}")
+                        break
+                self.cVals = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
+                # post process the strategy to return as monolithic ADD that corresponds to strategy
+                strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=vector_preimage)
+                if init_val < math.inf:
+                    return strategy.min(goal)
+                else:
+                    print(f"No Cooperative Opt. Strategy Exists!! The State value is {math.inf}")
+                    return None
+            
+            # update the counter
+            layer += 1
+
+            # swap the winning states; can't do  curr_winning_states = next_winning_states_opt as python is pass by value of reference
+            curr_winning_states = defaultdict(lambda: self.manager.bddZero())
+            for sval in next_winning_states_opt.keys():
+                curr_winning_states[sval] |= next_winning_states_opt[sval]
     
 
     def gou_get_next_state(self, curr_state_sym: ADD, curr_state_exp: ADD, act: str):
