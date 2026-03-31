@@ -46,7 +46,10 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.qVars: List[ADD] = []
         self.qVars_bdd: List[BDD] = []
         self.qVar_map: List[ADD] = {} 
-        self.qVar_map_sym: List[ADD] = {} 
+        self.qVar_map_sym: List[ADD] = {}
+        self.lVar_map = bidict({})
+        self.lVar_map_sym = dict({})
+        self.state_lbl_map: Dict[CELL, Set[str]] = defaultdict(lambda: set())
         self.ltlf_flag: bool = ltlf_flag
         self.camera: bool = camera
         self.dfa_handle: Union[SymbolicPartitionedDFAFromMona, SymbolicPartitionedDFAFromSpot] = None
@@ -80,11 +83,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
     def create_all_boolean_state_vars_and_maps(self):
         super().create_all_boolean_state_vars_and_maps()
 
-        self.state_lbl_map: Dict[CELL, Set[str]] = defaultdict(lambda: set())
-         # list of labels excluding obstacle label - including collision and camera if specified.
+        # list of labels excluding obstacle label - including collision and camera if specified.
         self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c'] + (['p'] if self.camera else [])
-        self.lVar_map = bidict({})
-        self.lVar_map_sym = dict({}) 
         self.lVars = self.create_state_lbls_vars()
         self.lVars_cube = reduce(lambda x, y: x & y, self.lVars)
         self.create_lVars_map()
@@ -497,7 +497,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        
+        self.invalid_env_state_action_cube = self.transition_relation['e']
         while (curr_state & self.goal_latch).isZero():
             curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, lbl_flag=False, action=False, table_header=False, verbose=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
@@ -537,7 +537,6 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             for dfa_state_sym in self.qVar_map_sym.values():
                 dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
                 dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
-                # FIX THIS: lbl map should be for sys state only
                 edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_state & self.state_lbl)).isZero()
 
                 if edge_exists:

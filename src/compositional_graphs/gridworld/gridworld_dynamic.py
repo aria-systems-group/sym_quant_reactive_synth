@@ -990,7 +990,7 @@ class GridWorldDynamicGame():
         return state_cube
     
 
-    def get_next_state(self, curr_state_exp: ADD, act: str) -> Tuple[ADD, str, Tuple]:        
+    def get_next_state(self, curr_state_exp: Tuple, act: str) -> Tuple[ADD, str, Tuple]:        
         act_name = act.split('_')[1]
         # update this for the foor env
         next_state = [i for i in curr_state_exp[:self.total_players + 1]]
@@ -1000,7 +1000,7 @@ class GridWorldDynamicGame():
         nxt_y = curr_state_exp[pidx + 1][1] + Moves[act_name].value[1]
         next_state[0] = self.pidx_to_pstr[pidx + 1] if pidx + 1 < len(self.pidx_to_pstr) else self.pidx_to_pstr[0]  # switch turn after the move
         next_state[pidx + 1] = [nxt_x, nxt_y]  # sys pos
-        return self.convert_exlpicit_state_to_cube(next_state) & ~self.eVar[0], act, next_state
+        return self.convert_exlpicit_state_to_cube(next_state) & ~self.eVar[0], act, next_state + ['ne']
     
 
     def roll_out_strategy(self, strategy: ADD, verbose: bool = False):
