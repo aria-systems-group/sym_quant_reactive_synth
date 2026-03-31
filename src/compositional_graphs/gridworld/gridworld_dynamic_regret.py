@@ -127,6 +127,21 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         uVar_size = uVar_size + 1 if pow(2, uVar_size) == self.budget + 2 else uVar_size 
         uVars: List[ADD] = [self.manager.addVar(u + varsize, 'u' + str(u)) for u in range(uVar_size)]
         return uVars
+
+    
+    def create_all_br_vars_maps(self):
+        """
+         Give, the set of best-response values, this method create all latches and maps for best-alternate response variables. 
+          It also creates prime latches.
+        """
+        # create variables for best-alternate response values
+        self.brVars = self.create_br_latches()
+        self.brVars_bdd = [br.bddPattern() for br in self.brVars]
+        self.prime_brVars = self.create_prime_br_latches()
+        self.prime_brVars_bdd = [br.bddPattern() for br in self.prime_brVars]
+        self.create_br_var_map()
+        self.gobr_game_latches = self.latches + self.uVars + self.brVars + self.qVars
+        self.gobr_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_brVars + self.prime_qVars
     
 
     def create_prime_utility_latches(self):
@@ -135,6 +150,27 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         """
         varsize = self.manager.size()
         return [self.manager.addVar(u + varsize, 'pu' + str(u)) for u in range(len(self.uVars))]
+    
+    
+    def create_br_latches(self):
+        """
+         Create best-alterante response (br) variables for the Graph of Utility.
+        """
+        varsize = self.manager.size()
+        brVar_size = math.ceil(math.log2(len(self.brVals)))
+        # create an additional boolean var to skip the 0-vector latch
+        brVar_size = brVar_size + 1 if pow(2, brVar_size) == len(self.brVals) else brVar_size 
+        brVars: List[ADD] = [self.manager.addVar(br + varsize, 'br' + str(br)) for br in range(brVar_size)]
+        return brVars
+
+    
+    def create_prime_br_latches(self):
+        """
+         Create utility variables for the Graph of Utility.
+        """
+        varsize = self.manager.size()
+        prime_brVars: List[ADD] = [self.manager.addVar(br + varsize, 'pbr' + str(br)) for br in range(len(self.brVars))]
+        return prime_brVars
     
 
     def create_uVar_map(self):
@@ -146,6 +182,15 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             ubit_str = f"{u + 1:0{len(self.uVars)}b}"
             self.uVar_map[f'u{u}'] = ubit_str
             self.uVar_map_sym[f'u{u}'] = self.cube_to_add(ubit_str, self.uVars)
+    
+    def create_br_var_map(self):
+        """
+         Small function to create symbolic maps for the brVar_map. 
+        """
+        for idx, val in enumerate(self.brVals):
+            bit_str = f"{idx + 1:0{len(self.brVars)}b}"
+            self.brVar_map[val] = bit_str
+            self.brVar_map_sym[val] = self.cube_to_add(bit_str, self.brVars)
     
     def set_gou_init_latch(self):
         self.gou_init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & ~self.eVar[0] & self.uVar_map_sym['u0']
@@ -175,6 +220,44 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         for sidx, s in enumerate(self.uVar_map[f'u{self.budget + 1}']):
             if s == '1':
                 self.uVars_transition_relation[self.uVars[sidx].bddPattern().__str__()] |=  self.uVar_map_sym[f'u{self.budget + 1}']
+
+
+    def create_best_alternate_response_transition_relation(self):
+        self.brVars_transition_relation = {var.bddPattern().__str__(): self.manager.addZero() for var in self.brVars}
+        
+        for br in self.brVals:
+            brConf_cube = self.brVar_map_sym[br]
+            
+            for prime_br in self.brVals:
+                if prime_br <= br:
+                    # create the transition cube
+                    transition_cube = brConf_cube & self.vector_of_br[prime_br]
+                    
+                    prime_brConf_cube_str = self.brVar_map[prime_br]
+                    for sidx, s in enumerate(prime_brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+                    
+                else:
+                    state_act_pairs = self.manager.addZero()
+                    for i in self.brVals:
+                        if i > br:
+                            state_act_pairs |= self.vector_of_br[i]
+                    
+                    transition_cube = brConf_cube & state_act_pairs
+                
+                    prime_brConf_cube_str = self.brVar_map[br]
+                    for sidx, s in enumerate(prime_brConf_cube_str):
+                        if s == '1':
+                            self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= transition_cube
+        
+            # add that from human states, the best-alternate response remains the same
+            human_transition_cube = brConf_cube & self.env_tVar_cube
+            prime_brConf_cube_str = self.brVar_map[br]
+            for sidx, s in enumerate(prime_brConf_cube_str):
+                if s == '1':
+                    self.brVars_transition_relation[self.brVars[sidx].bddPattern().__str__()] |= human_transition_cube
+        
     
     def create_goal_nodes_with_utility_values(self, verbose: bool = False) -> ADD:
         """
@@ -195,6 +278,109 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         return final_goal_add
     
 
+    def get_states_with_one_outgoing_transition_gou(self) -> BDD:
+        """
+         This method computes the set of GoU sys states that have exactly one outgoing robot action.
+        """
+        bdd_gou_state_single_act = self.manager.bddZero()
+        for curr_player, succ_player in self.turn_update_rule.items():
+            if curr_player.startswith('sys'):
+                pre_state_action = self.gou_compute_preimage(self.tVar_map_sym[succ_player])
+                bdd_gou_state_single_act |= pre_state_action.existAbstract(self.rVars_cube).bddInterval(1, 1)
+                
+                self.gou_convert_cube_to_state_ADD(bdd_gou_state_single_act.toADD(), action=False, verbose=False)      
+
+        # gou_state_act_count: ADD = self.count_actions_per_state_gou()
+        # bdd_gou_state_single_act: BDD = gou_state_act_count.bddInterval(1, 1)
+
+        # as accepting states in DFA are sink states in GoU, we need to post-process the gou_state_act_count so that accepting states map to cardinality 1.
+        
+        bdd_gou_state_single_act |= self.dfa_handle.goal_latch.bddPattern()
+        return bdd_gou_state_single_act
+    
+
+    def compute_best_alternate_response(self, verbose: bool = False) -> None:
+        """
+         A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
+            Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
+            Mathermatically, given cVal (cooperative value) for every state s in G, we have
+
+            ba(s, s') = +inf if s is Env player states
+            ba(s, s') = min (s, s'') {cVal(s'')} if s is Sys plaeyr states
+
+            min(s, s'') = +inf if no s'' exists, i.e., there does not exist an alternate edge.
+        
+        Note: we note that our Transition function is deterministic, i.e., given (si, ai) where i \in {Env, Sys}, 
+        Tr(si, ai) -> sj' where j =\= i and s' is the next state such that |sj| = 1.
+
+        Hence, the tuple (s, s') can be replaced with (s, as) which will be useful when constructing the TR for GoBR later.
+        
+        Method: Output ADD(s, as)-br where br is the best-response.
+        """
+        # compute preimage of ADD(s')-cVal to get ADD(s, a)-cVal(s')
+        # cVals = (self.cVals & self.state_lbl & ~self.eVar[0]).swapVariables(self.latches + self.uVars + self.qVars, self.prime_latches + self.prime_uVars + self.prime_qVars)
+        # dfa_preimage = cVals.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+        # game_state_action = dfa_preimage.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr) 
+        game_state_action = self.gou_compute_preimage(self.cVals & self.state_lbl & ~self.eVar[0])
+
+        only_sys_state_lbls = self.sys_tVar_cube.ite( self.state_lbl, self.manager.plusInfinity())
+        # any state with env action has infinity value. So, we mask them out
+        game_state_action = self.sys_tVar_cube.ite(game_state_action, self.manager.plusInfinity()) & only_sys_state_lbls
+
+        # now compute the best alternate response
+        self.vector_of_br = defaultdict(lambda: self.manager.addZero())
+        not_dfa_goal_states_bdd: BDD = ~self.dfa_handle.goal_latch.bddPattern()
+        
+        lVals = {*range(0, self.budget + 1)} | {math.inf}
+        for ract, ract_sym in self.action_map_sym.items():
+            if ract.startswith('env'):
+                continue
+            print(f"Computing BR for Sys Act: {ract}")
+            
+            game_state_action_without_ract = ract_sym.ite(self.manager.plusInfinity(), game_state_action)
+            ba_per_act = self.symbolic_min_abstract(game_state_action_without_ract, self.rVars)
+
+            # chop the ADDs into vector of BDD(s), one for each leaf node
+            for leaf_val in lVals:
+                # leav_vals == inf may have invalid states into, so post-process and remove it later
+                bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val))
+                if not bdd_state_act.isZero():
+                    bdd_state_act &= ract_sym.bddPattern()
+                    # remove goal states from br computation; later we add them to +inf br value
+                bdd_state_act &= not_dfa_goal_states_bdd
+                self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
+        
+        # print stuff for debugging
+        print("Done computing BR")
+
+        # ovveride the +inf BDD. The above code works for states with one egdes. 
+        # The inf vector include these states as well as valid state conf. Further, we manually all accepting states in DFA to +inf as they are sink states in GoU.
+        # This is not capture in the above code. Hence, we manually override the +inf BDD here.
+        if math.inf in self.vector_of_br.keys():
+            inf_states: BDD = self.get_states_with_one_outgoing_transition_gou()
+            self.vector_of_br[math.inf] |= inf_states.toADD()
+        
+        self.brVals: Set[float] = sorted(set(self.vector_of_br.keys()))
+
+        # post-processing best-response to only preserve the lwer states action pair value
+        # unions of all predecessors
+        pre_states: ADD = reduce(lambda x, y: x | y, self.vector_of_br.values())
+        self.monolithic_br: ADD = pre_states.ite(self.manager.addOne(), self.manager.plusInfinity())
+        for br in sorted(self.vector_of_br.keys(), reverse=True):
+            br_states: ADD = self.vector_of_br[br]
+            self.monolithic_br = br_states.ite(self.manager.addConst(br), self.monolithic_br)
+        
+        # finally put them back in vector_of_br
+        for br in self.vector_of_br.keys():
+            self.vector_of_br[br] = self.monolithic_br.bddInterval(br, br).toADD()
+
+        if verbose:
+            # l, h = min(set(self.brVals) - {math.inf}), max(set(self.brVals) - {math.inf})
+            # t = self.monolithic_br.bddInterval(l, h).toADD()
+            # self.gou_convert_cube_to_state_ADD(t, action=True, verbose=True)
+            self.gou_convert_cube_to_state_ADD(self.monolithic_br, action=True, verbose=True)
+    
+
     def create_transition_relation(self):
         # creates game transition relation first and then dfa transition relation
         super().create_transition_relation()
@@ -210,8 +396,27 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         toc = time.time()
         print(f"Time to synthesize GOU values: {toc - tic} seconds")
 
+        # self.gou_convert_cube_to_state_ADD(self.cVals, action=False, verbose=True, print_val=True)
+        import sys
+        # sys.exit(-1)
+
         # self.gou_roll_out_strategy(strategy=bdd_strategy, verbose=True)
-        # self.test_pre_image()
+        # compute best-alternate response
+        tic = time.time()
+        self.compute_best_alternate_response(verbose=False)
+        toc = time.time()
+        print(f"Time to compute Best-Alternate Response: {toc - tic} seconds")
+        # sys.exit(-1)
+
+        # create boolean vars and their prime versions for Best-alternate response values computed
+        self.create_all_br_vars_maps()
+        
+        # create br Transition Relation
+        tic = time.time()
+        self.create_best_alternate_response_transition_relation()
+        toc = time.time()
+        print(f"Time to create GoBR Transition Relation: {toc - tic} seconds")
+
     
 
     def gou_compute_preimage(self, curr_winning_states: ADD) -> ADD:
@@ -297,6 +502,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             preimage: ADD = self.gou_compute_preimage(curr_winning_states)
             next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             next_winning_states = next_winning_states.min(goal)
+            # next_winning_states = self.eVar[0].ite(self.manager.plusInfinity(), next_winning_states)
 
             # adding debugging step
             if verbose:
