@@ -984,8 +984,8 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         """
         curr_state_sym = self.gobr_init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        self.invalid_env_state_action_cube = self.transition_relation['e']
-        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+        # self.invalid_env_state_action_cube = self.transition_relation['e'] | self.invalid_sys_state_action_cube
+        while (curr_state_sym & self.gobr_goal_latch).isZero():
             curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
                                                                             state_flag=True,
                                                                             lbl_flag=False,

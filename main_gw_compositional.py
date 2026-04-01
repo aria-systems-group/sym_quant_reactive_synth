@@ -165,15 +165,18 @@ def dfa_game_main():
     restricted_env_locs = [*goal, *goal1]
 
     # simple 2x2 gridworld
-    rows = 2
-    columns = 2
-    goal = [(1, 1)]
-    init = [(0, 0), (1, 0)]
-    grid = {'wall': [(0, 1)], 'goal': goal}
-    players = {'sys': 1, 'env': 1}
+    rows = 3
+    columns = 3
+    goal = [(2, 2)]
+    init = [(0, 0), (0, 2), (2, 0)]
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
+    grid = {'wall': [], 'goal': goal}
+    players = {'sys': 2, 'env': 1}
     restricted_env_locs = []
-    formula = 'F(goal)'
+    # formula = 'F(goal)'
+    formula = 'F(goal & X(!goal))'
 
+    ltlf_flag = True
     cooperative_game = False
 
     # create a gridworld of size n x m
@@ -181,20 +184,20 @@ def dfa_game_main():
         gridworld =  GridWorldDynamicDoorsDFAGame(rows=rows, columns=columns,
                                                   init=init,
                                                   grid=grid, goal=goal,
-                                                  camera=True,
+                                                  camera=False,
                                                   players=players,
                                                   cooperative_game=cooperative_game,
                                                   restricted_env_locs=restricted_env_locs,
-                                                  formula=formula, ltlf_flag=True)
+                                                  formula=formula, ltlf_flag=ltlf_flag)
     else:
         gridworld = GridWorldDynamicDFAGame(rows=rows, columns=columns,
                                             init=init,
                                             grid=grid, goal=goal,
-                                            camera=True,
+                                            camera=False,
                                             players=players,
                                             cooperative_game=cooperative_game,
                                             restricted_env_locs=restricted_env_locs,
-                                            formula=formula, ltlf_flag=True)
+                                            formula=formula, ltlf_flag=ltlf_flag)
 
     print('****************Sys Action Map:****************')
     for k, v in gridworld.sys_action_map.items():
@@ -238,15 +241,15 @@ def dfa_game_main():
     print(f"Time to create transition relation: {toc - tic} seconds")
 
     # test preimage computation
-    gridworld.test_preimage()
+    # gridworld.test_preimage()
     # gridworld.test_preimage_2()
     # sys.exit(-1)
 
     # solve
     tic = time.time()
-    # strategy, opt_sval = gridworld.solve(verbose=False)
+    strategy, opt_sval = gridworld.solve(verbose=False)
     # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False)
-    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
+    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -254,7 +257,7 @@ def dfa_game_main():
     #     print("The strategies from both methods are the same!")
     # if bdd_opt_sval.compare(opt_sval, 2):
     #     print("The optimal state values from both methods are the same!")
-    strategy = bdd_strategy
+    # strategy = bdd_strategy
     
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
@@ -266,23 +269,23 @@ def dfa_game_main():
 
 def dfa_regret_main():
 
-    rows = 2
-    columns = 2
-    goal = [(1, 1)]
+    rows = 3
+    columns = 3
+    goal = [(2, 2)]
 
-    init = [(0, 0), (1, 0)]
+    # init = [(0, 0), (2, 0)]
     # init = [(0, 0), (2, 0), (0, 2), (2, 2), (0, 0)]
-    # init = [(0, 0), (2, 0), (0, 2)]
+    init = [(0, 0), (0, 2), (2, 0)]
     # grid = {}
-    grid = {'wall': [(0, 1)], 'goal': goal}
-    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
+    # grid = {'wall': [(0, 1)], 'goal': goal}
+    grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
     # door = [(1, 1)]  # list of doors and their locations
     # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
     # restricted_env_locs = [(1, 2)]
-    players = {'sys': 1, 'env': 1}
+    players = {'sys': 2, 'env': 1}
     restricted_env_locs = []
-    # formula = 'F(goal & X(! goal))'
-    formula = 'F(goal)'
+    formula = 'F(goal & X(!goal))'
+    # formula = 'F(goal)'
     budget = 5
 
     cooperative_game = False
@@ -363,6 +366,6 @@ def dfa_regret_main():
 if __name__ == "__main__":
     # game_main()
 
-    # dfa_game_main()
+    dfa_game_main()
 
-    dfa_regret_main()
+    # dfa_regret_main()
