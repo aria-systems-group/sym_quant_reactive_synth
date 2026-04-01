@@ -6,6 +6,8 @@ from src.compositional_graphs.gridworld.gridworld_dynamic_doors import GridWorld
 from src.compositional_graphs.gridworld.gridworld_dynamic_doors_dfa_game import GridWorldDynamicDoorsDFAGame
 from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWorldDynamicDFAGame
 
+from src.compositional_graphs.gridworld.gridworld_dynamic_regret import GridWorldDynamicRegretGame
+
 
 def game_main():
     # create grid dictionary
@@ -25,7 +27,16 @@ def game_main():
     players = {'sys': 1, 'env': 4}
     restricted_env_locs = []
 
-    cooperative_game = False
+    # simple example - 2 x 2 grid, one goal, two agents
+    rows = 2
+    columns = 2
+    goal = [(1, 1)]
+    init = [(0, 0), (1, 0)]
+    grid = {'wall': [(0, 1)], 'goal': goal}
+    players = {'sys': 1, 'env': 1}
+    restricted_env_locs = []
+
+    cooperative_game = True
 
     # testing things out
     # rows = 5
@@ -153,6 +164,16 @@ def dfa_game_main():
     # restricted_env_locs = [(2, 1)]
     restricted_env_locs = [*goal, *goal1]
 
+    # simple 2x2 gridworld
+    rows = 2
+    columns = 2
+    goal = [(1, 1)]
+    init = [(0, 0), (1, 0)]
+    grid = {'wall': [(0, 1)], 'goal': goal}
+    players = {'sys': 1, 'env': 1}
+    restricted_env_locs = []
+    formula = 'F(goal)'
+
     cooperative_game = False
 
     # create a gridworld of size n x m
@@ -217,7 +238,7 @@ def dfa_game_main():
     print(f"Time to create transition relation: {toc - tic} seconds")
 
     # test preimage computation
-    # gridworld.test_preimage()
+    gridworld.test_preimage()
     # gridworld.test_preimage_2()
     # sys.exit(-1)
 
@@ -242,7 +263,106 @@ def dfa_game_main():
         gridworld.roll_out_strategy(strategy=strategy, verbose=True)
 
 
+
+def dfa_regret_main():
+
+    rows = 2
+    columns = 2
+    goal = [(1, 1)]
+
+    init = [(0, 0), (1, 0)]
+    # init = [(0, 0), (2, 0), (0, 2), (2, 2), (0, 0)]
+    # init = [(0, 0), (2, 0), (0, 2)]
+    # grid = {}
+    grid = {'wall': [(0, 1)], 'goal': goal}
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
+    # door = [(1, 1)]  # list of doors and their locations
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
+    # restricted_env_locs = [(1, 2)]
+    players = {'sys': 1, 'env': 1}
+    restricted_env_locs = []
+    # formula = 'F(goal & X(! goal))'
+    formula = 'F(goal)'
+    budget = 5
+
+    cooperative_game = False
+    ltlf_flag = True
+
+
+    gridworld = GridWorldDynamicRegretGame(rows=rows, columns=columns,
+                                           init=init,
+                                           grid=grid, goal=goal,
+                                           camera=False,
+                                           budget=budget, 
+                                           formula=formula,
+                                           players=players,
+                                           cooperative_game=cooperative_game,
+                                           restricted_env_locs=restricted_env_locs,
+                                           ltlf_flag=ltlf_flag)
+
+
+    print('****************Sys Action Map:****************')
+    for k, v in gridworld.sys_action_map.items():
+        print(f"{k} : {v}")
+
+    print('****************Env Action Map:****************')
+    for k, v in gridworld.env_action_map.items():
+        print(f"{k} : {v}")
+    
+    if 'door' in grid.keys():
+        print("*****************Door Map:*****************")
+        for didx in range(len(grid['door'])):
+            print(f'Door{didx} Vars') 
+            for k, v in gridworld.dVar_map[didx].items():
+                print(f"{k} : {v}")
+
+    print("*****************Label Map:*****************")
+    for k, v in gridworld.lVar_map.items():
+        print(f"{k} : {v}")
+    
+    # print the number of explicit states
+    # sys_states, env_states = gridworld.get_number_of_states(verbose=True)
+    
+    # print DFA Info
+    print("*****************Printing DFA Info*****************")
+    for k, v in gridworld.dfa_handle.qVar_map.items():
+        print(f"{k} : {v}")
+    
+
+    # print unrolled DFA Game Info
+    print("*****************Printing GoU Info*****************")
+    print("Total num of latches: ", len(gridworld.latches) + len(gridworld.qVars))
+    print("Total num of prime latches: ", len(gridworld.prime_latches) + len(gridworld.prime_qVars))
+    print("Total boolean vars: ", len(gridworld.latches) + len(gridworld.prime_latches) + len(gridworld.qVars) + len(gridworld.prime_qVars) + len(gridworld.rVars))
+
+    tic = time.time()
+    gridworld.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+    print("*****************BR Info*****************")
+    for k, v in gridworld.brVar_map.items():
+        print(f"{k} : {v}")
+
+    print("Total boolean vars in GoBR: ", len(gridworld.gobr_game_latches) + len(gridworld.gobr_game_prime_latches) + len(gridworld.rVars))
+
+    # gridworld.test_pre_image()
+    # return
+
+    tic = time.time()
+    strategy, rVals = gridworld.regret_solver(verbose=False)
+    # hybrid_strategy, hybrid_rVals = dfa_game.hybrid_regret_solver(verbose=False)
+    # bdd_strategy, bdd_rVals = dfa_game.pure_bdd_regret_solver(verbose=False)
+    toc = time.time()
+    print(f"OLD: Time to synthesize Regret-Minimizing strategy: {toc - tic} seconds")
+
+    if strategy is not None:
+        gridworld.gobr_roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
 if __name__ == "__main__":
     # game_main()
 
-    dfa_game_main()
+    # dfa_game_main()
+
+    dfa_regret_main()

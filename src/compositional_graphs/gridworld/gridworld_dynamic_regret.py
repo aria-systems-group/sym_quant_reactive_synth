@@ -140,6 +140,8 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         self.prime_brVars = self.create_prime_br_latches()
         self.prime_brVars_bdd = [br.bddPattern() for br in self.prime_brVars]
         self.create_br_var_map()
+        self.set_gobr_init_latch()
+        self.set_gobr_goal_latch()
         self.gobr_game_latches = self.latches + self.uVars + self.brVars + self.qVars
         self.gobr_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_brVars + self.prime_qVars
     
@@ -197,6 +199,14 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
     
     def set_gou_goal_latch(self):
         self.gou_goal_latch: ADD = self.set_goal_latch() & self.state_lbl & ~self.eVar[0] & ~self.uVar_map_sym[f'u{self.budget + 1}']
+    
+
+    def set_gobr_init_latch(self):
+        # init latch had init game state, lbl and dfa handle
+        self.gobr_init_latch: ADD = self.init_latch & self.uVar_map_sym['u0'] & self.brVar_map_sym[math.inf]
+    
+    def set_gobr_goal_latch(self):
+        self.gobr_goal_latch: ADD = (self.dfa_handle.goal_latch & self.state_lbl & ~self.eVar[0] & ~self.uVar_map_sym[f'u{self.budget + 1}']) | self.eVar[0]
     
 
     def create_utility_transition_relation(self):
@@ -290,11 +300,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                 
                 self.gou_convert_cube_to_state_ADD(bdd_gou_state_single_act.toADD(), action=False, verbose=False)      
 
-        # gou_state_act_count: ADD = self.count_actions_per_state_gou()
-        # bdd_gou_state_single_act: BDD = gou_state_act_count.bddInterval(1, 1)
-
         # as accepting states in DFA are sink states in GoU, we need to post-process the gou_state_act_count so that accepting states map to cardinality 1.
-        
         bdd_gou_state_single_act |= self.dfa_handle.goal_latch.bddPattern()
         return bdd_gou_state_single_act
     
@@ -318,9 +324,6 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         Method: Output ADD(s, as)-br where br is the best-response.
         """
         # compute preimage of ADD(s')-cVal to get ADD(s, a)-cVal(s')
-        # cVals = (self.cVals & self.state_lbl & ~self.eVar[0]).swapVariables(self.latches + self.uVars + self.qVars, self.prime_latches + self.prime_uVars + self.prime_qVars)
-        # dfa_preimage = cVals.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
-        # game_state_action = dfa_preimage.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr) 
         game_state_action = self.gou_compute_preimage(self.cVals & self.state_lbl & ~self.eVar[0])
 
         only_sys_state_lbls = self.sys_tVar_cube.ite( self.state_lbl, self.manager.plusInfinity())
@@ -427,14 +430,27 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
         
         # first evolve over the DFA
-        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
-        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+        # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
 
         # then evolve over the game
         dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars, self.prime_latches + self.prime_uVars)
         preimage = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars, self.graph_of_utility_tr)
 
         return preimage
+    
+    def compute_regret_preimage(self, curr_winning_states: ADD) -> ADD:
+        # prime the vars
+        curr_winning_states_primed = curr_winning_states.swapVariables(self.qVars, self.prime_qVars)
+        
+        # first evolve over the DFA
+        dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+
+        # then evolve over the DFA game state (s, u)
+        dfa_preimage_primed = dfa_preimage.swapVariables(self.latches + self.uVars + self.brVars, self.prime_latches + self.prime_uVars + self.prime_brVars)
+        preimage_subr: ADD = dfa_preimage_primed.vectorCompose(self.prime_latches + self.prime_uVars + self.prime_brVars, self.graph_of_br_tr)
+
+        return preimage_subr
     
 
     def hybrid_gou_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
@@ -643,6 +659,114 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                 curr_winning_states[sval] |= next_winning_states_opt[sval]
     
 
+    def create_goal_nodes_with_regret_values(self) -> Tuple[ADD, Set[float]]:
+        """
+         Create Graph of Best-Response nodes with regret values.
+        """
+        # create ADD(s-u)-Val(u) for every acceting state in game
+        uVars_add = self.manager.plusInfinity()
+        for u in range(self.budget + 1):
+            uVars_add = uVars_add.min(self.uVar_map_sym[f'u{u}'].ite(self.manager.addConst(u), self.manager.plusInfinity()))
+
+        brVars_add = self.manager.plusInfinity()
+        for br in self.brVals:
+            if br != math.inf:
+                brVars_add = brVars_add.min(self.brVar_map_sym[br].ite(self.manager.addConst(br), self.manager.plusInfinity()))
+
+        min_utility_br: ADD = uVars_add.min(brVars_add)
+        print("Done taking the min between br and utility values!")
+
+        reg_vals_add: ADD = uVars_add.minus(min_utility_br)
+        # process reg values - all invalid uVars conf. map to +inf
+        valid_uVars_add = reduce(lambda x, y: x | y, self.uVar_map_sym.values())
+        valid_brVars_add = reduce(lambda x, y: x | y, self.brVar_map_sym.values())
+        reg_vals_add = valid_uVars_add.ite(reg_vals_add, self.manager.plusInfinity())
+
+        # If uVars is budget + 1, then it is a sink states and hence also maps to +inf regret value
+        reg_vals_add = self.uVar_map_sym[f'u{self.budget + 1}'].ite(self.manager.plusInfinity(), reg_vals_add)
+        
+        # invalid br vals also map to +inf regret value
+        reg_vals_add = valid_brVars_add.ite(reg_vals_add, self.manager.plusInfinity())
+        rVals = {int(leaf_value) if leaf_value != math.inf else leaf_value for _, leaf_value in reg_vals_add.generate_cubes()} | {0}
+        # print(reg_vals)
+        print("Processed the Regret Values!")
+
+        goal_add: ADD = self.gobr_goal_latch.ite(reg_vals_add, self.manager.plusInfinity())
+        # # now restrict it to the set of valid box conf.
+        # goal_add = self.monolithic_relevant_box_preds.ite(goal_add, self.manager.plusInfinity())
+        print("Initialized the goal states with regret values!")
+        return goal_add, sorted(rVals)
+
+
+    def regret_solver(self, verbose: bool = False) -> Union[ADD, None]:
+        """
+        A method that implements the value iteration algorithm For computing regret minimizing strategies. 
+        """
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        # initialize goal state with respective regret values
+        goal, sorted_reg_vals = self.create_goal_nodes_with_regret_values()
+        curr_winning_states = goal
+
+        # intialize the iteration counter
+        layer = 0
+
+        while True:
+            print(f"**************************Layer: {layer}**************************")
+            preimage: ADD = self.compute_regret_preimage(curr_winning_states)
+            next_winning_states = self.compute_min_max_preimage(preimage)
+            next_winning_states = next_winning_states.min(goal)
+
+            # adding debugging step
+            if verbose:
+                print("Current Winning States:")
+                print("State with regret value zero")
+                self.gobr_convert_cube_to_state_ADD((next_winning_states.bddInterval(0, 0) & ~self.dfa_handle.goal_latch.bddPattern()).toADD(), action=False, verbose=True)
+                print("State with regret values positive and within budget")
+                self.gobr_convert_cube_to_state_ADD(next_winning_states.bddInterval(1, self.budget).toADD(), action=False, verbose=True)
+            
+            if curr_winning_states.compare(next_winning_states, 2):
+                print("**************************Reached fixpoint**************************")
+                if curr_winning_states.restrict(self.gobr_init_latch) != self.manager.plusInfinity():
+                    # if self.dfa_handle.init_latch & regret_init_latch & curr_winning_states == self.manager.addZero():
+                    if self.gobr_init_latch & curr_winning_states == self.manager.addZero():
+                        init_val: int = 0
+                    else:
+                        init_val: int = list((self.gobr_init_latch & curr_winning_states).generate_cubes())[0][1]
+                    print(f"A Winning Strategy Exists!! The State value is {init_val}")
+                    self.rVals = curr_winning_states
+                    if init_val < math.inf:
+                        return preimage.min(goal), self.rVals
+                    else:
+                        return None, None
+                else:
+                    print(f"No Regret-Minimizing Strategy Exists!! The State value is {math.inf}")
+                return None, None
+
+            # update the counter
+            layer += 1
+
+            # swap the winning states
+            curr_winning_states = next_winning_states
+    
+
+    def get_next_state_br(self, turn: str, curr_state_exp: List[str], curr_action_sym: ADD, **kwargs) -> ADD:
+        """
+         A function to compute b' values during rollout in Graph of Best-response game. b' = min{b, br(s, a)}
+        """
+        curr_br_state_val = curr_state_exp[0][0][0][-1]
+        curr_state_sym = kwargs['curr_state_sym']
+        
+        if turn == 'sys':
+            cube = list(self.monolithic_br.restrict(curr_state_sym & self.state_lbl & curr_action_sym).generate_cubes())
+            assert len(cube) == 1, "Make sure there is only one best-alternate response value for the given state-action pair."
+            next_br = cube[0][1]
+            if next_br <= curr_br_state_val:
+                return self.brVar_map_sym[next_br]
+        return self.brVar_map_sym[curr_br_state_val]
+    
+
     def gou_get_next_state(self, curr_state_sym: ADD, curr_state_exp: ADD, act: str):
         next_state, act_name, next_state_exp = super().get_next_state(curr_state_exp[0][0][0][0], act)
         # update uVal - get the next utility value based on the current state and action
@@ -687,7 +811,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             if verbose:
                 print(tabulate([(curr_state_exp[0][0][0], opt_sval)])) 
             
-             # get the action to be taken at the current state
+            # get the action to be taken at the current state
             act_cube: BDD = (strategy.restrict(curr_state_sym & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
             # only choose valid action. By constuction env will always have atleast one valid action. 
@@ -854,13 +978,215 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         return states_action_pairs
     
 
+    def gobr_roll_out_strategy(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a strategy on the graph of utility game.
+        """
+        curr_state_sym = self.gobr_init_latch
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+        self.invalid_env_state_action_cube = self.transition_relation['e']
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
+                                                                            state_flag=True,
+                                                                            lbl_flag=False,
+                                                                            action=False,
+                                                                            verbose=False,
+                                                                            table_header=False,
+                                                                            print_val=False)
+
+            assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
+            "For rollout, it should be a single intial state."
+            
+            # first get the optimum state value
+            try:
+                opt_sval = list((curr_state_sym & self.state_lbl & self.rVals).generate_cubes())[0][1]
+            except IndexError:
+                opt_sval = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
+            
+            # get the action to be taken at the current state
+            act_cube: BDD = (strategy.restrict(curr_state_sym & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+            # only choose valid action. By constuction env will always have atleast one valid action. 
+            while not (curr_state_sym & self.state_lbl & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
+                act_cube: BDD = (strategy.restrict(curr_state_sym & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+                act_cube_string = act_cube.cubeString().replace('-', '')
+
+            curr_dfa_state: int = curr_state_exp[0][0][0][0][1]
+            turn = 'sys' if curr_state_exp[0][0][0][0][0][0].startswith('sys') else'env'
+            try:
+                act_name = self.sys_action_map.inv[act_cube_string] if turn == 'sys' else self.env_action_map.inv[act_cube_string]
+            except KeyError:
+                print("No action found!!")
+                return
+           
+            # get the next state in the GoU game
+            # curr_gou_game_state_sym, act_name = self.get_next_state(turn, curr_state_exp[0], act_name, curr_state_sym=curr_state_sym)
+            curr_game_state_sym, act_name, _ = self.gou_get_next_state(curr_state_sym, curr_state_exp[0], act_name)
+            curr_gobr_br_sym = self.get_next_state_br(turn, curr_state_exp, curr_state_sym=curr_state_sym, curr_action_sym=act_cube.toADD())
+            curr_game_state_sym = curr_game_state_sym & curr_gobr_br_sym
+            
+            # check if you evolved over the DFA 
+            # create DFA edge and check if it satisfies any of the dges or not
+            for dfa_state_sym in self.qVar_map_sym.values():
+                dfa_state_sym = dfa_state_sym.swapVariables(self.qVars, self.prime_qVars)
+                dfa_pre: ADD = dfa_state_sym.vectorCompose(self.prime_qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+                edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym & self.state_lbl)).isZero()
+
+                if edge_exists:
+                    curr_dfa_state: ADD = dfa_state_sym.swapVariables(self.prime_qVars, self.qVars)
+                    break
+            
+            curr_state_sym: ADD = curr_game_state_sym & curr_dfa_state
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            if verbose:
+                print(f"Sys Action: {act_name}") if turn == 'sys' else print(f"Env Action: {act_name}")
+    
+    
+
+    def gobr_convert_cube_to_state_ADD(self,
+                                       dd: ADD, state_flag: bool = True,
+                                       lbl_flag: bool = False, dfa_flag: bool = True,
+                                       action: bool = False, verbose: bool = False,
+                                       table_header: bool = True, print_val: bool = True) -> None:
+        """
+        Convert a cube to a state representation. Set the respective flags to True to print respective information. 
+         By default DFA and Game state flags are set to True and state lbl flag is set to False.
+        """
+        relevant_vars = []
+        if state_flag:
+            relevant_vars.extend(self.latches + self.uVars + self.brVars) # includes uVars, brVars
+        if dfa_flag:
+            relevant_vars.extend(self.dfa_latches) # includes qVars
+        if action:
+            relevant_vars.extend(self.rVars) # action vars (rVars)
+        if not lbl_flag:
+            for lbl_var in self.lVars:
+                relevant_vars.remove(lbl_var)
+        
+        headers = []
+        if verbose:
+            headers.append('state')
+        if lbl_flag:
+            headers.append('labels')
+        if action:
+            headers.append('action')
+        if print_val:
+            headers.append('value')
+        cubes = self.get_all_cubes(dd, relevant_vars=relevant_vars)
+        
+        # the next vars are l' vars - we ignore them for now. The next ones are action vars
+        start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
+        eidx = self.manager.addVariables().index(self.eVar[0])
+
+        # create turn abstraction cube
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + self.uVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
+        qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.uVars + self.brVars + self.rVars)
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVar + self.lVars + self.rVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVar + self.lVars + self.rVars + self.uVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        
+        xConf_exist_cube = dict({})
+        for pidx in range(self.total_players):
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.brVars +  self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+
+        
+        yConf_exist_cube = dict({})
+        for pidx in range(self.total_players):
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.brVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+        
+        # print the states
+        states_action_pairs = []
+        states_bookkeeping = []
+        for cube, val in cubes:
+            state = None
+            action_str = None
+            tConf_cube_str = cube.existAbstract(tConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            qConf_cube_str = cube.existAbstract(qConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            uConf_cube_str = cube.existAbstract(uConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            brConf_cube_str = cube.existAbstract(brConf_exist_cube).bddPattern().cubeString().replace('-', '')
+            xCube_str = []
+            for e in xConf_exist_cube.values():
+                xCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+            
+            yCube_str = []
+            for e in yConf_exist_cube.values():
+                yCube_str.append(cube.existAbstract(e).bddPattern().cubeString().replace('-', ''))
+
+            try:
+                row_states = [self.xVar_map[pidx].inv[e] for pidx, e in enumerate(xCube_str)]
+            except KeyError:
+                continue
+
+            try:
+                column_states = [self.yVar_map[pidx].inv[e] for pidx, e in enumerate(yCube_str)]
+            except KeyError:
+                continue
+
+            try:
+                pos = []
+                for r, c in zip(row_states, column_states):
+                    pos.append([r, c])
+                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                uVar_state = self.uVar_map.inv[uConf_cube_str]
+                brVar_state = self.brVar_map.inv[brConf_cube_str]
+                state = ((([self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state)
+                states_action_pairs.append([((((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state), val), None])
+                
+            except KeyError:
+                continue
+        
+            # print the robot and human actions as well
+            if action:
+                try:
+                    if self.tVar_map.inv[tConf_cube_str].startswith('sys'):
+                        rCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
+                        action_str = self.sys_action_map.inv[rCube_str]
+                    elif self.tVar_map.inv[tConf_cube_str].startswith('env'):
+                        eCube_str = cube.bddPattern().cubeString()[start_rvar_idx:end_rvar_idx + 1].replace('-', '')
+                        action_str = self.env_action_map.inv[eCube_str]
+                except KeyError:
+                    continue
+            
+            if lbl_flag:
+                try:
+                    lbl_list = []
+                    for lvar in self.lVars:
+                        lbl_idx = self.manager.addVariables().index(lvar)
+                        if cube.bddPattern().cubeString()[lbl_idx].replace('-', '') == '1':
+                            lbl_list.append(self.lVar_map.inv[lvar.bddPattern().__str__()])
+                except KeyError:
+                    continue
+            
+            row = []
+            if verbose:
+                row.append(state)
+            if lbl_flag:
+                row.append(lbl_list)
+            if action:
+                row.append(action_str)
+            if print_val:
+                row.append(val)
+            states_bookkeeping.append(tuple(row))
+        
+        if verbose and table_header:
+            print(tabulate(states_bookkeeping, headers=headers))
+        elif verbose and not table_header:
+            print(tabulate(states_bookkeeping))
+        
+        return states_action_pairs
+    
+
     def test_pre_image(self):
-        sys_pos = (1, 1)
+        sys_pos = (1, 0)
         sys_cube = self.xVar_map_sym[0][sys_pos[0]] & self.yVar_map_sym[0][sys_pos[1]]
-        env_pos = (1, 1)
+        env_pos = (0, 0)
         env_cube = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
         # goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[2] & self.uVar_map_sym['u2'] & self.tVar_map_sym['env0'] & ~self.eVar[0]
-        goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[2] & self.tVar_map_sym['env0'] & ~self.eVar[0]
+        goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[1] & self.tVar_map_sym['sys0'] & ~self.eVar[0] & self.uVar_map_sym['u1'] & self.brVar_map_sym[math.inf]
         print("Goal Cube: ",  goal_cube)
         self.gou_convert_cube_to_state_ADD(goal_cube & self.state_lbl, lbl_flag=True, action=False, verbose=True)
 
@@ -869,8 +1195,12 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         #                    latches=self.latches, prime_latches=self.prime_latches,
         #                    ts_action=list(self.transition_relation.values()))
         # print("Preimage: ", preimage)
-        gou_preimage = self.gou_compute_preimage(goal_cube & self.state_lbl)
+        # gou_preimage = self.gou_compute_preimage(goal_cube & self.state_lbl)
+        self.graph_of_br_tr = list(self.transition_relation.values())
+        self.graph_of_br_tr.extend(list(self.uVars_transition_relation.values()))
+        self.graph_of_br_tr.extend(list(self.brVars_transition_relation.values()))
+        gobr_preimage = self.compute_regret_preimage(goal_cube & self.state_lbl)
 
         # gou_preimage = self.gou_compute_preimage(goal_cube & self.state_lbl)
-        print("Preimage: ", gou_preimage)
-        self.gou_convert_cube_to_state_ADD(gou_preimage, action=False, verbose=True)
+        print("Preimage: ", gobr_preimage)
+        self.gou_convert_cube_to_state_ADD(gobr_preimage, action=True, verbose=True)
