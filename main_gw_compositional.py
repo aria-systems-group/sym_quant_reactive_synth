@@ -9,34 +9,91 @@ from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWo
 from src.compositional_graphs.gridworld.gridworld_dynamic_regret import GridWorldDynamicRegretGame
 
 
+from dataclasses import dataclass, field
+from typing import List, Tuple, Dict
+
+@dataclass
+class GameConfig:
+    rows: int
+    columns: int
+    init: List[Tuple[int, int]]
+    goal: List[Tuple[int, int]]
+    grid: Dict[str, List]
+    players: Dict[str, int]
+    budget: int = 0
+    formula: str = None
+    ltlf_flag: bool = True
+    cooperative_game: bool = True
+    restricted_env_locs: List[Tuple[int, int]] = field(default_factory=list)
+    
+
+
+SCENARIOS = {
+    "2x2_simple": GameConfig(rows=2, columns=2, init=[(0, 0), (1, 0)], 
+                             goal=[(1, 1)], grid={'wall': [(0, 1)], 'goal': [(1, 1)]}, 
+                             cooperative_game=False, players={'sys': 1, 'env': 1}),
+    "3x3_simple": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0)], 
+                             goal=[(2, 2)], grid={'wall': [(0, 1),(2, 1)], 'goal': [(2, 2)]}, 
+                             cooperative_game=False, players={'sys': 1, 'env': 1}),
+    "3x3_2sys": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (1, 0)], 
+                             goal=[(2, 2)], grid={'wall': [(0, 1),(2, 1)], 'goal': [(2, 2)]}, 
+                             cooperative_game=False, players={'sys': 2, 'env': 1}),
+    "3x3_2sys_2env": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (1, 0), (1, 2)], 
+                             goal=[(2, 2)], grid={'wall': [(0, 1),(2, 1)], 'goal': [(2, 2)]}, 
+                             cooperative_game=False, players={'sys': 2, 'env': 2}),
+    "2x2_no_wall": GameConfig(rows=2, columns=2, init=[(0, 0), (1, 0)], 
+                              goal=[(1, 1)], grid={'goal': [(1, 1)]}, 
+                              cooperative_game=False, players={'sys': 1, 'env': 1}), 
+    "5x5_no_wall_2env": GameConfig(rows=5, columns=5, init=[(0, 0), (4, 0), (0, 4)], 
+                              goal=[(4, 4)], grid={'goal': [(4, 4)]}, 
+                              cooperative_game=False, players={'sys': 1, 'env': 2}),            
+}
+
+SCENARIOS_DOOR = {
+    "3x3_simple": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0)], 
+                             goal=[(2, 2)], grid={'wall': [(0, 1), (2, 1)], 'door': [(1, 1)], 'goal': [(2, 2)]},
+                             formula='F(goal)',
+                             cooperative_game=False, players={'sys': 1, 'env': 1}),
+    "3x3_complex": GameConfig(rows=3, columns=3,
+                              init=[(0, 0), (2, 0)], goal=[(2, 2)],
+                              formula='F(goal & X(!goal))',
+                              grid={'wall': [(0, 1), (2, 1)], 'goal': [(2, 2)], 'door': [(1, 1)]},
+                              cooperative_game=False, players={'sys': 1, 'env': 1}),
+    
+    "3x3_3env": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (0, 2), (2, 2)], 
+                                goal=[(2, 2)], grid={'wall': [(0, 1), (2, 1)], 'goal': [(2, 2)], 'door': [(1, 1)]}, 
+                                players={'sys': 1, 'env': 3})
+
+}
+
 def game_main():
     # create grid dictionary
-    rows = 3
-    columns = 3
-    goal = [(2, 2)]
+    # rows = 3
+    # columns = 3
+    # goal = [(2, 2)]
 
-    # init = [(0, 0), (2, 0)]
-    init = [(0, 0), (2, 0), (0, 2), (2, 2), (0, 0)]
-    # init = [(0, 0), (2, 0), (0, 2)]
-    # grid = {}
+    # # init = [(0, 0), (2, 0)]
+    # init = [(0, 0), (2, 0), (0, 2), (2, 2), (0, 0)]
+    # # init = [(0, 0), (2, 0), (0, 2)]
+    # # grid = {}
+    # # grid = {'wall': [(0, 1)], 'goal': goal}
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
+    # door = [(1, 1)]  # list of doors and their locations
+    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
+    # # restricted_env_locs = [(1, 2)]
+    # players = {'sys': 1, 'env': 4}
+    # restricted_env_locs = []
+
+    # # simple example - 2 x 2 grid, one goal, two agents
+    # rows = 2
+    # columns = 2
+    # goal = [(1, 1)]
+    # init = [(0, 0), (1, 0)]
     # grid = {'wall': [(0, 1)], 'goal': goal}
-    grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
-    door = [(1, 1)]  # list of doors and their locations
-    grid = {'wall': [(0, 1), (2, 1)], 'goal': goal, 'door': door}
-    # restricted_env_locs = [(1, 2)]
-    players = {'sys': 1, 'env': 4}
-    restricted_env_locs = []
+    # players = {'sys': 1, 'env': 1}
+    # restricted_env_locs = []
 
-    # simple example - 2 x 2 grid, one goal, two agents
-    rows = 2
-    columns = 2
-    goal = [(1, 1)]
-    init = [(0, 0), (1, 0)]
-    grid = {'wall': [(0, 1)], 'goal': goal}
-    players = {'sys': 1, 'env': 1}
-    restricted_env_locs = []
-
-    cooperative_game = True
+    
 
     # testing things out
     # rows = 5
@@ -49,18 +106,11 @@ def game_main():
     # restricted_env_locs = [(2, 2)]
 
     # create a gridworld of size n x m
-    if 'door' in grid.keys():
-        gridworld = GridWorldDynamicDoorsGame(rows=rows, columns=columns,
-                                              init=init, goal=goal,
-                                              grid=grid, players=players,
-                                              cooperative_game=cooperative_game,
-                                              restricted_env_locs=restricted_env_locs)
+    config = SCENARIOS_DOOR['3x3_3env']
+    if 'door' in config.grid.keys():
+        gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
     else:
-        gridworld = GridWorldDynamicGame(rows=rows, columns=columns,
-                                         init=init, goal=goal,
-                                         grid=grid, players=players,
-                                         cooperative_game=cooperative_game,
-                                         restricted_env_locs=restricted_env_locs)
+        gridworld = GridWorldDynamicGame(**config.__dict__)
 
     print('****************Sys Action Map:****************')
     for k, v in gridworld.sys_action_map.items():
@@ -70,9 +120,9 @@ def game_main():
     for k, v in gridworld.env_action_map.items():
         print(f"{k} : {v}")
     
-    if 'door' in grid.keys():
+    if 'door' in config.grid.keys():
         print("*****************Door Map:*****************")
-        for didx in range(len(grid['door'])):
+        for didx in range(len(config.grid['door'])):
             print(f'Door{didx} Vars') 
             for k, v in gridworld.dVar_map[didx].items():
                 print(f"{k} : {v}")
@@ -80,7 +130,7 @@ def game_main():
     # print the number of explicit states
     sys_states, env_states = gridworld.get_number_of_states(verbose=True)
 
-     # print DFA Game Info
+    # print DFA Game Info
     print("*****************Printing DFA Game Info*****************")
     print("Total num of latches: ", len(gridworld.latches))
     print("Total num of prime latches: ", len(gridworld.prime_latches))
@@ -97,9 +147,9 @@ def game_main():
 
     # solve
     tic = time.time()
-    # strategy, opt_sval = gridworld.solve(verbose=False)
+    strategy, opt_sval = gridworld.solve(verbose=False)
     # hybrid_strategy, hybrid_opt_sval = gridworld.hybrid_solve(verbose=False)
-    bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
+    # bdd_strategy, bdd_opt_sval = gridworld.pure_bdd_solve(verbose=False)
     toc = time.time()
     print(f"Time to synthesize strategy: {toc - tic} seconds")
 
@@ -107,7 +157,7 @@ def game_main():
     #     print("The strategies from both methods are the same!")
     # if opt_sval.compare(bdd_opt_sval, 2):
     #     print("The optimal state values from both methods are the same!")
-    strategy = bdd_strategy
+    # strategy = bdd_strategy
 
     # debugging - print state and optimal value
     # gridworld.convert_cube_to_state_ADD(opt_sval, state_flag=True, action=False, verbose=True)
@@ -364,8 +414,8 @@ def dfa_regret_main():
 
 
 if __name__ == "__main__":
-    # game_main()
+    game_main()
 
-    dfa_game_main()
+    # dfa_game_main()
 
     # dfa_regret_main()
