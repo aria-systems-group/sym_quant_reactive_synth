@@ -50,13 +50,13 @@ class GridWorldDynamicGame():
             The key is the name of the proposition and the value is a list of states where the proposition is true.
             This is used for labeling states with propositions for LTL synthesis.
         """
-        
         self.rows = rows
         self.columns = columns
         self.sys_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
         self.env_actions: List[str] = ['NORTH', 'SOUTH', 'EAST', 'WEST']
         self.obstacles = set({'wall', 'lava'})
         self._players = players
+        self._vi_layers = 0
         self.total_players = sum(self.players.values())
         self.init = init
         self.goal = goal
@@ -133,7 +133,10 @@ class GridWorldDynamicGame():
     @property
     def players(self):
         return self._players
-    
+
+    @property
+    def vi_layers(self):
+        return self._vi_layers
 
     def parent_boolean_state_vars_and_maps(self):
         # create latches - tVars + xVars + yVars
@@ -861,6 +864,7 @@ class GridWorldDynamicGame():
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self._vi_layers = layer
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
@@ -925,6 +929,7 @@ class GridWorldDynamicGame():
             
             if next_winning_states.compare(curr_winning_states, 2):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self._vi_layers = layer
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
@@ -1016,6 +1021,7 @@ class GridWorldDynamicGame():
                         init_val: int = sval
                         print(f"A Winning Strategy Exists!!. The State value is {init_val}")
                         break
+                self._vi_layers = layer
                 self.comp_winning_states = self.convert_vector_of_bdd_to_add(bdd_vector=curr_winning_states)
                 # post process the strategy to return as monolithic ADD that corresponds to strategy
                 strategy: ADD = self.convert_vector_of_bdd_to_add(bdd_vector=next_winning_states)
