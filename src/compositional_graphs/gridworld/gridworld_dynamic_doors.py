@@ -145,10 +145,11 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
                         if len(invalid_actions) > 0:
                             # invalid action must be mapped to an error state
                             invalid_act_cube = reduce(lambda x, y: x | y, [self.action_map_sym[f'{player}_{act}'] for act in invalid_actions])
-                            if player.startswith('sys'):
-                                self.invalid_sys_state_action_cube |= turn_bit & dConf_cube & rVar_add & cVar_add & self.not_error_state_cube & invalid_act_cube & ~self.obsatcle_constraint_cube 
-                            else:
-                                self.transition_relation[self.env_error_cube.bddPattern().__str__()] |= turn_bit & dConf_cube & rVar_add & cVar_add & self.not_error_state_cube & invalid_act_cube & ~self.obsatcle_constraint_cube
+                            tr_key = self.sys_error_cube.bddPattern().__str__() if player.startswith('sys') else self.env_error_cube.bddPattern().__str__()
+                            # if player.startswith('sys'):
+                                # self.invalid_sys_state_action_cube |= turn_bit & dConf_cube & rVar_add & cVar_add & self.not_error_state_cube & invalid_act_cube & ~self.obsatcle_constraint_cube 
+                            # else:
+                            self.transition_relation[tr_key] |= turn_bit & dConf_cube & rVar_add & cVar_add & self.not_error_state_cube & invalid_act_cube & ~self.obsatcle_constraint_cube
 
                         for act in valid_actions:
                             act_cube: str = self.action_map_sym[f'{player}_{act}']
@@ -245,7 +246,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
 
     def post_process_transition_relation(self, debug: bool = False):
         super().post_process_transition_relation(debug=debug)
-        # now we remove states wwhere the player is at door but th edoor belong another team
+        # now we remove states wwhere the player is at door but the door belongs another team
         bad_state_acts = self.manager.addZero()
         for didx, (dx, dy) in enumerate(self.grid['door']):
             for d_status in self._door_status:
@@ -264,7 +265,7 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
             self.transition_relation[var] &= ~bad_state_acts
         
         # must map invalid env action to error state
-        self.transition_relation[self.env_error_cube.bddPattern().__str__()] |= bad_state_acts & self.env_tVar_cube
+        self.transition_relation[self.env_error_cube.bddPattern().__str__()] |= bad_state_acts & self.env_tVar_cube & self.not_error_state_cube
         
                     
 

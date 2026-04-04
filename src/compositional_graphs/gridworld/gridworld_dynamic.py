@@ -477,6 +477,14 @@ class GridWorldDynamicGame():
                 if s == '1':
                     self.transition_relation[self.tVars[sidx].bddPattern().__str__()] |= turn_bit
     
+    def add_error_state_self_loops(self):
+        """
+         A small helper method that add a self loop from the Sys and Env error states
+        """
+        # add self-loop for the error states
+        self.transition_relation[self.env_error_cube.bddPattern().__str__()] |=  self.env_error_cube & self.env_tVar_cube
+        self.transition_relation[self.sys_error_cube.bddPattern().__str__()] |=  self.sys_error_cube & self.sys_tVar_cube
+    
 
     def create_actions(self, player: str):
         """
@@ -628,6 +636,7 @@ class GridWorldDynamicGame():
 
         # post process the transition relation to remove transitions that lead to invalid states, such as wall and lava cells.
         self.post_process_transition_relation(debug=False)
+        self.add_error_state_self_loops()
         print("Finished creating transition relation.")
     
 
@@ -662,7 +671,9 @@ class GridWorldDynamicGame():
     
 
     def compute_min_max_preimage(self, preimage: ADD) -> ADD:
+        all_sys_action_cube = reduce(lambda x, y: x | y, self.sys_action_cube.values())
         robot_states = preimage & self.sys_tVar_cube
+        robot_states = all_sys_action_cube.ite(robot_states, self.manager.plusInfinity())
         next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
         
         # take max over Env player states; but first map the invalid env actions and robot action from these states to -inf
@@ -674,6 +685,30 @@ class GridWorldDynamicGame():
             next_winning_states_env = self.tVar_map_sym[pstr].ite(winning_states_env, next_winning_states_env)
 
         return next_winning_states_robot | next_winning_states_env
+        # return self.sys_tVar_cube.ite(next_winning_states_robot, next_winning_states_env)
+
+    # def compute_min_max_preimage(self, preimage: ADD) -> ADD:
+    #     next_winning_states = self.manager.plusInfinity()
+    #     # next_winning_states_robot = self.manager.plusInfinity()
+    #     robot_states = preimage & self.sys_tVar_cube
+    #     for pstr, ract_cube in self.sys_action_cube.items():
+    #         preimage_for_min = ract_cube.ite(robot_states, self.manager.plusInfinity())
+    #         winning_states_sys = self.symbolic_min_abstract(preimage_for_min, self.rVars)
+    #         # next_winning_states_robot = self.tVar_map_sym[pstr].ite(winning_states_sys, next_winning_states_robot)
+    #         next_winning_states = self.tVar_map_sym[pstr].ite(winning_states_sys, next_winning_states)
+    #     # next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
+        
+    #     # take max over Env player states; but first map the invalid env actions and robot action from these states to -inf
+    #     # next_winning_states_env = self.manager.plusInfinity()
+    #     env_states = preimage & self.env_tVar_cube
+    #     for pstr, eact_cube in self.env_action_cube.items():
+    #         preimage_for_max = eact_cube.ite(env_states, self.manager.minusInfinity())
+    #         winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
+    #         # next_winning_states_env = self.tVar_map_sym[pstr].ite(winning_states_env, next_winning_states_env)
+    #         next_winning_states = self.tVar_map_sym[pstr].ite(winning_states_env, next_winning_states)
+
+    #     return next_winning_states
+        # return next_winning_states_robot | next_winning_states_env
 
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:

@@ -32,7 +32,8 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                  camera: bool = False,
                  ltlf_flag: bool = True,
                  cooperative_game: bool = False,
-                 enable_reordering: bool = False):
+                 enable_reordering: bool = False,
+                 **kwargs):
         self.budget: int = budget
         self.uVars: List[ADD] = []
         self.uVars_bdd: List[BDD] = []
@@ -78,6 +79,15 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         self.gobr_game_latches = None
         self.gobr_game_prime_latches = None
     
+    @property
+    def budget(self):
+        return self._budget
+    
+    @budget.setter
+    def budget(self, budget: int):
+        assert budget > 0, "Budget must be a positive integer."
+        self._budget = budget
+
 
     def create_all_boolean_state_vars_and_maps(self):
         self.tVars = self.create_player_latches()

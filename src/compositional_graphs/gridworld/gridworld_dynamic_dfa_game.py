@@ -26,7 +26,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                  camera: bool = False,
                  ltlf_flag: bool = True,
                  cooperative_game: bool = False,
-                 enable_reordering: bool = False):
+                 enable_reordering: bool = False,
+                 **kwargs):
         """
         Initializes the GridWorldDynamicDFAGame with the given parameters. 
          
@@ -68,8 +69,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         self.dfa_handle.set_init_latch()
         self.dfa_handle.set_goal_latch()
         # call it 2nd time here to override the base method
-        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & ~self.eVar[0]
-        self.goal_latch: ADD = (self.set_goal_latch() & self.state_lbl & ~self.eVar[0]) | self.eVar[0]
+        self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.not_error_state_cube
+        self.goal_latch: ADD = (self.set_goal_latch() & self.state_lbl &  self.not_error_state_cube) | (self.env_error_cube & ~self.sys_error_cube)
 
         # now we create the TR for the dfa
         self.dfa_handle.game_latches = self.latches
@@ -78,6 +79,15 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         # however, switching variable ordering makes the code faster.
         if enable_reordering:
             self.manager.autodynEnable()
+    
+    @property
+    def formula(self):
+        return self._formula
+    
+    @formula.setter
+    def formula(self, formula_str: str):
+        assert formula_str is not None, "Please provide a valid LTL/LTLf formula string."
+        self._formula = formula_str
 
 
     def create_all_boolean_state_vars_and_maps(self):
@@ -240,8 +250,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
          A function that add the state lbl evolution to the existing the TR
         """
-        game_latch = self.tVars + self.eVar + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
-        game_prime_latch = self.prime_tVars + self.prime_eVar + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
+        game_latch = self.tVars + self.eVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
+        game_prime_latch = self.prime_tVars + self.prime_eVars + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
         
         primed_state = self.state_lbl.swapVariables(game_latch, game_prime_latch)
         pre_state_nxt_lbl = primed_state.vectorCompose(game_prime_latch, list(self.transition_relation.values())[:-len(self.lVars)])
@@ -313,6 +323,24 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
 
         # remove invalid Sys moves to wall
         self.post_process_transition_relation(debug=False)
+        self.add_error_state_self_loops()
+        valid_env_action_cube = reduce(lambda a, b: a | b, list(self.env_action_cube.values()))
+        valid_sys_action_cube = reduce(lambda a, b: a | b, list(self.sys_action_cube.values()))
+        # for tVar in self.tVars:
+        for key in self.transition_relation.keys():
+            # key = tVar.bddPattern().__str__()
+            self.transition_relation[key] = (self.sys_tVar_cube & valid_env_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
+            self.transition_relation[key] = (self.env_tVar_cube & valid_sys_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
+        
+        for pstr, eact_cube in self.env_action_cube.items():
+            self.transition_relation['e1'] |= self.tVar_map_sym[pstr] & ~eact_cube
+        self.transition_relation['e1'] |= self.env_tVar_cube & valid_sys_action_cube
+        
+        for pstr, sact_cube in self.sys_action_cube.items():
+            self.transition_relation['e0'] |= self.tVar_map_sym[pstr] & ~sact_cube
+
+        self.transition_relation['e0'] |= self.sys_tVar_cube & valid_env_action_cube
+        
 
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
@@ -393,19 +421,20 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         
         # the next vars are l' vars - we ignore them for now. The next ones are robot action and finally human action vars
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
-        eidx = self.manager.addVariables().index(self.eVar[0])
+        sys_eidx = self.manager.addVariables().index(self.sys_error_cube)
+        env_eidx = self.manager.addVariables().index(self.env_error_cube)
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.rVars)     
         xConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
         
         # print the states
@@ -438,9 +467,10 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
-                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str])
-                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
+                sys_err_state = cube.bddPattern().cubeString()[sys_eidx].replace('-', '')
+                env_err_state = cube.bddPattern().cubeString()[env_eidx].replace('-', '')
+                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + [sys_err_state, env_err_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str])
+                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, sys_err_state, env_err_state), self.dfa_handle.qVar_map.inv[qConf_cube_str]), val), None])
                 
             except KeyError:
                 continue
@@ -497,7 +527,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        self.invalid_env_state_action_cube = self.transition_relation['e']
+        self.invalid_env_state_action_cube = self.transition_relation[self.env_error_cube.bddPattern().__str__()]
         while (curr_state & self.goal_latch).isZero():
             curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, lbl_flag=False, action=False, table_header=False, verbose=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
@@ -516,7 +546,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             act_cube_string = act_cube.cubeString().replace('-', '')
             # only choose valid action. By constuction env will always have atleast one valid action. 
             while not (curr_state & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
-                act_cube: BDD = (strategy.restrict(curr_state)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+                act_cube: BDD = (strategy.restrict(curr_state & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
                 act_cube_string = act_cube.cubeString().replace('-', '')
             
             curr_dfa_state: int = curr_state_exp[0][0][0][1]
@@ -526,6 +556,8 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             try:
                 act_name = self.sys_action_map.inv[act_cube_string] if turn == 'sys' else self.env_action_map.inv[act_cube_string]
             except KeyError:
+                print(f"turn: {turn}")
+                print("act_cube_string: ", act_cube_string)
                 print("No action found!!")
                 return
 
@@ -552,25 +584,37 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
     
 
     def test_preimage_2(self):
-        sys_pos = (1, 1)
-        goal_cube_sys = self.xVar_map_sym[0][sys_pos[0]] & self.yVar_map_sym[0][sys_pos[1]]
+        # self.convert_cube_to_state_ADD(self.init_latch, state_flag=True, lbl_flag=True, action=False, verbose=True)
+        # self.convert_cube_to_state_ADD(self.goal_latch, state_flag=True, lbl_flag=True, action=False, verbose=True)
+        sys_pos = (2, 2)
+        goal_cube_sys = self.xVar_map_sym[1][sys_pos[0]] & self.yVar_map_sym[1][sys_pos[1]]
         env_pos = (1, 0)
-        goal_cube_env = self.tVar_map_sym['env'] & self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
-        goal_cube = goal_cube_sys & goal_cube_env
-        goal_cube_lbl = goal_cube & self.state_lbl_map_sym[(1, 1)]
-        dfa_goal_cube =  goal_cube_lbl & self.dfa_handle.goal_latch 
+        goal_cube_env = self.tVar_map_sym['env0'] & self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
+        goal_cube = self.tVar_map_sym['env0'] & goal_cube_sys #& goal_cube_env
+        goal_cube_lbl = goal_cube & self.state_lbl
+        dfa_goal_cube =  goal_cube_lbl & self.dfa_handle.goal_latch & self.not_error_state_cube
+        dfa_goal_cube  = self.goal_latch
+
+        dfa_goal_cube = self.tVar_map_sym['sys0'] & self.xVar_map_sym[0][2] & self.yVar_map_sym[0][2] & self.xVar_map_sym[1][0] & self.yVar_map_sym[1][0] & self.dVar_map_sym[0]['sys'] & self.not_error_state_cube & self.qVar_map_sym[4] & self.state_lbl
 
         # lets try evlving over dfa
         dfa_preimage = self.preimage_test(From=dfa_goal_cube, latches=self.qVars, prime_latches=self.prime_qVars, ts_action=list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
         print('DFA preimage:', dfa_preimage)
 
-        self.convert_cube_to_state_ADD(dfa_preimage, lbl_flag=True, action=False, verbose=True)
+        # self.convert_cube_to_state_ADD(dfa_preimage, lbl_flag=True, action=False, verbose=True)
+        # tmp. process tVar in TR
+        valid_env_action_cube = reduce(lambda a, b: a | b, list(self.env_action_cube.values()))
+        valid_sys_action_cube = reduce(lambda a, b: a | b, list(self.sys_action_cube.values()))
+        for tVar in self.tVars:
+            key = tVar.bddPattern().__str__()
+            self.transition_relation[key] = (self.sys_tVar_cube & valid_env_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
+            self.transition_relation[key] = (self.env_tVar_cube & valid_sys_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
         
         # dfa_game_preimage = self.preimage_test(From=goal_cube & self.dfa_handle.init_latch, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         dfa_game_preimage = self.preimage_test(From=dfa_preimage, latches=self.latches, prime_latches=self.prime_latches, ts_action=list(self.transition_relation.values()))
         print('DFA Game Preimage: ', dfa_game_preimage)
 
-        self.convert_cube_to_state_ADD(dfa_game_preimage, lbl_flag=True, action=True, verbose=True)
+        # self.convert_cube_to_state_ADD(dfa_game_preimage, lbl_flag=True, action=True, verbose=True)
     
 
     def test_preimage(self):
