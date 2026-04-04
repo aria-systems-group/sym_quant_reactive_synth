@@ -3,8 +3,9 @@ import sys
 
 from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame
 from src.compositional_graphs.gridworld.gridworld_dynamic_doors import GridWorldDynamicDoorsGame
-from src.compositional_graphs.gridworld.gridworld_dynamic_doors_dfa_game import GridWorldDynamicDoorsDFAGame
 from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game import GridWorldDynamicDFAGame
+from src.compositional_graphs.gridworld.gridworld_dynamic_doors_dfa_game import GridWorldDynamicDoorsDFAGame
+
 
 from src.compositional_graphs.gridworld.gridworld_dynamic_regret import GridWorldDynamicRegretGame
 
@@ -79,7 +80,11 @@ SCENARIOS_DOOR = {
                             goal=[(2, 2)], grid={'wall': [(0, 1), (2, 1)], 'goal': [(2, 2)], 'door': [(1, 1)]},
                             formula='F(goal)', camera=False,
                             players={'sys': 2, 'env': 1}),
-    "3x3_3env": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (1, 2), (2, 2)], 
+    "3x3_3env_realizable": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (0, 2), (2, 2)], 
+                            goal=[(2, 2)], grid={'wall': [(0, 1), (2, 1)], 'goal': [(2, 2)], 'door': [(1, 1)]},
+                            formula='F(goal)', camera=False,
+                            players={'sys': 1, 'env': 3}),
+    "3x3_3env_unrealizable": GameConfig(rows=3, columns=3, init=[(0, 0), (2, 0), (1, 2), (2, 2)], 
                             goal=[(2, 2)], grid={'wall': [(0, 1), (2, 1)], 'goal': [(2, 2)], 'door': [(1, 1)]},
                             formula='F(goal)', camera=False,
                             players={'sys': 1, 'env': 3})
@@ -87,7 +92,7 @@ SCENARIOS_DOOR = {
 
 def game_main():
     # load a gridworld instance
-    config = SCENARIOS_DOOR['3x3_2env']
+    config = SCENARIOS_DOOR['3x3_3env_unrealizable']
     if 'door' in config.grid.keys():
         gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
     else:
@@ -195,21 +200,9 @@ def dfa_game_main():
     # # restricted_env_locs = [(2, 1)]
     # restricted_env_locs = [*goal, *goal1]
 
-    # # simple 2x2 gridworld
-    # rows = 3
-    # columns = 3
-    # goal = [(2, 2)]
-    # init = [(0, 0), (0, 2), (2, 0)]
-    # grid = {'wall': [(0, 1), (2, 1)], 'goal': goal}
-    # # grid = {'wall': [], 'goal': goal}
-    # players = {'sys': 2, 'env': 1}
-    # restricted_env_locs = []
-    # # formula = 'F(goal)'
-    # formula = 'F(goal & X(!goal))'
-
 
     # create a gridworld of size n x m
-    config = SCENARIOS_DOOR['3x3_3env']
+    config = SCENARIOS_DOOR['3x3_complex']
     if 'door' in config.grid.keys():
         gridworld = GridWorldDynamicDoorsDFAGame(**config.__dict__)
     else:

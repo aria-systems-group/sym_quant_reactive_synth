@@ -324,23 +324,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         # remove invalid Sys moves to wall
         self.post_process_transition_relation(debug=False)
         self.add_error_state_self_loops()
-        valid_env_action_cube = reduce(lambda a, b: a | b, list(self.env_action_cube.values()))
-        valid_sys_action_cube = reduce(lambda a, b: a | b, list(self.sys_action_cube.values()))
-        # for tVar in self.tVars:
-        for key in self.transition_relation.keys():
-            # key = tVar.bddPattern().__str__()
-            self.transition_relation[key] = (self.sys_tVar_cube & valid_env_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
-            self.transition_relation[key] = (self.env_tVar_cube & valid_sys_action_cube).ite(self.manager.addZero(), self.transition_relation[key])
-        
-        for pstr, eact_cube in self.env_action_cube.items():
-            self.transition_relation['e1'] |= self.tVar_map_sym[pstr] & ~eact_cube
-        self.transition_relation['e1'] |= self.env_tVar_cube & valid_sys_action_cube
-        
-        for pstr, sact_cube in self.sys_action_cube.items():
-            self.transition_relation['e0'] |= self.tVar_map_sym[pstr] & ~sact_cube
-
-        self.transition_relation['e0'] |= self.sys_tVar_cube & valid_env_action_cube
-        
+        self.add_invalid_state_acts_to_tr()
 
         # bookeeping
         self.monolithic_dfa_state_prime_state_trns: ADD = self.dfa_handle.monolithic_valid_q_ps_pq
