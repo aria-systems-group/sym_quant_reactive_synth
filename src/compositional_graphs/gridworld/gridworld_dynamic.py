@@ -695,7 +695,7 @@ class GridWorldDynamicGame():
         return result_add
     
 
-    def compute_min_max_preimage_old_simple(self, preimage: ADD) -> ADD:
+    def compute_min_max_preimage(self, preimage: ADD) -> ADD:
         winning_states = self.manager.plusInfinity()
         robot_states = self.valid_sys_action_cube.ite(preimage & self.sys_tVar_cube, self.manager.plusInfinity())
         next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
@@ -706,22 +706,6 @@ class GridWorldDynamicGame():
         next_winning_states_env =  self.symbolic_max_abstract(env_states, self.rVars)
         winning_states = self.env_tVar_cube.ite(next_winning_states_env, winning_states)
         return winning_states
-
-    def compute_min_max_preimage(self, preimage: ADD) -> ADD:
-        all_sys_action_cube = reduce(lambda x, y: x | y, self.sys_action_cube.values())
-        robot_states = preimage & self.sys_tVar_cube
-        robot_states = all_sys_action_cube.ite(robot_states, self.manager.plusInfinity())
-        next_winning_states_robot = self.symbolic_min_abstract(robot_states, self.rVars)
-        
-        # take max over Env player states; but first map the invalid env actions and robot action from these states to -inf
-        next_winning_states_env = self.manager.plusInfinity()
-        env_states = preimage & self.env_tVar_cube
-        for pstr, eact_cube in self.env_action_cube.items():
-            preimage_for_max = eact_cube.ite(env_states, self.manager.minusInfinity())
-            winning_states_env = self.symbolic_max_abstract(preimage_for_max, self.rVars)
-            next_winning_states_env = self.tVar_map_sym[pstr].ite(winning_states_env, next_winning_states_env)
-
-        return next_winning_states_robot | next_winning_states_env
 
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
@@ -863,12 +847,7 @@ class GridWorldDynamicGame():
             if self.cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
-                # next_winning_states = self.compute_min_max_preimage(preimage)
-                # test = self.compute_min_max_preimage_old(preimage)
                 next_winning_states = self.compute_min_max_preimage_old_simple(preimage)
-                # next_winning_states = test2
-                # assert next_winning_states.compare(test, 2), "Error in computing min max preimage, the two implementations do not match!!"
-                # assert next_winning_states.compare(test2, 2), "Error in computing min max preimage, the two implementations do not match!!"
             
             next_winning_states = next_winning_states.min(goal)
 
