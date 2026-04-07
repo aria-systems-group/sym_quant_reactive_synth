@@ -406,13 +406,14 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
 
         # self.gou_convert_cube_to_state_ADD(self.cVals, action=False, verbose=True, print_val=True)
 
-        # self.gou_roll_out_strategy(strategy=bdd_strategy, verbose=True)
+        # self.gou_roll_out_strategy(strategy=strategy, verbose=True)
+        # import sys
+        # sys.exit(-1)
         # compute best-alternate response
         tic = time.time()
         self.compute_best_alternate_response(verbose=False)
         toc = time.time()
         print(f"Time to compute Best-Alternate Response: {toc - tic} seconds")
-        # sys.exit(-1)
 
         # create boolean vars and their prime versions for Best-alternate response values computed
         self.create_all_br_vars_maps()
