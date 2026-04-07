@@ -56,9 +56,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                          ltlf_flag=ltlf_flag,
                          restricted_env_locs=restricted_env_locs, 
                          cooperative_game=cooperative_game,
-                         enable_reordering=enable_reordering)\
-        
-        # self.states_per_cost: Dict[int, ADD] = defaultdict(lambda: self.manager.addZero())
+                         enable_reordering=enable_reordering)
         self.uVars_transition_relation = None
         self.brVars_transition_relation = None
         self.graph_of_utility_tr = None
@@ -92,7 +90,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
     def create_all_boolean_state_vars_and_maps(self):
         self.tVars = self.create_player_latches()
         self.xVars, self.yVars = self.create_latches()
-        self.eVar = [self.manager.addVar(self.manager.size(), 'e')]
+        self.eVars = self.create_error_latches()
         self.lbls_list = [ob for ob in self.grid.keys() if ob not in self.obstacles] + ['c'] + (['p'] if self.camera else [])
         self.lVars = self.create_state_lbls_vars()
         self.uVars = self.create_utility_latches()
@@ -101,6 +99,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         self.create_xVar_map()
         self.create_yVar_map()
         self.create_tVar_map()
+        self.create_eVar_map()
         self.create_lVars_map()
         self.create_uVar_map()
         self.create_symbolic_maps(prime=False)
@@ -114,7 +113,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
     def create_all_prime_boolean_state_vars_and_maps(self):
         self.prime_tVars = self.create_prime_player_latches()
         self.prime_xVars, self.prime_yVars = self.create_prime_latches()
-        self.prime_eVar = [self.manager.addVar(self.manager.size(), 'pe')]
+        self.prime_eVars = self.create_prime_error_vars()
         self.prime_lVars = self.create_prime_state_lbls_vars()
         self.prime_lVar_map_sym = {lbl: cube.swapVariables(self.lVars, self.prime_lVars) for lbl, cube in self.lVar_map_sym.items()}
         self.prime_uVars = self.create_prime_utility_latches()
@@ -205,18 +204,17 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             self.brVar_map_sym[val] = self.cube_to_add(bit_str, self.brVars)
     
     def set_gou_init_latch(self):
-        self.gou_init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & ~self.eVar[0] & self.uVar_map_sym['u0']
+        self.gou_init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.not_error_state_cube & self.uVar_map_sym['u0']
     
     def set_gou_goal_latch(self):
-        self.gou_goal_latch: ADD = self.set_goal_latch() & self.state_lbl & ~self.eVar[0] & ~self.uVar_map_sym[f'u{self.budget + 1}']
-    
+        self.gou_goal_latch: ADD = self.set_goal_latch() & self.state_lbl &self.not_error_state_cube & ~self.uVar_map_sym[f'u{self.budget + 1}']
 
     def set_gobr_init_latch(self):
         # init latch had init game state, lbl and dfa handle
         self.gobr_init_latch: ADD = self.init_latch & self.uVar_map_sym['u0'] & self.brVar_map_sym[math.inf]
     
     def set_gobr_goal_latch(self):
-        self.gobr_goal_latch: ADD = (self.dfa_handle.goal_latch & self.state_lbl & ~self.eVar[0] & ~self.uVar_map_sym[f'u{self.budget + 1}']) | self.eVar[0]
+        self.gobr_goal_latch: ADD = (self.dfa_handle.goal_latch & self.state_lbl & self.not_error_state_cube & ~self.uVar_map_sym[f'u{self.budget + 1}']) | self.env_error_cube
     
 
     def create_utility_transition_relation(self):
@@ -317,7 +315,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
 
     def compute_best_alternate_response(self, verbose: bool = False) -> None:
         """
-         A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
+        A method to compute the best alterante response (ba). Given, tuple (s, s'), best-alternate response is the scalar value associated with:
             Informal: What if I took any other valid edge from (s, s'') where s'' =\= s' for every Sys player state.
             Mathermatically, given cVal (cooperative value) for every state s in G, we have
 
@@ -334,11 +332,15 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         Method: Output ADD(s, as)-br where br is the best-response.
         """
         # compute preimage of ADD(s')-cVal to get ADD(s, a)-cVal(s')
-        game_state_action = self.gou_compute_preimage(self.cVals & self.state_lbl & ~self.eVar[0])
+        # game_state_action = self.gou_compute_preimage(self.cVals & self.state_lbl & self.not_error_state_cube)
+        game_state_action = self.gou_compute_preimage(self.cVals & self.state_lbl)
 
-        only_sys_state_lbls = self.sys_tVar_cube.ite( self.state_lbl, self.manager.plusInfinity())
+        # only_sys_state_lbls = self.sys_tVar_cube.ite(self.state_lbl, self.manager.plusInfinity())
+        # valid_state_lbls = self.state_lbl.bddPattern()
+        # invalid_state_lbls = self.state_lbl.bddInterval(0, 0)
+        # tmp_state_lbls = valid_state_lbls.toADD() | (invalid_state_lbls.toADD() & self.manager.plusInfinity())
         # any state with env action has infinity value. So, we mask them out
-        game_state_action = self.sys_tVar_cube.ite(game_state_action, self.manager.plusInfinity()) & only_sys_state_lbls
+        game_state_action = self.sys_tVar_cube.ite(game_state_action, self.manager.plusInfinity()) #& tmp_state_lbls
 
         # now compute the best alternate response
         self.vector_of_br = defaultdict(lambda: self.manager.addZero())
@@ -362,6 +364,27 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                     # remove goal states from br computation; later we add them to +inf br value
                 bdd_state_act &= not_dfa_goal_states_bdd
                 self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
+        # for player in self.tVar_map.keys():
+        #     if player.startswith('env'):
+        #         continue
+        #     # player can onyl reason over their action.Thus, we create a mask that map all the other action inf.
+        #     only_player_game_state_action = (self.tVar_map_sym[player] & self.sys_action_cube[player]).ite(game_state_action, self.manager.plusInfinity())
+        #     for ract, ract_sym in self.action_map_sym.items():
+        #         print(f"Computing BR for Sys Act: {ract}")
+                
+        #         game_state_action_without_ract = ract_sym.ite(self.manager.plusInfinity(), only_player_game_state_action)
+        #         ba_per_act = self.symbolic_min_abstract(game_state_action_without_ract, self.rVars)
+
+        #         # chop the ADDs into vector of BDD(s), one for each leaf node
+        #         for leaf_val in lVals:
+        #             # leav_vals == inf may have invalid states into, so post-process and remove it later
+        #             bdd_state_act = (ba_per_act.bddInterval(leaf_val, leaf_val))
+        #             if not bdd_state_act.isZero():
+        #                 bdd_state_act &= ract_sym.bddPattern()
+        #                 # remove goal states from br computation; later we add them to +inf br value
+        #             bdd_state_act &= not_dfa_goal_states_bdd
+        #             self.vector_of_br[leaf_val] |= bdd_state_act.toADD()
+
         
         # print stuff for debugging
         print("Done computing BR")
@@ -528,7 +551,6 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             preimage: ADD = self.gou_compute_preimage(curr_winning_states)
             next_winning_states = self.symbolic_min_abstract(preimage, variables_to_abstract=self.rVars)
             next_winning_states = next_winning_states.min(goal)
-            # next_winning_states = self.eVar[0].ite(self.manager.plusInfinity(), next_winning_states)
 
             # adding debugging step
             if verbose:
@@ -800,7 +822,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         """
         curr_state_sym = self.gou_init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        self.invalid_env_state_action_cube = self.transition_relation['e']
+        self.invalid_env_state_action_cube = self.transition_relation[self.env_error_cube.bddPattern().__str__()]
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
             curr_state_exp: List[str] = self.gou_convert_cube_to_state_ADD(curr_state_sym,
                                                                            state_flag=True,
@@ -892,21 +914,22 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         
         # the next vars are l' vars - we ignore them for now. The next ones are action vars
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
-        eidx = self.manager.addVariables().index(self.eVar[0])
+        sys_eidx = self.manager.addVariables().index(self.sys_error_cube)
+        env_eidx = self.manager.addVariables().index(self.env_error_cube)
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + self.uVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVars + self.rVars + self.uVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.uVars + self.rVars)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVar + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
         
         xConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.uVars + self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.uVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
         # print the states
         states_action_pairs = []
@@ -939,10 +962,11 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                sys_err_state = cube.bddPattern().cubeString()[sys_eidx].replace('-', '')
+                env_err_state = cube.bddPattern().cubeString()[env_eidx].replace('-', '')
                 uVar_state = self.uVar_map.inv[uConf_cube_str]
-                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state)
-                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), val), None])
+                state = (([self.tVar_map.inv[tConf_cube_str]] + pos + [sys_err_state, env_err_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state)
+                states_action_pairs.append([(((self.tVar_map.inv[tConf_cube_str], *pos,  sys_err_state, env_err_state), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), val), None])
                 
             except KeyError:
                 continue
@@ -994,7 +1018,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         """
         curr_state_sym = self.gobr_init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        # self.invalid_env_state_action_cube = self.transition_relation['e'] | self.invalid_sys_state_action_cube
+        self.invalid_env_state_action_cube = self.transition_relation[self.env_error_cube.bddPattern().__str__()]# | self.invalid_sys_state_action_cube
         while (curr_state_sym & self.gobr_goal_latch).isZero():
             curr_state_exp: List[str] = self.gobr_convert_cube_to_state_ADD(curr_state_sym,
                                                                             state_flag=True,
@@ -1091,22 +1115,23 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         
         # the next vars are l' vars - we ignore them for now. The next ones are action vars
         start_rvar_idx, end_rvar_idx = self.manager.addVariables().index(self.rVars[0]), self.manager.addVariables().index(self.rVars[-1])
-        eidx = self.manager.addVariables().index(self.eVar[0])
+        sys_eidx = self.manager.addVariables().index(self.sys_error_cube)
+        env_eidx = self.manager.addVariables().index(self.env_error_cube)
 
         # create turn abstraction cube
-        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVar + self.rVars + self.uVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
+        tConf_exist_cube = reduce(lambda a, b: a & b, self.lVars + self.eVars + self.rVars + self.uVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds] + self.qVars)
         qConf_exist_cube = reduce(lambda a, b: a & b, self.latches + self.uVars + self.brVars + self.rVars)
-        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVar + self.lVars + self.rVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
-        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVar + self.lVars + self.rVars + self.uVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        uConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVars + self.lVars + self.rVars + self.brVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
+        brConf_exist_cube = reduce(lambda a, b: a & b, self.tVars + self.qVars + self.eVars + self.lVars + self.rVars + self.uVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds])
         
         xConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.brVars +  self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
+            xConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.uVars + self.brVars +  self.qVars + self.lVars + self.rVars + [var for yVar_adds in self.yVars for var in yVar_adds]) & reduce(lambda x, y: x & y, self.xVars_cubes[:pidx] + self.xVars_cubes[pidx+1:])
 
         
         yConf_exist_cube = dict({})
         for pidx in range(self.total_players):
-            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVar + self.uVars + self.brVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
+            yConf_exist_cube[pidx] = reduce(lambda a, b: a & b, self.tVars + self.eVars + self.uVars + self.brVars + self.qVars + self.lVars + self.rVars + [var for xVar_adds in self.xVars for var in xVar_adds]) & reduce(lambda x, y: x & y, self.yVars_cubes[:pidx] + self.yVars_cubes[pidx+1:])
         
         # print the states
         states_action_pairs = []
@@ -1140,11 +1165,12 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
                 pos = []
                 for r, c in zip(row_states, column_states):
                     pos.append([r, c])
-                eVar_state = self.eVar_map.inv[cube.bddPattern().cubeString()[eidx].replace('-', '')]
+                sys_err_state = cube.bddPattern().cubeString()[sys_eidx].replace('-', '')
+                env_err_state = cube.bddPattern().cubeString()[env_eidx].replace('-', '')
                 uVar_state = self.uVar_map.inv[uConf_cube_str]
                 brVar_state = self.brVar_map.inv[brConf_cube_str]
-                state = ((([self.tVar_map.inv[tConf_cube_str]] + pos + [eVar_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state)
-                states_action_pairs.append([((((self.tVar_map.inv[tConf_cube_str], *pos, eVar_state), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state), val), None])
+                state = ((([self.tVar_map.inv[tConf_cube_str]] + pos + [sys_err_state, env_err_state]), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state)
+                states_action_pairs.append([((((self.tVar_map.inv[tConf_cube_str], *pos, sys_err_state, env_err_state), self.dfa_handle.qVar_map.inv[qConf_cube_str], uVar_state), brVar_state), val), None])
                 
             except KeyError:
                 continue
@@ -1195,8 +1221,8 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         sys_cube = self.xVar_map_sym[0][sys_pos[0]] & self.yVar_map_sym[0][sys_pos[1]]
         env_pos = (0, 0)
         env_cube = self.xVar_map_sym[1][env_pos[0]] & self.yVar_map_sym[1][env_pos[1]]
-        # goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[2] & self.uVar_map_sym['u2'] & self.tVar_map_sym['env0'] & ~self.eVar[0]
-        goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[1] & self.tVar_map_sym['sys0'] & ~self.eVar[0] & self.uVar_map_sym['u1'] & self.brVar_map_sym[math.inf]
+        # goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[2] & self.uVar_map_sym['u2'] & self.tVar_map_sym['env0'] & self.not_error_state_cube & self.rVar_map_sym[0] & self.brVar_map_sym[math.inf]
+        goal_cube = sys_cube & env_cube & self.dfa_handle.qVar_map_sym[1] & self.tVar_map_sym['sys0'] & self.not_error_state_cube & self.uVar_map_sym['u1'] & self.brVar_map_sym[math.inf]
         print("Goal Cube: ",  goal_cube)
         self.gou_convert_cube_to_state_ADD(goal_cube & self.state_lbl, lbl_flag=True, action=False, verbose=True)
 
