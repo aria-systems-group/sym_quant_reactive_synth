@@ -612,19 +612,23 @@ class GridWorldDynamicGame():
             # we only remove invalid sys states to walls as the invalid env were already take care of during construction of the TR
             for curr_player, succ_player in self.turn_update_rule.items():
                 if curr_player.startswith('sys'):
-                    pidx = self.pidx_to_pstr.inv[succ_player]
+                    pidx = self.pidx_to_pstr.inv[curr_player]
                     for pos in self.grid[obst]:
                         state_primed: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]).swapVariables(self.latches, self.prime_latches)
                         tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
-        
+
         # remove the edges
         for tr in self.transition_relation.keys():
             self.transition_relation[tr] &= ~tr_to_remove
+        
+        # add them sys error statte TR?
+        self.transition_relation[self.sys_error_cube.bddPattern().__str__()] |= tr_to_remove
         
         # print for debugging
         if debug:
             print("Debug: Dumping transitions to remove (state-action pairs):")
             self.convert_cube_to_state_ADD(tr_to_remove, action=True, verbose=True)
+    
     
     def add_invalid_state_acts_to_tr(self):
         """
@@ -644,6 +648,13 @@ class GridWorldDynamicGame():
         for pstr, sact_cube in self.sys_action_cube.items():
             self.transition_relation['e0'] |= self.tVar_map_sym[pstr] & ~sact_cube
         self.transition_relation['e0'] |= self.sys_tVar_cube & self.valid_env_action_cube
+
+        # remove all erroneous transition
+        for tr in self.transition_relation.keys():
+            if tr in ['e0', 'e1']:
+                continue
+            self.transition_relation[tr] &= ~self.transition_relation['e0']
+            self.transition_relation[tr] &= ~self.transition_relation['e1']
     
 
     def create_transition_relation(self):
@@ -847,7 +858,7 @@ class GridWorldDynamicGame():
             if self.cooperative_game:
                 next_winning_states = self.symbolic_min_abstract(preimage, self.rVars)
             else:
-                next_winning_states = self.compute_min_max_preimage_old_simple(preimage)
+                next_winning_states = self.compute_min_max_preimage(preimage)
             
             next_winning_states = next_winning_states.min(goal)
 
