@@ -258,7 +258,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         
         for cube_string in itertools.product([0, 1], repeat=len(self.lVars)):
             lbl_cube = reduce(lambda a,b: a & b, [self.lVars[idx] if bit else ~self.lVars[idx] for idx, bit in enumerate(cube_string)])
-            pre_state_action: ADD = pre_state_nxt_lbl.restrict(lbl_cube)
+            pre_state_action: ADD = pre_state_nxt_lbl.restrict(lbl_cube) & self.not_error_state_cube
             for idx, prime_lVar in enumerate(cube_string):
                 if prime_lVar == 1:
                     self.transition_relation[self.lVars[idx].bddPattern().__str__()] |= pre_state_action & self.state_lbl
@@ -511,7 +511,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
         """
         curr_state = self.init_latch
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
-        self.invalid_env_state_action_cube = self.transition_relation[self.env_error_cube.bddPattern().__str__()]
+        self.invalid_env_state_action_cube = self.transition_relation[self.env_error_cube.bddPattern().__str__()] | self.transition_relation[self.sys_error_cube.bddPattern().__str__()]
         while (curr_state & self.goal_latch).isZero():
             curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state, lbl_flag=False, action=False, table_header=False, verbose=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. For rollout, it should be a single intial state."
@@ -529,7 +529,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
             act_cube: BDD = (strategy.restrict(curr_state & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
             act_cube_string = act_cube.cubeString().replace('-', '')
             # only choose valid action. By constuction env will always have atleast one valid action. 
-            while not (curr_state & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
+            while not (curr_state & self.state_lbl & act_cube.toADD() & self.invalid_env_state_action_cube).isZero():
                 act_cube: BDD = (strategy.restrict(curr_state & self.state_lbl)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
                 act_cube_string = act_cube.cubeString().replace('-', '')
             
