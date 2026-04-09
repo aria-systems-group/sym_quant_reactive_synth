@@ -1,18 +1,17 @@
 import math
-import warnings
 
 from bidict import bidict
 from tabulate import tabulate
 
 from functools import reduce
-from typing import List, Tuple, Dict, Union, Optional
+from typing import List, Tuple, Dict, Optional
 
-from cudd import Cudd, ADD, BDD
+from cudd import ADD
 
-from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame, Moves, CELL
+from src.compositional_graphs.gridworld.gridworld_dynamic_no_prime import GridWorldDynamicGameNoPrime, Moves, CELL
 
 
-class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
+class GridWorldDynamicDoorsGameNoPrime(GridWorldDynamicGameNoPrime):
     def __init__(self,
                  rows: int, columns: int,
                  init: List[Tuple[int, int]], goal: List[Tuple[int, int]],
@@ -38,15 +37,8 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
     def create_all_boolean_state_vars_and_maps(self):
         super().create_all_boolean_state_vars_and_maps()    
         self.dVars = self.create_door_vars()
-        self.create_dVar_map(prime=False)
+        self.create_dVar_map()
         self.all_door_uncalimed = reduce(lambda a, b: a & b, [self.dVar_map_sym[d_idx]['unclaimed'] for d_idx in range(len(self.grid['door']))])
-    
-
-    def create_all_prime_boolean_state_vars_and_maps(self):
-        super().create_all_prime_boolean_state_vars_and_maps()
-        self.prime_dVar_map_sym = {d: bidict({}) for d in range(len(self.grid['door']))}
-        self.prime_dVars = self.create_prime_door_vars()
-        self.create_dVar_map(prime=True)
     
 
     def create_door_vars(self) -> List[List[ADD]]:
@@ -57,34 +49,19 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
             dVars.append([self.manager.addVar(s + varsize, f'd{d_idx}{s}') for s in range(door_vars)])
         return dVars
 
-    def create_prime_door_vars(self) -> List[List[ADD]]:
-        dVars_prime: List[List[ADD]] = [] 
-        for d_idx, d in enumerate(self.dVars):
-            varsize = self.manager.size()
-            dVars_prime.append([self.manager.addVar(s + varsize, f'pd{d_idx}{s}') for s in range(len(d))])
-        return dVars_prime
     
-    
-    def create_dVar_map(self, prime: bool = False) -> None:
+    def create_dVar_map(self) -> None:
         for d_idx in range(len(self.grid['door'])):
             for s_idx, d_status in enumerate(self._door_status):
                 bit_str = f"{s_idx:0{len(self.dVars[d_idx])}b}"
-                if prime:
-                    self.prime_dVar_map_sym[d_idx][d_status] = self.cube_to_add(bit_str, self.prime_dVars[d_idx])
-                else:
-                    self.dVar_map[d_idx][d_status] = bit_str
-                    self.dVar_map_sym[d_idx][d_status] = self.cube_to_add(bit_str, self.dVars[d_idx])
+                self.dVar_map[d_idx][d_status] = bit_str
+                self.dVar_map_sym[d_idx][d_status] = self.cube_to_add(bit_str, self.dVars[d_idx])
     
 
     def set_latches(self):
         super().set_latches()
         self.latches += [var for dVar_adds in self.dVars for var in dVar_adds]
         self.latches_bdd += [var.bddPattern() for dVar_adds in self.dVars for var in dVar_adds]
-    
-    def set_prime_latches(self):
-        super().set_prime_latches()
-        self.prime_latches += [var for dVar_adds in self.prime_dVars for var in dVar_adds]
-        self.prime_latches_bdd += [var.bddPattern() for dVar_adds in self.prime_dVars for var in dVar_adds]
     
 
     def set_init_latch(self) -> ADD:
@@ -374,33 +351,3 @@ class GridWorldDynamicDoorsGame(GridWorldDynamicGame):
             print(tabulate(states_bookkeeping))
         
         return states_action_pairs
-    
-
-    def test_preimage(self):
-        sys_pos0 = (1, 1)
-        goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
-        sys_pos1 = (1, 1)
-        goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
-        env_pos1 = (0, 0)
-        goal_cube_env = self.xVar_map_sym[2][env_pos1[0]] & self.yVar_map_sym[2][env_pos1[1]]
-        env_pos2 = (2, 0)
-        goal_cube_env1 = self.xVar_map_sym[3][env_pos2[0]] & self.yVar_map_sym[3][env_pos2[1]]
-        # goal_cube = self.tVar_map_sym['sys1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env & self.dVar_map_sym[0]['env'] & self.not_error_state_cube
-        # goal_cube = self.tVar_map_sym['sys1'] & self.dVar_map_sym[0]['sys'] & self.not_error_state_cube & goal_cube_sys0 & goal_cube_sys1 #& goal_cube_env
-        goal_cube = self.tVar_map_sym['sys0'] & self.dVar_map_sym[0]['sys'] & self.not_error_state_cube & goal_cube_sys0 & (goal_cube_env | goal_cube_env1) #& goal_cube_env
-        print('Goal state:', goal_cube)
-        self.convert_cube_to_state_ADD(goal_cube, state_flag=True, action=False, verbose=True)
-        
-        # compute preimage 
-        From = goal_cube.swapVariables(self.latches, self.prime_latches)
-        preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-        print('Preimage of goal state:', preimage)
-        self.convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=True)
-
-        preimage = preimage.ite(self.manager.addZero(), self.manager.plusInfinity())
-        preimage = preimage + self.weight
-
-        # now let takes min and max
-        new_preimage = self.compute_min_max_preimage(preimage)
-        print('Preimage after min max abstraction:', new_preimage)
-        self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)

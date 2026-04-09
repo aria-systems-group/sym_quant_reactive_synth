@@ -135,7 +135,7 @@ class GridWorldDynamicDFAGame(GridWorldDynamicGame):
     def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
         num_sys_states, num_env_states = super().get_number_of_states(verbose=verbose)
         # multiple it by the numbers of the states
-        total_dfa_game_state = (num_sys_states + num_env_states) * len(self.dfa_handle.qVar_map.keys())
+        total_dfa_game_state = (num_sys_states + num_env_states) * self.dfa_handle.num_of_states
         if verbose:
             print(f'Number of States in DFA Game: {total_dfa_game_state:,}')
         return total_dfa_game_state

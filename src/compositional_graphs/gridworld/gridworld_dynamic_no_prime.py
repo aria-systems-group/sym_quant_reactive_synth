@@ -17,6 +17,7 @@ from cudd import Cudd, ADD, BDD
 # Custom Types
 CELL = Tuple[int, int]
 
+
 class Moves(Enum):
     NORTH = (1, 0)
     SOUTH = (-1, 0)
@@ -25,7 +26,7 @@ class Moves(Enum):
     STAY = (0, 0)
 
 
-class GridWorldDynamicGame():
+class GridWorldDynamicGameNoPrime():
     def __init__(self,
                  rows: int, columns: int,
                  init: List[CELL], goal: List[CELL],
@@ -34,22 +35,6 @@ class GridWorldDynamicGame():
                  restricted_env_locs: Optional[List[CELL]] = [],
                  cooperative_game: bool = False,
                  enable_reordering: bool = False, **kwargs):
-        """
-        Initializes the GridWorldDynamicGame with the given parameters. Give, n x m gridworld, we create a turn-based game where the robot and the environment take turns to move. 
-        The robot can choose to move in one of the four cardinal directions or stay in place, and the environment can do the same. 
-        
-        The objective of the robot is to reach the goal state while avoiding obstacles in the gridworld. 
-
-        Args:
-            rows (int): Number of rows in the grid.
-            columns (int): Number of columns in the grid.
-            init (tuple): Initial state configuration.
-            goal (tuple): Goal state configuration.
-            players (dict): Dictionary specifying the number of players for the system and environment. Default is {'sys': 1, 'env': 1}.
-            grid: Optinoal Dictonary that containts information about the Atomic Propositions in the game. 
-            The key is the name of the proposition and the value is a list of states where the proposition is true.
-            This is used for labeling states with propositions for LTL synthesis.
-        """
         self.rows = rows
         self.columns = columns
         self.sys_actions: List[str] = ['STAY', 'NORTH', 'SOUTH', 'EAST', 'WEST']
@@ -75,9 +60,6 @@ class GridWorldDynamicGame():
         self.yVar_map_sym = {p: bidict({}) for p in range(self.total_players)}
         self.tVar_map_sym = bidict({})
         self.eVar_map_sym = bidict({})
-        self.prime_xVar_map_sym = {p: bidict({}) for p in range(self.total_players)}
-        self.prime_yVar_map_sym = {p: bidict({}) for p in range(self.total_players)}
-        self.prime_tVar_map_sym = bidict({})
 
         # main method to create boolean variables for the game and the maps for both prime and non-prime variables
         self.parent_boolean_state_vars_and_maps()
@@ -108,9 +90,7 @@ class GridWorldDynamicGame():
 
         # for printing 
         self.xVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.xVars]
-        self.prime_xVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_xVars]
         self.yVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.yVars]
-        self.prime_yVars_cubes: List[List[ADD]] = [reduce(lambda a, b: a & b, box_adds) for box_adds in self.prime_yVars]
 
         # for solver 
         self.env_action_cube_list = [[] for _ in range(self.players['env'])]
@@ -138,14 +118,28 @@ class GridWorldDynamicGame():
     def vi_layers(self):
         return self._vi_layers
 
+    def miscellanoues_helper_stuff(self):
+        self.rVars_cube_bdd: BDD = self.rVars_cube.bddPattern()
+        # create cubes of valid env and sys turn var
+        self.sys_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('sys')])
+        self.env_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('env')])
+        self.env_tVar_cube_bdd: BDD = self.env_tVar_cube.bddPattern()
+        # create cubes of valid env and sys player action.
+        self.sys_action_cube: Dict[str, ADD] = {f'sys{player}': reduce (lambda x, y: x | y, sact_list) for player, sact_list in enumerate(self.sys_action_cube_list)}
+        self.env_action_cube: Dict[str, ADD] = {f'env{player}': reduce (lambda x, y: x | y, eact_list) for player, eact_list in enumerate(self.env_action_cube_list)}
+        self.valid_env_action_cube = reduce(lambda a, b: a | b, list(self.env_action_cube.values()))
+        self.valid_sys_action_cube = reduce(lambda a, b: a | b, list(self.sys_action_cube.values()))
+        # ADD for set of valid state
+        self.obsatcle_constraint_cube = self.manager.addZero()
+        # used during rollout to check of the action is valid or not
+        self.invalid_env_state_action_cube = self.manager.addZero()
+        self.invalid_sys_state_action_cube = self.manager.addZero()
+        self.create_obstacle_constraint()
+    
     def parent_boolean_state_vars_and_maps(self):
         # create latches - tVars + xVars + yVars
         self.create_all_boolean_state_vars_and_maps()
         self.set_latches()
-
-        # create prime latches - prime tVars + prime xVars + prime yVars + prime eVar
-        self.create_all_prime_boolean_state_vars_and_maps()
-        self.set_prime_latches()
     
 
     def create_all_boolean_state_vars_and_maps(self):
@@ -163,21 +157,8 @@ class GridWorldDynamicGame():
         self.create_yVar_map()
         self.create_tVar_map()
         self.create_eVar_map()
-        self.create_symbolic_maps(prime=False)    
-
-    def create_all_prime_boolean_state_vars_and_maps(self):
-        """
-         The main method that creates all boolean variables for the GridWorld Turn-Based Game.
-          1. turn variables - tVars
-          2. row variables - xVars
-          3. column variables - yVars
-          4. error variable - eVar - used to map invalid Env actions to this error state
-        """
-        self.prime_tVars = self.create_prime_player_latches()
-        self.prime_xVars, self.prime_yVars = self.create_prime_latches()
-        self.prime_eVars = self.create_prime_error_vars()
-        self.create_symbolic_maps(prime=True)
-
+        self.create_symbolic_maps()
+    
     def create_player_latches(self) -> List[ADD]:
         """
         A method to create player latches. For turn-based games, we need a turn variable to keep track of which player's turn it is. 
@@ -188,7 +169,6 @@ class GridWorldDynamicGame():
         num_of_vars = math.ceil(math.log2(self.total_players))
         tVar: List[ADD] = [self.manager.addVar(p + offset, f't{p}') for p in range(num_of_vars)]
         return tVar
-    
 
     def create_latches(self) -> Tuple[List[ADD], List[ADD]]:
         """
@@ -229,38 +209,6 @@ class GridWorldDynamicGame():
         # make constraint that state is valid state
         self.not_error_state_cube: ADD = ~self.sys_error_cube & ~self.env_error_cube
         return eVar
-    
-
-    def create_prime_latches(self) -> Tuple[List[ADD], List[ADD]]:
-        """
-         Create a copy of prime variables for the latches.
-        """
-        prime_xVars: List[List[ADD]] = []
-        prime_yVars: List[List[ADD]] = []
-        for p_idx, p_xVar in enumerate(self.xVars):
-            varsize = self.manager.size()
-            prime_xVars.append([self.manager.addVar(k + varsize, f'px{p_idx}{k}') for k in range(len(p_xVar))])
-        
-        for p_idx, p_yVar in enumerate(self.yVars):
-            varsize = self.manager.size()
-            prime_yVars.append([self.manager.addVar(k + varsize, f'py{p_idx}{k}') for k in range(len(p_yVar))])
-
-        return prime_xVars, prime_yVars
-    
-
-    def create_prime_player_latches(self) -> List[ADD]:
-        varsize = self.manager.size()
-        prime_tVars = [self.manager.addVar(p + varsize, f'pt{p}') for p in range(len(self.tVars))]
-        return prime_tVars
-
-
-    def create_prime_error_vars(self) -> List[ADD]:
-        """
-         A method to create prime version of the error state variables.
-        """
-        varsize = self.manager.size()
-        prime_eVars: List[ADD] =  [self.manager.addVar(e + varsize , f"pe{e}") for e in range(len(self.eVars))]
-        return prime_eVars
 
     def create_action_vars(self) -> Tuple[List[ADD], List[ADD]]:
         """
@@ -273,39 +221,8 @@ class GridWorldDynamicGame():
         rVars_size = math.ceil(math.log2((len(self.sys_actions) * self.players['sys']) + (len(self.env_actions) * self.players['env'])))
         rVars: List[ADD] =  [self.manager.addVar(r + varsize , 'r' + str(r)) for r in range(rVars_size)]
         return rVars
-    
 
-    def miscellanoues_helper_stuff(self):
-        self.rVars_cube_bdd: BDD = self.rVars_cube.bddPattern()
-        # create cubes of valid env and sys turn var
-        self.sys_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('sys')])
-        self.env_tVar_cube: ADD = reduce(lambda x, y: x | y, [self.tVar_map_sym[player] for player in self.tVar_map.keys() if player.startswith('env')])
-        self.env_tVar_cube_bdd: BDD = self.env_tVar_cube.bddPattern()
-        # create cubes of valid env and sys player action.
-        self.sys_action_cube: Dict[str, ADD] = {f'sys{player}': reduce (lambda x, y: x | y, sact_list) for player, sact_list in enumerate(self.sys_action_cube_list)}
-        self.env_action_cube: Dict[str, ADD] = {f'env{player}': reduce (lambda x, y: x | y, eact_list) for player, eact_list in enumerate(self.env_action_cube_list)}
-        self.valid_env_action_cube = reduce(lambda a, b: a | b, list(self.env_action_cube.values()))
-        self.valid_sys_action_cube = reduce(lambda a, b: a | b, list(self.sys_action_cube.values()))
-        # ADD for set of valid state
-        self.obsatcle_constraint_cube = self.manager.addZero()
-        # used during rollout to check of the action is valid or not
-        self.invalid_env_state_action_cube = self.manager.addZero()
-        self.invalid_sys_state_action_cube = self.manager.addZero()
-        self.create_obstacle_constraint()
     
-    def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
-        """
-         A method to to compute the |Sys States| and |Env states| in the game.
-         Sys States = rows x columns x turn variables
-         Env States = rows x columns x turn variables
-        """
-        sys_states = (self.rows * self.columns) ** self.total_players
-        env_states = (self.rows * self.columns) ** self.total_players
-        if verbose:
-            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
-        return sys_states, env_states
-        
-
     def create_obstacle_constraint(self):    
         for obst in self.obstacles:
             if obst not in self.grid.keys():
@@ -322,16 +239,11 @@ class GridWorldDynamicGame():
             for pidx, player_str in enumerate(self.tVar_map.keys()):
                 if player_str.startswith('env'):
                     self.obsatcle_constraint_cube |= self.tVar_map_sym[player_str] & self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]
-
+    
 
     def set_latches(self):
         self.latches: List[ADD] = self.tVars + self.eVars + [var for xVar_adds in self.xVars for var in xVar_adds] + [var for yVar_adds in self.yVars for var in yVar_adds]
         self.latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.latches]
-    
-
-    def set_prime_latches(self):
-        self.prime_latches: List[ADD] = self.prime_tVars + self.prime_eVars + [var for prime_xVar_adds in self.prime_xVars for var in prime_xVar_adds] + [var for prime_yVar_adds in self.prime_yVars for var in prime_yVar_adds]
-        self.prime_latches_bdd: List[BDD] = [latch.bddPattern() for latch in self.prime_latches]
     
 
     def set_init_latch(self) -> ADD:
@@ -341,7 +253,6 @@ class GridWorldDynamicGame():
         for i, (x, y) in enumerate(self.init):
             init_cube &= self.xVar_map_sym[i][x] & self.yVar_map_sym[i][y]
         return init_cube & self.not_error_state_cube
-    
 
     def set_goal_latch(self) -> ADD:
         # TODO: Make sure the goal state must be in a valid position, i.e., goal must not be a wall cell or lava cell which can never be reached.
@@ -355,8 +266,7 @@ class GridWorldDynamicGame():
         if self.cooperative_game:
             return (goal_cube & self.not_error_state_cube)
         return (goal_cube & self.not_error_state_cube) | self.env_error_cube
-
-
+    
     def cube_to_add(self, cube: str, vars_list: List) -> ADD:
         assert len(cube) == len(vars_list), "Make sure the length of the cube is the same as the number of latches"
         add = self.manager.addOne()
@@ -364,7 +274,6 @@ class GridWorldDynamicGame():
             add &= vars_list[idx] if val == '1' else ~vars_list[idx]
         return add
     
-
     def create_xVar_map(self) -> None:
         for p in range(self.total_players):
             for r in range(self.rows):
@@ -390,30 +299,21 @@ class GridWorldDynamicGame():
             self.eVar_map[ap.bddPattern().__str__()] = '1'
             self.eVar_map_sym[ap.bddPattern().__str__()] = ap
     
-    def create_symbolic_maps(self, prime: bool = False):
+    def create_symbolic_maps(self):
         """
          Small function to create symbolic maps for the xVar_map, rAction_map and eAction_map
         """
         for player in range(self.total_players):
             for k, v in self.xVar_map[player].items():
-                if prime:
-                    self.prime_xVar_map_sym[player][k] = self.cube_to_add(v, self.prime_xVars[player])
-                else:
-                    self.xVar_map_sym[player][k] = self.cube_to_add(v, self.xVars[player])
+                self.xVar_map_sym[player][k] = self.cube_to_add(v, self.xVars[player])
         
         for player in range(self.total_players):
             for k, v in self.yVar_map[player].items():
-                if prime:
-                    self.prime_yVar_map_sym[player][k] = self.cube_to_add(v, self.prime_yVars[player])
-                else:
-                    self.yVar_map_sym[player][k] = self.cube_to_add(v, self.yVars[player])
+                self.yVar_map_sym[player][k] = self.cube_to_add(v, self.yVars[player])
         
         # create turn variable symbolic maps
         for player, bit_str in self.tVar_map.items():
-            if prime:
-                self.prime_tVar_map_sym[player] = self.cube_to_add(bit_str, self.prime_tVars)
-            else:
-                self.tVar_map_sym[player] = self.cube_to_add(bit_str, self.tVars)
+            self.tVar_map_sym[player] = self.cube_to_add(bit_str, self.tVars)
     
     
     def create_action_map(self) -> None:
@@ -434,7 +334,6 @@ class GridWorldDynamicGame():
                 self.action_map_sym[act_str] = self.cube_to_add(ebit_str, self.rVars)
             offset += len(self.env_actions)
     
-
     def create_sym_weight_dict(self, debug: bool = False) -> None:
         for ract_full, rdd in self.action_map_sym.items():
             # env actions have 0 weight and sys actions have the weight defined in self.weight_dict
@@ -448,7 +347,6 @@ class GridWorldDynamicGame():
         if debug:
             print("Debug: Dumping computed weights (state-action pairs):")
             self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
-    
     
     def get_valid_transitions(self, rPos: int, cPos: int, player: str) -> List[str]:
         """
@@ -467,6 +365,17 @@ class GridWorldDynamicGame():
         
         return valid_actions
         
+    def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
+        """
+         A method to to compute the |Sys States| and |Env states| in the game.
+         Sys States = rows x columns x turn variables
+         Env States = rows x columns x turn variables
+        """
+        sys_states = (self.rows * self.columns) ** self.total_players
+        env_states = (self.rows * self.columns) ** self.total_players
+        if verbose:
+            print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
+        return sys_states, env_states
 
     def add_turn_var_update_rule(self):
         """
@@ -568,6 +477,7 @@ class GridWorldDynamicGame():
         for tr_bdd in self.transition_relation.values():
             self.ts_bdd_transition_fun_list.append(tr_bdd.bddPattern())
     
+
     def get_states_per_cost(self):
         """
          A helper function that takes in the ADD weight and return a vector of 0-1 BDD per cost.
@@ -613,8 +523,8 @@ class GridWorldDynamicGame():
                 if curr_player.startswith('sys'):
                     pidx = self.pidx_to_pstr.inv[curr_player]
                     for pos in self.grid[obst]:
-                        state_primed: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]]).swapVariables(self.latches, self.prime_latches)
-                        tr_to_remove |= (state_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
+                        state: ADD = (self.xVar_map_sym[pidx][pos[0]] & self.yVar_map_sym[pidx][pos[1]])
+                        tr_to_remove |= (state.vectorCompose(self.latches, list(self.transition_relation.values()))) & self.sys_tVar_cube
 
         # remove the edges
         for tr in self.transition_relation.keys():
@@ -627,8 +537,7 @@ class GridWorldDynamicGame():
         if debug:
             print("Debug: Dumping transitions to remove (state-action pairs):")
             self.convert_cube_to_state_ADD(tr_to_remove, action=True, verbose=True)
-    
-    
+
     def add_invalid_state_acts_to_tr(self):
         """
         A method that adds the invalid state-action pairs to the transition relation.  
@@ -719,9 +628,7 @@ class GridWorldDynamicGame():
 
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
-        # prime the vars
-        curr_winning_states_primed = curr_winning_states.swapVariables(self.latches, self.prime_latches)
-        preimage = curr_winning_states_primed.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
+        preimage = curr_winning_states.vectorCompose(self.latches, list(self.transition_relation.values()))
 
         return preimage
     
@@ -793,13 +700,11 @@ class GridWorldDynamicGame():
                     # add the goal states back to the preimage with their respective goal sval
                     preimage[goal_sval] |= goal[goal_sval]
         return preimage
-    
 
     def hybrid_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
         for sval, succ_states in win_state_bucket.items():
-            succ_states_prime = succ_states.swapVariables(self.latches_bdd, self.prime_latches_bdd)
-            pre_states: BDD = succ_states_prime.vectorCompose(self.prime_latches_bdd, self.ts_bdd_transition_fun_list)
+            pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, self.ts_bdd_transition_fun_list)
 
             if not pre_states.isZero():
                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
@@ -828,7 +733,6 @@ class GridWorldDynamicGame():
                 win_state_bucket[sval] |= win_sval
         
         return win_state_bucket
-    
 
     def solve(self, verbose: bool = False) -> Union[ADD, None]:
         """
@@ -1043,9 +947,8 @@ class GridWorldDynamicGame():
             curr_winning_states = defaultdict(lambda: self.manager.bddZero())
             for sval in next_winning_states_opt.keys():
                 curr_winning_states[sval] |= next_winning_states_opt[sval]
+    
 
-    
-    
     def convert_exlpicit_state_to_cube(self, state) -> ADD:
         """
          A smaller helper function to convert an explicit state representation to a cube. This is useful for debugging and printing purposes.
@@ -1061,6 +964,7 @@ class GridWorldDynamicGame():
                 p_idx += 1
         
         return state_cube
+    
     
 
     def get_next_state(self, curr_state_exp: Tuple, act: str) -> Tuple[ADD, str, Tuple]:        
@@ -1120,33 +1024,6 @@ class GridWorldDynamicGame():
             if verbose:
                 print(f"Sys Action: {act_name}") if turn == 'sys' else print(f"Env Action: {act_name}")
     
-
-    def test_preimage(self):
-        sys_pos0 = (1, 1)
-        goal_cube_sys0 = self.xVar_map_sym[0][sys_pos0[0]] & self.yVar_map_sym[0][sys_pos0[1]]
-        sys_pos1 = (1, 1)
-        goal_cube_sys1 = self.xVar_map_sym[1][sys_pos1[0]] & self.yVar_map_sym[1][sys_pos1[1]]
-        env_pos1 = (1, 2)
-        goal_cube_env1 = self.xVar_map_sym[2][env_pos1[0]] & self.yVar_map_sym[2][env_pos1[1]]
-        env_pos2 = (2, 0)
-        goal_cube_env2 = self.xVar_map_sym[3][env_pos2[0]] & self.yVar_map_sym[3][env_pos2[1]]
-        goal_cube = self.tVar_map_sym['env1'] & goal_cube_sys0 & goal_cube_sys1 & goal_cube_env1 & goal_cube_env2
-        print('Goal state:', goal_cube)
-        # compute preimage 
-        From = goal_cube.swapVariables(self.latches, self.prime_latches)
-        preimage = From.vectorCompose(self.prime_latches, list(self.transition_relation.values()))
-        print('Preimage of goal state:', preimage)
-        self.convert_cube_to_state_ADD(preimage, state_flag=True, action=True, verbose=True)
-
-        preimage = preimage.ite(self.manager.addZero(), self.manager.plusInfinity())
-        preimage = preimage + self.weight
-
-        # now let takes min and max
-        new_preimage = self.compute_min_max_preimage(preimage)
-        # print('Preimage after min max abstraction:', new_preimage)
-        self.convert_cube_to_state_ADD(new_preimage, state_flag=True, action=False, verbose=True)
-    
-
     def get_all_cubes(self, dd: ADD, relevant_vars: List[ADD]) -> List[Tuple[ADD, float]]:
         cubes = []
         for cube_list, val in dd.generate_cubes():

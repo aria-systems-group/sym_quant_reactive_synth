@@ -70,6 +70,9 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
         self.set_gou_init_latch()
         self.set_gou_goal_latch()
 
+        self._gou_vi_layers = 0
+        self._gobr_vi_layers = 0
+
         # book keeping
         self.gou_game_latches = self.latches + self.uVars + self.qVars
         self.gou_game_prime_latches = self.prime_latches + self.prime_uVars + self.prime_qVars
@@ -85,6 +88,14 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
     def budget(self, budget: int):
         assert budget > 0, "Budget must be a positive integer."
         self._budget = budget
+    
+    @property
+    def gou_vi_layers(self):
+        return self._gou_vi_layers
+
+    @property
+    def gobr_vi_layers(self):
+        return self._gobr_vi_layers
 
 
     def create_all_boolean_state_vars_and_maps(self):
@@ -577,6 +588,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if next_winning_states.compare(curr_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self._gou_vi_layers = layer
                 if self.gou_init_latch & curr_winning_states != self.manager.plusInfinity():
                     if self.gou_init_latch & curr_winning_states == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
@@ -626,6 +638,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if next_winning_states.compare(curr_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self._gou_vi_layers = layer
                 if self.gou_init_latch  & curr_winning_states != self.manager.plusInfinity():
                     if self.gou_init_latch & curr_winning_states == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the human can complete the task for the robot without expending energy!!")
@@ -687,6 +700,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self._gou_vi_layers = layer
                 init_val = math.inf
                 for sval, sbdd in curr_winning_states.items():
                     if sbdd & self.gou_init_latch.bddPattern() != self.manager.bddZero():
@@ -780,6 +794,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self._gobr_vi_layers = layer
                 if curr_winning_states.restrict(self.gobr_init_latch) != self.manager.plusInfinity():
                     if self.gobr_init_latch & curr_winning_states == self.manager.addZero():
                         init_val: int = 0
@@ -837,6 +852,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
+                self._gobr_vi_layers = layer
                 if curr_winning_states.restrict(self.gobr_init_latch) != self.manager.plusInfinity():
                     if self.gobr_init_latch & curr_winning_states == self.manager.addZero():
                         init_val: int = 0
@@ -900,6 +916,7 @@ class GridWorldDynamicRegretGame(GridWorldDynamicDFAGame):
             
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self._gobr_vi_layers = layer
                 init_val = math.inf
                 for sval, sbdd in curr_winning_states.items():
                     if sbdd & self.gobr_init_latch.bddPattern() != self.manager.bddZero():
