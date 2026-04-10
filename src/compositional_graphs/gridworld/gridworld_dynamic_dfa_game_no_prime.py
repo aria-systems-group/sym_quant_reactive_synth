@@ -10,7 +10,7 @@ from typing import List, Union, Optional, Dict, Tuple, Set
 
 from cudd import Cudd, ADD, BDD
 
-from src.compositional_graphs.gridworld.gridworld_dynamic_no_prime import GridWorldDynamicGameNoPrime, Moves, CELL
+from src.compositional_graphs.gridworld.gridworld_dynamic_no_prime import GridWorldDynamicGameNoPrime, CELL
 from src.compositional_graphs.gridworld.gridworld_dynamic_doors_no_prime import GridWorldDynamicDoorsGameNoPrime
 from src.compositional_graphs.symbolic_partitioned_dfa import SymbolicPartitionedDFAFromMonaNoPrime, SymbolicPartitionedDFAFromSpotNoPrime
 
