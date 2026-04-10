@@ -140,14 +140,9 @@ class SymbolicPartitionedDFA():
          Gridworld Domain: The predicates are of the form pij where ij is the i-th row and j-th column.  
         """
         if self.domain == 'manipulator':
-            # formula_name = kwargs['formula_name']
             box_loc: str = re.search(r'\d+', formula_name).group()
             return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
         else:
-            # formula_name = kwargs['formula_name']
-            # TODO: Update this when we have more agents
-            # return self.predicate_add_sym_map_lbl['x'][f'x{grid[0]}'] & self.predicate_add_sym_map_lbl['y'][f'y{grid[1]}']
-            # TODO: Fix this for negation
             return self.predicate_add_sym_map_lbl[formula_name]
 
 
@@ -263,9 +258,6 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
                 warnings.warn(f"Error while parsing the LTL Formula. Could not parse edge {edge}")
                 sys.exit(-1)
             
-            # if self.domain == 'manipulator':
-            # self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
-            # elif self.domain == 'gridworld':
             self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[nxt]
             
             # now we add the transition dfa's transition relation
@@ -328,8 +320,6 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 else:
                     cryptic_lbl = labels
                 
-                # box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                # expr &= self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 expr &= self.get_predicate_formula(formula_name=str(cryptic_lbl))
             
             elif value == "0":
@@ -338,8 +328,6 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 else:
                     cryptic_lbl = labels
                 
-                # box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                # expr &= ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 expr &= ~self.get_predicate_formula(formula_name=str(cryptic_lbl))
             else:
                 assert value == "X", "Error while constructing symbolic LTLF DFA edge. FIX THIS!!!"
@@ -376,9 +364,6 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                     dfa_state_cube: ADD = self.qVar_map_sym[orig_state] 
                     dfa_state_prime_str: str = self.qVar_map[dest_state]
 
-                    # if self.domain == 'manipulator':
-                    # self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[dest_state]
-                    # elif self.domain == 'gridworld':
                     self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[dest_state]
 
                     # now we add the transition dfa's transition relation
@@ -505,13 +490,9 @@ class SymbolicPartitionedDFANoPrime():
          Gridworld Domain: The predicates are of the form pij where ij is the i-th row and j-th column.  
         """
         if self.domain == 'manipulator':
-            # formula_name = kwargs['formula_name']
             box_loc: str = re.search(r'\d+', formula_name).group()
             return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
         else:
-            # grid = kwargs['grid']
-            # TODO: Update this when we have more agents
-            # return self.predicate_add_sym_map_lbl['x'][f'x{grid[0]}'] & self.predicate_add_sym_map_lbl['y'][f'y{grid[1]}']
             return self.predicate_add_sym_map_lbl[formula_name]
 
 
@@ -573,12 +554,8 @@ class SymbolicPartitionedDFAFromSpotNoPrime(SymbolicPartitionedDFANoPrime):
         if hasattr(formula, 'symbol'):
             # get the corresponding boolean expression
             if '!' in formula.name:
-                # box_loc: str = re.search(r'\d+', formula.name).group()
-                # return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 return ~self.get_predicate_formula(formula_name=formula.name)
             else:
-                # box_loc: str = re.search(r'\d+', formula.name).group()
-                # return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 return self.get_predicate_formula(formula_name=formula.name)
         
         expression = self.in_order_nnf_tree_traversal(expression, formula.left)
@@ -685,8 +662,6 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
                 else:
                     cryptic_lbl = labels
                 
-                # box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                # expr &= self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 expr &= self.get_predicate_formula(formula_name=str(cryptic_lbl))
             
             elif value == "0":
@@ -695,8 +670,6 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
                 else:
                     cryptic_lbl = labels
                 
-                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                # expr &= ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
                 expr &= ~self.get_predicate_formula(formula_name=str(cryptic_lbl))
             else:
                 assert value == "X", "Error while constructing symbolic LTLF DFA edge. FIX THIS!!!"
