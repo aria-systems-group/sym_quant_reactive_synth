@@ -4,16 +4,14 @@ from typing import List, Optional, Dict, Tuple
 
 from cudd import ADD
 
-from bidict import bidict
 from tabulate import tabulate
 
-from src.compositional_graphs.gridworld.gridworld_dynamic import CELL
-from src.compositional_graphs.gridworld.gridworld_dynamic_doors_dfa_game import GridWorldDynamicDoorsDFAGame
-from src.compositional_graphs.gridworld.gridworld_dynamic_regret import GridWorldDynamicRegretGame
+from src.compositional_graphs.gridworld.gridworld_dynamic_no_prime import CELL
+from src.compositional_graphs.gridworld.gridworld_dynamic_dfa_game_no_prime import GridWorldDynamicDoorsDFAGameNoPrime
+from src.compositional_graphs.gridworld.gridworld_dynamic_regret_no_prime import GridWorldDynamicRegretGameNoPrime
 
 
-
-class GridWorldDynamicDoorsRegretGame(GridWorldDynamicRegretGame, GridWorldDynamicDoorsDFAGame):
+class GridWorldDynamicDoorsRegretGameNoPrime(GridWorldDynamicRegretGameNoPrime, GridWorldDynamicDoorsDFAGameNoPrime):
     def __init__(self, 
                  rows: int, columns: int,
                  init: List[CELL], goal: List[CELL],
@@ -39,7 +37,6 @@ class GridWorldDynamicDoorsRegretGame(GridWorldDynamicRegretGame, GridWorldDynam
         if enable_reordering:
             self.manager.autodynEnable()
     
-
     def create_all_boolean_state_vars_and_maps(self):
         self.tVars = self.create_player_latches()
         self.xVars, self.yVars = self.create_latches()
@@ -56,42 +53,24 @@ class GridWorldDynamicDoorsRegretGame(GridWorldDynamicRegretGame, GridWorldDynam
         self.create_eVar_map()
         self.create_lVars_map()
         self.create_uVar_map()
-        self.create_dVar_map(prime=False)
+        self.create_dVar_map()
         self.all_door_uncalimed = reduce(lambda a, b: a & b, [self.dVar_map_sym[d_idx]['unclaimed'] for d_idx in range(len(self.grid['door']))])
-        self.create_symbolic_maps(prime=False)
+        self.create_symbolic_maps()
         self.state_lbl_map_sym: Dict[CELL, ADD] = defaultdict(lambda: reduce(lambda x, y: x & y, [~e for e in self.lVars]))
         self.lVars_cube = reduce(lambda x, y: x & y, self.lVars)
         self.create_state_lbl_map()
         # create the dfa state variables and maps
         self.create_dfa_latches_and_maps()
-
-
-    def create_all_prime_boolean_state_vars_and_maps(self):
-        self.prime_tVars = self.create_prime_player_latches()
-        self.prime_xVars, self.prime_yVars = self.create_prime_latches()
-        self.prime_eVars = self.create_prime_error_vars()
-        self.prime_dVar_map_sym = {d: bidict({}) for d in range(len(self.grid['door']))}
-        self.prime_dVars = self.create_prime_door_vars()
-        self.prime_lVars = self.create_prime_state_lbls_vars()
-        self.prime_lVar_map_sym = {lbl: cube.swapVariables(self.lVars, self.prime_lVars) for lbl, cube in self.lVar_map_sym.items()}
-        self.prime_uVars = self.create_prime_utility_latches()
-        self.prime_uVars_bdd = [u.bddPattern() for u in self.prime_uVars]
-        self.create_symbolic_maps(prime=True)
-        self.create_dVar_map(prime=True)
-
-        # create prime DFA latches next
-        self.dfa_handle.create_prime_latches()
-        self.prime_qVars: List[ADD] = self.dfa_handle.prime_qVars
-        self.prime_qVars_bdd = [var.bddPattern() for var in self.prime_qVars]
     
+
     def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
         total_dfa_game_state = super().get_number_of_states(verbose=verbose)
         total_regret_game_state = total_dfa_game_state * ((self.budget + 2)**2)
         if verbose:
             print(f'Number of States in Regret Game: {total_regret_game_state:,}')
         return total_regret_game_state
-    
-    
+
+
     def gou_convert_cube_to_state_ADD(self,
                                       dd: ADD, state_flag: bool = True,
                                       lbl_flag: bool = False, dfa_flag: bool = True,
@@ -238,7 +217,7 @@ class GridWorldDynamicDoorsRegretGame(GridWorldDynamicRegretGame, GridWorldDynam
             print(tabulate(states_bookkeeping))
         
         return states_action_pairs
-    
+
 
     def gobr_convert_cube_to_state_ADD(self,
                                        dd: ADD, state_flag: bool = True,
@@ -389,6 +368,3 @@ class GridWorldDynamicDoorsRegretGame(GridWorldDynamicRegretGame, GridWorldDynam
             print(tabulate(states_bookkeeping))
         
         return states_action_pairs
-
-
-    
