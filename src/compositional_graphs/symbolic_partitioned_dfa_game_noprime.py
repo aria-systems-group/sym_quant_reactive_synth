@@ -24,6 +24,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
                  restricted_human_locs: List[int],
                  restricted_human_boxes: List[int],
                  ltlf_flag: bool = True,
+                 weight_factor: int = 1,
                  enable_reordering: bool = False):
         """
          Initialize the SymbolicPartitionedDFAGame with the given parameters and create DFA latches and maps.
@@ -48,7 +49,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         self.dfa_latches: List[ADD] = []
         self.dfa_latches_sym_map = bidict({})
         # Game setup, DFA setup all are done in create_all_boolean_state_vars_and_maps() that is called in the super class init
-        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, enable_reordering=False)
+        super().__init__(boxes, locs, ratio, init, goal, restricted_human_locs, restricted_human_boxes, weight_factor=weight_factor, enable_reordering=False)
 
         # set up dfa init and goal states
         self.dfa_handle.set_init_latch()
@@ -86,25 +87,6 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         self.create_dfa_latches_and_maps()
     
 
-    def log_game_details(self) -> Dict[str, int]:
-        sys_states, env_states = self.get_number_of_states(False)
-        abs_dict = {
-            'total_latches': len(self.latches) + len(self.qVars) + len(self.rVars),
-            'latches': len(self.latches) + len(self.qVars),
-            'action_vars': len(self.rVars),
-            'turn_vars': len(self.tVar),
-            'ratio_vars': len(self.kVars),
-            'state_vars': len(self.pVars) + len(reduce(lambda x, y: x + y, self.bVars)),
-            'dfa_latches': len(self.qVars),
-            'total_states': sys_states + env_states,
-            'sys_states': sys_states,
-            'env_states': env_states,
-            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
-            'num_opt_sVals': self.comp_winning_states.countLeaves()
-            }
-        return abs_dict
-    
-
     def set_goal_latch(self):
         return self.dfa_handle.goal_latch
     
@@ -135,15 +117,53 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         self.qVar_map_sym = dfa_handle.qVar_map_sym
     
 
+    def create_sym_weight_dict(self, debug: bool = False, user_random_weights: bool = False):
+        """
+        Override base class method to create a monolithic ADD for weights. Here the main different Compose operation which is performed over DFA Game latches
+        
+        Weights are primarily associated with system states. A cost is incurred when the system reaches an intended state.
+         This method also computes costs for environment (human) state-action pairs that lead to these intended system states.
+        """
+        # Compute weights for system states
+        if user_random_weights:
+            self._compute_state_weights_random(random_weights_interval=[1, 20])
+        else:
+            self._compute_state_weights()
+        
+        # Compute weights for human actions leading to weighted system states
+        # by taking the preimage over the full transition relation.
+        new_weight = self.state_weight.vectorCompose(self.latches, list(self.transition_relation.values()))
+
+        # prune out states that have holding and ready in the human state as we already add the weight to human actions.
+        new_weight = new_weight.ite(~(self.tVar_map_sym['human'] & (reduce(lambda x, y: x | y, [self.xVar_map_sym[f'holding l{loc}'] | self.xVar_map_sym[f'ready l{loc}'] for loc in range(1, self.locs + 1)]))), self.manager.addZero())
+
+        # Handle the case where the goal is a human state.
+        # Find system states that can transition to a human goal state and assign them weights
+        human_goal = self.tVar_map_sym['human'] & self.goal_latch
+        dfa_human_goal: ADD = human_goal.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation_accp_sink.values()))
+
+        sys_state_evolve_to_human_goal_action = dfa_human_goal.vectorCompose(self.latches, list(self.transition_relation.values()))
+        sys_state_evolve_to_human_goal = self.symbolic_max_abstract(sys_state_evolve_to_human_goal_action, self.rVars)
+        sys_state_evolve_to_human_goal_weighted = sys_state_evolve_to_human_goal.ite(self.state_weight, self.manager.addZero())
+
+        # Combine all weights into the final weight ADD
+        self.weight = self.weight.ite(new_weight, self.manager.addZero())
+        self.weight |= (sys_state_evolve_to_human_goal_weighted & self.monolithic_relevant_box_preds & self.kVal_cube) 
+
+        if debug:
+            print("Debug: Dumping computed weights (state-action pairs):")
+            self.convert_cube_to_state_ADD(self.weight, state_flag=True, action=True, verbose=True)
+    
+
     def create_transition_relation(self):
         """
          Call the base method's create transition relation for the Game Construction.  
         """
-        # game TR
-        super().create_transition_relation()
-
         # DFA TR
         self.dfa_handle.create_dfa_transition_relation()
+
+        # game TR
+        super().create_transition_relation()
     
 
     def convert_cube_to_state_ADD(self, dd: ADD, state_flag: bool = True, dfa_flag: bool = True, action: bool = False, verbose: bool = False, table_header: bool = True) -> List[List[Tuple[Tuple[str, str, int], str]]]:
@@ -254,7 +274,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
         rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
 
         while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
-            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, action=False, verbose=verbose, table_header=False)
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, action=False, verbose=False, table_header=False)
             assert len(curr_state_exp) == 1, "Make sure the current state is a singleton set. ..."
             "For rollout, it should be a single intial state."
             
@@ -263,6 +283,9 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
                 opt_sval = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
             except IndexError:
                 opt_sval = 0
+            
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)]))
             
             turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
             
@@ -298,6 +321,105 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
                 print(f"Robot Action: {act_name}") if turn == 'robot' else print(f"Human Action: {act_name}")
     
 
+    def get_next_dfa_state(self, curr_dfa_state, curr_game_state_sym) -> ADD:
+        for dfa_state_sym in self.qVar_map_sym.values():
+            dfa_pre: ADD = dfa_state_sym.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation.values()))
+            edge_exists: bool = not (dfa_pre & (self.qVar_map_sym[curr_dfa_state] & curr_game_state_sym)).isZero()
+
+            if edge_exists:
+                curr_dfa_state: ADD = dfa_state_sym
+                break
+        
+        return curr_dfa_state
+
+    def _get_state_val(self, curr_state_sym):
+        try:
+            opt_sval: int = list((curr_state_sym & self.comp_winning_states).generate_cubes())[0][1]
+        except IndexError:
+            opt_sval: int = 0
+        return opt_sval
+
+
+    def roll_out_strategy_manual(self, strategy: ADD, verbose: bool = False):
+        """
+         A function to rollout a given strategy. Here we as the user to choose the action for us.
+        """
+        curr_state_sym = self.init_latch  & self.dfa_handle.init_latch
+        rVars_bdd: List[BDD] = [var.bddPattern() for var in self.rVars]
+
+        while (curr_state_sym & self.dfa_handle.goal_latch).isZero():
+            curr_state_exp: List[str] = self.convert_cube_to_state_ADD(curr_state_sym, action=False, table_header=True, verbose=False)
+            # first get the optimum state value
+            opt_sval = self._get_state_val(curr_state_sym)
+            if verbose:
+                print(tabulate([(curr_state_exp[0][0][0], opt_sval)], headers=['State', 'Opt value']))
+
+            # get the action to be taken at the current state
+            act_cube: BDD = (strategy.restrict(curr_state_sym)).bddInterval(opt_sval, opt_sval).pickOneMinterm(rVars_bdd)
+            act_cube_string = act_cube.cubeString().replace('-', '')
+
+            try:
+                act_name = self.action_map.inv[act_cube_string]
+            except KeyError:
+                print("No robot action found!!")
+                return
+        
+            turn = 'robot' if curr_state_exp[0][0][0][0][0] == 'robot' else'human'
+            if turn == 'robot':
+                print(f"Robot Action: {act_name}")
+            else:
+                _, act_name = self.get_next_state(turn, curr_state_exp, act_name, curr_state_sym=curr_state_sym)
+                print(f"Human Action: {act_name}")
+            
+            curr_dfa_state: int = curr_state_exp[0][0][0][1]
+
+            state_action_cube = self.manager.addZero()
+            for tr in self.transition_relation.values():
+                curr_sym_state_action = curr_state_sym & tr
+                if not curr_sym_state_action.isZero():
+                    state_action_cube |= curr_sym_state_action
+            
+            # get all the act names
+            curr_state_exp_list = []
+            for cube in self.get_all_cubes(state_action_cube, relevant_vars=self.latches + self.qVars + self.rVars):
+                curr_state_exp_list.append(cube[0])
+            
+            # printing the action here as the human action is overriden above. This because invalid human moves
+            # are converted to hmove noop. So, it is more accurate to print the action after getting the next state.
+            next_state_action_list = []
+            next_sym_state_list = []
+            idx = 0 
+            for cube in curr_state_exp_list:
+                act_cube: BDD = cube.restrict(curr_state_sym).bddInterval(1, 1)
+                act_cube_string = act_cube.cubeString().replace('-', '')
+                act_name = self.action_map.inv[act_cube_string]
+                if turn == 'robot':
+                    if not act_name.startswith('hmove'): 
+                        tmp_state_sym: ADD = self.get_next_state_robot(list(curr_state_exp[0][0][0][0]), act_name)
+                        tmp_state_exp = self.convert_cube_to_state_ADD(tmp_state_sym, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0])})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+                else:
+                    if act_name.startswith('hmove'):
+                        tmp_state_sym, act_name = self.get_next_state_human(list(curr_state_exp[0][0][0][0]), act_name)
+                        tmp_state_exp = self.convert_cube_to_state_ADD(tmp_state_sym, action=False, table_header=False, verbose=False)
+                        tmp_dfa_state = self.get_next_dfa_state(curr_dfa_state=curr_dfa_state,curr_game_state_sym=tmp_state_sym)
+                        tmp_state_opt_sval = self._get_state_val(tmp_state_sym & tmp_dfa_state)
+                        next_state_action_list.append((idx, act_name, f"({' , '.join(tmp_state_exp[0][0][0][0])})", self.dfa_handle.qVar_map_sym.inv[tmp_dfa_state], tmp_state_opt_sval))
+                        next_sym_state_list.append(tmp_state_sym & tmp_dfa_state)
+                        idx += 1
+            
+            print(tabulate(next_state_action_list, headers=['Idx', 'Action', 'Next State', 'DFA State', 'State Value']))
+
+            print("Enter the action you want to take from the above valid actions: ")
+            act_num = input()
+            act_num = int(act_num)
+            curr_state_sym = next_sym_state_list[act_num]
+    
+
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         # first evolve over the DFA
         # dfa_preimage: ADD = curr_winning_states_primed.vectorCompose(self.qVars, list(self.dfa_handle.dfa_transition_relation.values()))
@@ -305,14 +427,12 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
 
         # then evolve over the game
         preimage: ADD = dfa_preimage.vectorCompose(self.latches, list(self.transition_relation.values()))
-        self.iteration_bookkeeping.append([dfa_preimage.size(), preimage.size()])
 
         return preimage
     
 
     def iros23_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
-        bookkeeping_size = defaultdict(lambda: list)
         for sval, succ_states in win_state_bucket.items():
             # first evolve over the DFA
             # dfa_preimage: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
@@ -322,9 +442,7 @@ class SymbolicPartitionedDFAGameNoPrime(FrankaWorldDynamicRatioTurnBasedElseNoPr
             if not pre_states.isZero():
                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                 pre_buckets[sval] |= pre_states
-                bookkeeping_size[sval] = [dfa_preimage.size(), pre_states.size()]
 
-        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()
