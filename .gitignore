@@ -17,6 +17,7 @@ PyDD/
 
 # ignore plots folder
 plots/
+benchmark_plots/
 
 # ignore experimental scripts folder and experimental PDDL files
 old_files/ 

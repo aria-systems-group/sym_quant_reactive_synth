@@ -12,8 +12,19 @@ from .expected_op import *
 from src.compositional_graphs.gridworld.gridworld_dynamic import GridWorldDynamicGame
 from src.compositional_graphs.gridworld.gridworld_dynamic_doors import GridWorldDynamicDoorsGame
 
+from src.compositional_graphs.gridworld.gridworld_dynamic_no_prime import GridWorldDynamicGameNoPrime
+from src.compositional_graphs.gridworld.gridworld_dynamic_doors_no_prime import GridWorldDynamicDoorsGameNoPrime
+
 SOLVERS = {'ADD': 'solve', 'BDD': 'pure_bdd_solve', 'hybrid': 'hybrid_solve'}
 
+
+USE_PRIME = False
+
+# show which variant tests will use
+if USE_PRIME:
+    print("TEST CONFIG: USING PRIME variant -> GridWorldDynamicGame / GridWorldDynamicDoorsGame")
+else:
+    print("TEST CONFIG: USING NO-PRIME variant -> GridWorldDynamicGameNoPrime / GridWorldDynamicDoorsGameNoPrime")
 
 # TODO: add a more thorough test for the abstraction construction in the future.
 class TestGridWorld(unittest.TestCase):
@@ -22,7 +33,10 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS[scenario_name]
-                gridworld = GridWorldDynamicGame(**config.__dict__)
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicGameNoPrime(**config.__dict__)
         
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
@@ -55,8 +69,11 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS[scenario_name]
-                gridworld = GridWorldDynamicGame(**config.__dict__)
-        
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicGameNoPrime(**config.__dict__)
+
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
                 self.assertEqual(len(init_state_exp), 1, "Expected only one initial state!")
@@ -89,7 +106,10 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS[scenario_name]
-                gridworld = GridWorldDynamicGame(**config.__dict__)
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicGameNoPrime(**config.__dict__)
         
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
@@ -123,7 +143,10 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS_DOOR.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS_DOOR[scenario_name]
-                gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicDoorsGameNoPrime(**config.__dict__)
         
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
@@ -157,8 +180,11 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS_DOOR.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS_DOOR[scenario_name]
-                gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
-        
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicDoorsGameNoPrime(**config.__dict__)
+
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
                 self.assertEqual(len(init_state_exp), 1, "Expected only one initial state!")
@@ -191,8 +217,11 @@ class TestGridWorld(unittest.TestCase):
         for scenario_name, config in SCENARIOS_DOOR.items():
             with self.subTest(scenario=scenario_name):
                 config = SCENARIOS_DOOR[scenario_name]
-                gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
-        
+                if USE_PRIME:
+                    gridworld = GridWorldDynamicDoorsGame(**config.__dict__)
+                else:
+                    gridworld = GridWorldDynamicDoorsGameNoPrime(**config.__dict__)
+
                 init_state_exp = gridworld.convert_cube_to_state_ADD(gridworld.init_latch, state_flag=True, action=False, table_header=False, verbose=False)
 
                 self.assertEqual(len(init_state_exp), 1, "Expected only one initial state!")
