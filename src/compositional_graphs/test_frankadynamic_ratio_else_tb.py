@@ -162,17 +162,17 @@ class FrankaWorldDynamicRatioTurnBasedElse(FrankaWorldDynamicRatioTurnBased):
                 # add that if you are human loc then weight is weight_factor times more expensive
                 if rConf.split(' ')[0] == 'ready' or rConf.split(' ')[0] == 'holding':
                     if int(re.search(r'l(\d+)', rConf).group(1)) in self.human_locs:    
-                        self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addConst(self.weight_factor), self.state_weight)
-                    else:
                         self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addOne(), self.state_weight)
+                    else:
+                        self.state_weight = self.xVar_map_sym[rConf].ite(self.manager.addConst(self.weight_factor), self.state_weight)
                 elif rConf.split(' ')[0] == 'to-obj':
                     box_id = int(re.search(r'b(\d+)', rConf.split(' ')[1]).group(1))
                     for loc in range(1, self.locs + 1):
                         if loc in self.human_locs:
-                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addConst(self.weight_factor), self.state_weight)
-                        else:
                             self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addOne(), self.state_weight)
-        
+                        else:
+                            self.state_weight = (self.tVar_map_sym['robot'] & self.xVar_map_sym[rConf] & self.xVar_map_sym[f'b{box_id} l{loc}']).ite(self.manager.addConst(self.weight_factor), self.state_weight)
+
         # Goal states have zero cost
         self.state_weight = self.goal_latch.ite(self.manager.addZero(), self.state_weight)
     

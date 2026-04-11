@@ -31,12 +31,13 @@ class SymbolicPartitionedDFA():
       in partitioned form.
     """
 
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], dfa_name: str = 'dfa'):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], dfa_name: str = 'dfa', domain: str='manipulator'):
         self.formula: str = formula
         self.predicate_add_sym_map_lbl = latches_map
         self.game_latches = game_latches
         self.prime_game_latches: List[ADD] = prime_game_latches
         self.dfa_name: str = dfa_name
+        self.domain = domain
         self.manager: Cudd = manager
         self.dfa, self.num_of_states = self.formula_to_automaton()
         # create valid transitions of DFA 
@@ -62,6 +63,16 @@ class SymbolicPartitionedDFA():
 
         # set the initial and goal states in explicit form
         self.set_init_goal_states()
+    
+
+    @property
+    def domain(self):
+        return self._domain
+    
+    @domain.setter
+    def domain(self, value):
+        assert value in ['manipulator', 'gridworld'], "Domain must be either 'manipulator' or 'gridworld'"
+        self._domain = value
     
 
     def formula_to_automaton(self):
@@ -121,6 +132,20 @@ class SymbolicPartitionedDFA():
         raise NotImplementedError()
 
 
+    def get_predicate_formula(self, formula_name: str) -> ADD:
+        """
+         A function that constructs the predicate formula for the a given domain. 
+         
+         Manipulator Domain: The predicates are of the form pij where i is the box id and j is the location id. 
+         Gridworld Domain: The predicates are of the form pij where ij is the i-th row and j-th column.  
+        """
+        if self.domain == 'manipulator':
+            box_loc: str = re.search(r'\d+', formula_name).group()
+            return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+        else:
+            return self.predicate_add_sym_map_lbl[formula_name]
+
+
 class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
     """
     This class inherits the SymbolicPartitionedDFA and implements the following:
@@ -130,8 +155,8 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], domain: str='manipulator'):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches, domain=domain)
         self.valid_dfa_edge_formula_size: int = len(self.dfa.get_symbols())
 
 
@@ -178,11 +203,16 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
         if hasattr(formula, 'symbol'):
             # get the corresponding boolean expression
             if '!' in formula.name:
-                box_loc: str = re.search(r'\d+', formula.name).group()
-                return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                if self.domain == 'manipulator':
+                    formula_string: str = re.search(r'\d+', formula.name).group()
+                else:
+                    formula_string: str = formula.symbol.__str__()
+                # return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                return ~self.get_predicate_formula(formula_name=formula_string) 
             else:
-                box_loc: str = re.search(r'\d+', formula.name).group()
-                return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                # box_loc: str = re.search(r'\d+', formula.name).group()
+                # return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                return self.get_predicate_formula(formula_name=formula.name)
         
         expression = self.in_order_nnf_tree_traversal(expression, formula.left)
         if formula.name == 'AND':
@@ -228,7 +258,7 @@ class SymbolicPartitionedDFAFromSpot(SymbolicPartitionedDFA):
                 warnings.warn(f"Error while parsing the LTL Formula. Could not parse edge {edge}")
                 sys.exit(-1)
             
-            self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[nxt]
+            self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[nxt]
             
             # now we add the transition dfa's transition relation
             for sidx, s in enumerate(dfa_state_prime_str):
@@ -251,8 +281,8 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], prime_game_latches: List[ADD], domain: str='manipulator'):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, prime_game_latches=prime_game_latches, domain=domain)
 
 
     def formula_to_automaton(self): 
@@ -290,8 +320,7 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 else:
                     cryptic_lbl = labels
                 
-                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                expr &= self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                expr &= self.get_predicate_formula(formula_name=str(cryptic_lbl))
             
             elif value == "0":
                 if isinstance(labels, tuple):
@@ -299,8 +328,7 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                 else:
                     cryptic_lbl = labels
                 
-                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                expr &= ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                expr &= ~self.get_predicate_formula(formula_name=str(cryptic_lbl))
             else:
                 assert value == "X", "Error while constructing symbolic LTLF DFA edge. FIX THIS!!!"
         
@@ -336,7 +364,7 @@ class SymbolicPartitionedDFAFromMona(SymbolicPartitionedDFA):
                     dfa_state_cube: ADD = self.qVar_map_sym[orig_state] 
                     dfa_state_prime_str: str = self.qVar_map[dest_state]
 
-                    self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym.swapVariables(self.game_latches, self.prime_game_latches) & self.prime_qVar_map_sym[dest_state]
+                    self.monolithic_valid_q_ps_pq |= dfa_state_cube & edge_sym & self.prime_qVar_map_sym[dest_state]
 
                     # now we add the transition dfa's transition relation
                     for sidx, s in enumerate(dfa_state_prime_str):
@@ -362,12 +390,13 @@ class SymbolicPartitionedDFANoPrime():
       The inherited classes override the create_dfa_transition_relation() method to construct the transition relation
       in partitioned form.
     """
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], dfa_name: str = 'dfa'):
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], dfa_name: str = 'dfa', domain: str='manipulator'):
         self.formula: str = formula
         self.predicate_add_sym_map_lbl = latches_map
         self.game_latches = game_latches
         self.dfa_name: str = dfa_name
         self.manager: Cudd = manager
+        self.domain = domain
         self.dfa, self.num_of_states = self.formula_to_automaton()
         # create valid transitions of DFA 
         # curr dfa state (q) --- prime game state (ps) ---> to next dfa state (pq)
@@ -391,6 +420,15 @@ class SymbolicPartitionedDFANoPrime():
         # set the initial and goal states in explicit form
         self.set_init_goal_states()
     
+    @property
+    def domain(self):
+        return self._domain
+    
+    @domain.setter
+    def domain(self, value):
+        assert value in ['manipulator', 'gridworld'], "Domain must be either 'manipulator' or 'gridworld'"
+        self._domain = value
+
 
     def formula_to_automaton(self):
         raise NotImplementedError()
@@ -444,6 +482,20 @@ class SymbolicPartitionedDFANoPrime():
         raise NotImplementedError()
 
 
+    def get_predicate_formula(self, formula_name: str) -> ADD:
+        """
+         A function that constructs the predicate formula for the a given domain. 
+         
+         Manipulator Domain: The predicates are of the form pij where i is the box id and j is the location id. 
+         Gridworld Domain: The predicates are of the form pij where ij is the i-th row and j-th column.  
+        """
+        if self.domain == 'manipulator':
+            box_loc: str = re.search(r'\d+', formula_name).group()
+            return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+        else:
+            return self.predicate_add_sym_map_lbl[formula_name]
+
+
 
 class SymbolicPartitionedDFAFromSpotNoPrime(SymbolicPartitionedDFANoPrime):
     """
@@ -454,8 +506,8 @@ class SymbolicPartitionedDFAFromSpotNoPrime(SymbolicPartitionedDFANoPrime):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], domain: str='manipulator'):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, domain=domain)
         self.valid_dfa_edge_formula_size: int = len(self.dfa.get_symbols())
 
 
@@ -502,11 +554,9 @@ class SymbolicPartitionedDFAFromSpotNoPrime(SymbolicPartitionedDFANoPrime):
         if hasattr(formula, 'symbol'):
             # get the corresponding boolean expression
             if '!' in formula.name:
-                box_loc: str = re.search(r'\d+', formula.name).group()
-                return ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                return ~self.get_predicate_formula(formula_name=formula.name)
             else:
-                box_loc: str = re.search(r'\d+', formula.name).group()
-                return self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                return self.get_predicate_formula(formula_name=formula.name)
         
         expression = self.in_order_nnf_tree_traversal(expression, formula.left)
         if formula.name == 'AND':
@@ -572,8 +622,8 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
      3. Implementing the create_dfa_transition_relation() method for constructing the transition relation from SPOT DFA 
     """
     
-    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD]):
-        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches)
+    def __init__(self, formula: str, manager: Cudd, latches_map: bidict, game_latches: List[ADD], domain: str='manipulator'):
+        super().__init__(formula=formula, manager=manager, latches_map=latches_map, game_latches=game_latches, domain=domain)
 
 
     def formula_to_automaton(self): 
@@ -612,8 +662,7 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
                 else:
                     cryptic_lbl = labels
                 
-                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                expr &= self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                expr &= self.get_predicate_formula(formula_name=str(cryptic_lbl))
             
             elif value == "0":
                 if isinstance(labels, tuple):
@@ -621,8 +670,7 @@ class SymbolicPartitionedDFAFromMonaNoPrime(SymbolicPartitionedDFANoPrime):
                 else:
                     cryptic_lbl = labels
                 
-                box_loc: str = re.search(r'\d+', str(cryptic_lbl)).group()
-                expr &= ~self.predicate_add_sym_map_lbl[f'b{box_loc[0]} l{box_loc[1]}']
+                expr &= ~self.get_predicate_formula(formula_name=str(cryptic_lbl))
             else:
                 assert value == "X", "Error while constructing symbolic LTLF DFA edge. FIX THIS!!!"
         
