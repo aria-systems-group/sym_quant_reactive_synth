@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import argparse
 import yaml
 
 # import argparse
@@ -31,6 +32,43 @@ if __name__ == "__main__":
     if not os.path.exists('./logs'):
         os.makedirs('./logs')
     
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--boxes', type=int)
+    parser.add_argument('--locs', type=int)
+    # parser.add_argument('--ratio', type=int)
+    parser.add_argument('--algo', type=str)
+    args = parser.parse_args()
+
+    # override the values from config compositional file
+    BOXES = args.boxes
+    LOCS = args.locs
+    ALGORITHM = args.algo
+    # RATIO = args.ratio
+    HUMAN_LOCS: range = range(2, LOCS + 1)
+    if BOXES == 3:
+        INIT: List[str] = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l5']
+        # HUMAN_BOXES: List[int] = [0, 1, 2]
+    elif BOXES == 4:
+        INIT: List[str] = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l5', 'b3 l4']
+        # HUMAN_BOXES: List[int] = [0, 1, 2, 3]
+    elif BOXES == 5:
+        INIT: List[str] = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l5', 'b3 l4', 'b4 l6']
+        # HUMAN_BOXES: List[int] = [0, 1, 2, 3, 4]
+    elif BOXES == 6:
+        INIT: List[str] = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l5', 'b3 l4', 'b4 l6', 'b5 l7']
+        # HUMAN_BOXES: List[int] = [0, 1, 2, 3, 4, 5]
+    elif BOXES == 7:
+        INIT: List[str] = ['ready l2', 'b0 l2', 'b1 l3', 'b2 l5', 'b3 l4', 'b4 l6', 'b5 l7', 'b6 l8']
+        # HUMAN_BOXES: List[int] = [0, 1, 2, 3, 4, 5, 6]
+    
+    # if formula_flag == 1:
+    #     FORMULA = 'F(p01)'
+    # elif formula_flag == 2:
+    #     FORMULA = 'F(p01) & F(p12)'
+    # elif formula_flag == 3:
+    #     FORMULA = 'F(p01) & F(p12) & F(p23)'
+    # elif formula_flag == 4:
+    #     FORMULA = 'F(p01) & F(p12) & F(p23) & F(p34)'
 
     for run in range(ITERATIONS):
         # log setup
@@ -182,9 +220,15 @@ if __name__ == "__main__":
         # Add manager info to the log
         game.logger.run_data['MemoryInUse'] = game.manager.readMemoryInUse()
         if GAME:
-            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_game'), iteration=run, add_time_stamp=False)
+            if COOPERATIVE_GAME:
+                pass
+            else:
+                game.logger.dump_results_to_yaml(file_path=os.path.join('recuv_logs/game/no_prime/scenario_3/', f'{BOXES}b_{LOCS}l_{RATIO}k_{ALGORITHM}_game'), iteration=run, add_time_stamp=False)
         elif DFA_GAME:
-            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_dfa_game'), iteration=run, add_time_stamp=False)
+            if COOPERATIVE_GAME:
+                game.logger.dump_results_to_yaml(file_path=os.path.join('recuv_logs/coop/dfa_game/no_prime/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_dfa_game'), iteration=run, add_time_stamp=False)
+            else:
+                game.logger.dump_results_to_yaml(file_path=os.path.join('recuv_logs/dfa_game/no_prime/scenario_4/', f'{BOXES}b_{LOCS}l_{RATIO}k_{ALGORITHM}_dfa_game'), iteration=run, add_time_stamp=False)
         elif REGRET_GAME:
-            game.logger.dump_results_to_yaml(file_path=os.path.join('logs/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_regret_game'), iteration=run, add_time_stamp=False)
+            game.logger.dump_results_to_yaml(file_path=os.path.join('recuv_logs/regret_game/prime/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_regret_game'), iteration=run, add_time_stamp=False)
         del game.manager
