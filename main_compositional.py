@@ -9,6 +9,7 @@ from typing import Union
 from cudd import Cudd, ADD
 
 # Imports with prime latches
+from src.compositional_graphs.frankaworld_arch_aria import FrankaWorldArchAria, FrankaWorldArchAriaNoPrime
 from src.compositional_graphs.symbolic_partitioned_dfa_game import SymbolicPartitionedDFAGame
 from src.compositional_graphs.test_frankadynamic_ratio_else_tb import FrankaWorldDynamicRatioTurnBasedElse
 from src.compositional_graphs.test_frankadynamic_ratio_tb import FrankaWorldDynamicRatioTurnBased
@@ -765,12 +766,157 @@ def Game_Main_no_prime():
         game.roll_out_strategy(strategy=strategy, verbose=True)
 
 
+def DFA_Game_Arch_Aria():
+    # start by testing if we have multiple objects in else location.
+    # boxes = 5
+    # locs = 7
+    # ratio = 1
+    # # both boxes are at else location
+    # # init = ['ready l3', 'b0 l3', 'b1 l2']
+    # # b0 - A b1 - R b2 - I b3 - A
+    # init = ['ready l6', 'b0 l2', 'b1 l1', 'b3 l3', 'b2 l4', 'b4 l6']
+    # # goal = [['b0 l1']]
+    # goal=[]
+
+    # # human_locs = range(1, locs + 1)
+    # human_locs = [6, 7]
+    # # human_boxes = range(boxes)
+    # # human_boxes = []
+    # human_boxes = [4]
+    # # formula = 'F(p01) & F(p12)'
+    # formula = 'F(p01 & p12 & p23 & p34)'
+    cooperative_game = False
+    enable_reordering = False
+    only_reachable_states = False
+    ltlf_flag = True
+    
+    # start simple - remove human moves to the right of the current box locations
+    boxes = 4
+    locs = 7
+    ratio = 1
+    init = ['ready l3', 'b0 l1', 'b1 l4', 'b2 l5', 'b3 l6']
+    # init = ['ready l3', 'b0 l1', 'b1 l4', 'b2 l5']#, 'b3 l6']
+    # init = ['ready l3', 'b0 l1', 'b1 l4']# 'b2 l5']#, 'b3 l6']
+    goal=[]
+
+    # human_locs = range(1, locs + 1)
+    human_locs = [1, 2, 3, 4]
+    # human_locs = [6, 7]
+    # human_locs = [1, 2, 3, 4]
+    human_boxes = range(boxes)
+    # human_boxes = [0, 1, 2]
+    # formula = 'F(p01 & p12 & p23 & p34)'
+    formula = 'F(p01 & p12 & p23)'
+    # formula = 'F(p01 & p12)'
+    # formula = 'F(p03)'
+
+    
+    dfa_game = FrankaWorldArchAria(boxes=boxes, locs=locs,
+                                   ratio=ratio, init=init,
+                                   goal=goal, formula=formula, 
+                                   restricted_human_locs=human_locs,
+                                   restricted_human_boxes=human_boxes,
+                                   ltlf_flag=ltlf_flag,
+                                   enable_reordering=enable_reordering,
+                                   only_reachable_states=only_reachable_states)
+    tic = time.time()
+    dfa_game.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # dfa_game.test_pre_image()
+    # sys.exit(-1)
+    
+    tic = time.time()
+    strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    
+    
+    if strategy is not None:
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
+def DFA_Game_Arch_Aria_no_prime():
+    # start by testing if we have multiple objects in else location.
+    # boxes = 5
+    # locs = 7
+    # ratio = 1
+    # # both boxes are at else location
+    # # init = ['ready l3', 'b0 l3', 'b1 l2']
+    # # b0 - A b1 - R b2 - I b3 - A
+    # init = ['ready l6', 'b0 l2', 'b1 l1', 'b3 l3', 'b2 l4', 'b4 l6']
+    # # goal = [['b0 l1']]
+    # goal=[]
+
+    # # human_locs = range(1, locs + 1)
+    # human_locs = [6, 7]
+    # # human_boxes = range(boxes)
+    # # human_boxes = []
+    # human_boxes = [4]
+    # # formula = 'F(p01) & F(p12)'
+    # formula = 'F(p01 & p12 & p23 & p34)'
+    cooperative_game = False
+    enable_reordering = False
+    only_reachable_states = False
+    ltlf_flag = True
+    
+    # start simple - remove human moves to the right of the current box locations
+    boxes = 4
+    locs = 7
+    ratio = 1
+    init = ['ready l3', 'b0 l1', 'b1 l4', 'b2 l5', 'b3 l6']
+    # init = ['ready l3', 'b0 l1', 'b1 l4', 'b2 l5']#, 'b3 l6']
+    # init = ['ready l3', 'b0 l1', 'b1 l4']# 'b2 l5']#, 'b3 l6']
+    goal=[]
+
+    # human_locs = range(1, locs + 1)
+    human_locs = [1, 2, 3, 4]
+    # human_locs = [6, 7]
+    # human_locs = [1, 2, 3, 4]
+    human_boxes = range(boxes)
+    # human_boxes = [0, 1, 2]
+    # formula = 'F(p01 & p12 & p23 & p34)'
+    formula = 'F(p01 & p12 & p23)'
+    # formula = 'F(p01 & p12)'
+    # formula = 'F(p03)'
+
+    
+    dfa_game = FrankaWorldArchAriaNoPrime(boxes=boxes, locs=locs,
+                                   ratio=ratio, init=init,
+                                   goal=goal, formula=formula, 
+                                   restricted_human_locs=human_locs,
+                                   restricted_human_boxes=human_boxes,
+                                   ltlf_flag=ltlf_flag,
+                                   enable_reordering=enable_reordering)
+    tic = time.time()
+    dfa_game.create_transition_relation()
+    toc = time.time()
+    print(f"Time to create transition relation: {toc - tic} seconds")
+
+    # dfa_game.test_pre_image()
+    # sys.exit(-1)
+    
+    tic = time.time()
+    strategy, bdd_opt_sVals = dfa_game.pure_bdd_solve(verbose=False, cooperative_game=cooperative_game)
+    toc = time.time()
+    print(f"Time to synthesize strategy: {toc - tic} seconds")
+
+    
+    
+    if strategy is not None:
+        dfa_game.roll_out_strategy(strategy=strategy, verbose=True)
+
+
+
 
 
 if __name__ == "__main__":
     # game synthesis main function call
     # Game_Main()
-    Game_Main_no_prime()
+    # Game_Main_no_prime()
     
     # dfa game synthesis main function call
     # DFA_Game_Main()
@@ -779,3 +925,7 @@ if __name__ == "__main__":
     # Regret dfa game synthesis main function call
     # Regret_DFA_Game_Main()
     # Regret_DFA_Game_Main_no_prime()
+
+    # testing the Aria scenario with multiple objects in else location
+    DFA_Game_Arch_Aria()
+    # DFA_Game_Arch_Aria_no_prime()
