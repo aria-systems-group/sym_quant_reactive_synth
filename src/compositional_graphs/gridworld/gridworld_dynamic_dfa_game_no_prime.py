@@ -1,3 +1,4 @@
+import math
 import itertools
 
 from functools import reduce
@@ -119,10 +120,35 @@ class GridWorldDynamicDFAGameNoPrime(GridWorldDynamicGameNoPrime):
     def get_number_of_states(self, verbose: bool = True) -> Tuple[int, int]:
         num_sys_states, num_env_states = super().get_number_of_states(verbose=verbose)
         # multiple it by the numbers of the states
-        total_dfa_game_state = (num_sys_states + num_env_states) * self.dfa_handle.num_of_states
-        if verbose:
-            print(f'Number of States in DFA Game: {total_dfa_game_state:,}')
-        return total_dfa_game_state
+        # total_dfa_game_state = (num_sys_states + num_env_states) * self.dfa_handle.num_of_states
+        # if verbose:
+        #     print(f'Number of States in DFA Game: {total_dfa_game_state:,}')
+        # return total_dfa_game_state
+        return num_sys_states, num_env_states
+    
+
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = super().get_number_of_states(verbose=False)
+        try:
+            num_opt_svals = self.comp_winning_states.countLeaves()
+        except (AttributeError, TypeError):
+            num_opt_svals = math.inf
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.qVars) + len(self.rVars),
+            'latches': len(self.latches) + + len(self.qVars),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVars),
+            'error_vars': len(self.eVars),
+            'label_vars':len(self.lVars),
+            'xVars': sum([len(player_xVars) for player_xVars in self.xVars]),
+            'yVars': sum([len(player_yVars) for player_yVars in self.yVars]),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_opt_sVals': num_opt_svals
+            }
+        return abs_dict
 
     def create_state_lbl_map(self):
         """
@@ -310,12 +336,13 @@ class GridWorldDynamicDFAGameNoPrime(GridWorldDynamicGameNoPrime):
 
         # then evolve over the game
         preimage = dfa_preimage.vectorCompose(self.latches, list(self.transition_relation.values()))
-
+        self.iteration_bookkeeping.append([dfa_preimage.size(), preimage.size()])
         return preimage
     
 
     def hybrid_compute_preimage(self, win_state_bucket, return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        bookkeeping_size = defaultdict(lambda: list)
         for sval, succ_states in win_state_bucket.items():
             # dfa_pre_states: BDD = dfa_succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_bdd.values()))
             dfa_pre_states: BDD = succ_states.vectorCompose(self.qVars_bdd, list(self.dfa_handle.dfa_transition_relation_accp_sink_bdd.values()))
@@ -325,7 +352,9 @@ class GridWorldDynamicDFAGameNoPrime(GridWorldDynamicGameNoPrime):
             if not pre_states.isZero():
                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                 pre_buckets[sval] |= pre_states
+                bookkeeping_size[sval] = [dfa_pre_states.size(), pre_states.size()]
 
+        self.iteration_bookkeeping.append(bookkeeping_size)
         # unions of all predecessors
         if not return_bdd:
             preimage = self.manager.plusInfinity()
@@ -552,6 +581,31 @@ class GridWorldDynamicDoorsDFAGameNoPrime(GridWorldDynamicDFAGameNoPrime, GridWo
         self.init_latch: ADD = self.dfa_handle.init_latch & self.init_latch & self.state_lbl & self.all_door_uncalimed & self.not_error_state_cube
         if enable_reordering:
             self.manager.autodynEnable()
+    
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = super().get_number_of_states(verbose=False)
+        try:
+            num_opt_svals = self.comp_winning_states.countLeaves()
+        except (AttributeError, TypeError):
+            num_opt_svals = math.inf
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.qVars) + len(self.rVars),
+            'latches': len(self.latches) + + len(self.qVars),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVars),
+            'error_vars': len(self.eVars),
+            'label_vars':len(self.lVars),
+            'door_vars': sum([len(door_dVars) for door_dVars in self.dVars]),
+            'xVars': sum([len(player_xVars) for player_xVars in self.xVars]),
+            'yVars': sum([len(player_yVars) for player_yVars in self.yVars]),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_opt_sVals': num_opt_svals
+            }
+        return abs_dict
+
     
     def add_lbl_evolution_to_TR(self):
         """

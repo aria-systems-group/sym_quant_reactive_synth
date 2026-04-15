@@ -1,3 +1,4 @@
+import math
 import itertools
 
 from bidict import bidict
@@ -62,6 +63,31 @@ class GridWorldDynamicDoorsDFAGame(GridWorldDynamicDFAGame, GridWorldDynamicDoor
             if k.startswith('l'):
                 continue
             self.transition_relation[k] &= self.state_lbl
+    
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = super().get_number_of_states(verbose=False)
+        try:
+            num_opt_svals = self.comp_winning_states.countLeaves()
+        except (AttributeError, TypeError):
+            num_opt_svals = math.inf
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.qVars) + len(self.prime_latches) + len(self.prime_qVars) + len(self.rVars),
+            'latches': len(self.latches) + + len(self.qVars),
+            'prime_latches': len(self.prime_latches) + len(self.prime_qVars),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVars),
+            'error_vars': len(self.eVars),
+            'label_vars':len(self.lVars),
+            'door_vars': sum([len(door_dVars) for door_dVars in self.dVars]),
+            'xVars': sum([len(player_xVars) for player_xVars in self.xVars]),
+            'yVars': sum([len(player_yVars) for player_yVars in self.yVars]),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'dfa_game_states': self.dfa_handle.num_of_states * (env_states + sys_states),
+            'num_opt_sVals': num_opt_svals
+            }
+        return abs_dict
 
 
     def convert_cube_to_state_ADD(self,

@@ -12,6 +12,8 @@ from tabulate import tabulate
 from collections import defaultdict
 from typing import List, Tuple, Dict, Union, Optional
 
+from src.compositional_graphs.logger import CustomLogger
+
 from cudd import Cudd, ADD, BDD
 
 # Custom Types
@@ -106,6 +108,9 @@ class GridWorldDynamicGameNoPrime():
         self.sys_action_cube_list_bdd: List[BDD] = [act.bddPattern() for act_dd in self.sys_action_cube_list for act in act_dd]
 
         self.miscellanoues_helper_stuff()
+
+        # create logger instance
+        self.logger = CustomLogger()
 
         if enable_reordering:
             self.manager.autodynEnable()
@@ -376,6 +381,28 @@ class GridWorldDynamicGameNoPrime():
         if verbose:
             print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
         return sys_states, env_states
+    
+
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        try:
+            num_opt_svals = self.comp_winning_states.countLeaves()
+        except (AttributeError, TypeError):
+            num_opt_svals = math.inf
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.rVars),
+            'latches': len(self.latches),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVars),
+            'error_vars': len(self.eVars),
+            'xVars': sum([len(player_xVars) for player_xVars in self.xVars]),
+            'yVars': sum([len(player_yVars) for player_yVars in self.yVars]),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'num_opt_sVals': num_opt_svals
+            }
+        return abs_dict
 
     def add_turn_var_update_rule(self):
         """
@@ -629,6 +656,7 @@ class GridWorldDynamicGameNoPrime():
 
     def compute_preimage(self, curr_winning_states: ADD) -> ADD:
         preimage = curr_winning_states.vectorCompose(self.latches, list(self.transition_relation.values()))
+        self.iteration_bookkeeping.append([curr_winning_states.size(), preimage.size()])
 
         return preimage
     
@@ -703,14 +731,17 @@ class GridWorldDynamicGameNoPrime():
 
     def hybrid_compute_preimage(self, win_state_bucket: Dict[int, BDD], return_bdd: bool = False) -> Union[ADD, Dict[int, BDD]]:
         pre_buckets: Dict[int, BDD] = defaultdict(lambda: self.manager.bddZero())
+        bookkeeping_size = defaultdict(lambda: list)
         for sval, succ_states in win_state_bucket.items():
             pre_states: BDD = succ_states.vectorCompose(self.latches_bdd, self.ts_bdd_transition_fun_list)
 
             if not pre_states.isZero():
                 assert pre_buckets[sval] & pre_states == self.manager.bddZero(), "Make sure there are no overlapping states in the pre buckets..."
                 pre_buckets[sval] |= pre_states
+                bookkeeping_size[sval] = [succ_states.size(), pre_states.size()]
 
         # unions of all predecessors
+        self.iteration_bookkeeping.append(bookkeeping_size)
         if not return_bdd:
             preimage = self.manager.plusInfinity()
             for sval, add_bucket in pre_buckets.items():
@@ -751,6 +782,8 @@ class GridWorldDynamicGameNoPrime():
         
         # intialize the iteration counter
         layer = 0
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -773,6 +806,8 @@ class GridWorldDynamicGameNoPrime():
             if curr_winning_states.compare(next_winning_states, 2):
                 print("**************************Reached fixpoint**************************")
                 self._vi_layers = layer
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
@@ -815,6 +850,8 @@ class GridWorldDynamicGameNoPrime():
         # intialize the iteration counter
         layer = 0
         c_max: int = int(list(self.weight.findMax().generate_cubes())[0][1])
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
 
         while True:
             print(f"**************************Layer: {layer}**************************")
@@ -838,6 +875,9 @@ class GridWorldDynamicGameNoPrime():
             if next_winning_states.compare(curr_winning_states, 2):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
                 self._vi_layers = layer
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 if curr_winning_states.restrict(self.init_latch) != self.manager.plusInfinity():
                     if curr_winning_states.restrict(self.init_latch) == self.manager.addZero():
                         print("Either The Initial State is a Goal State or the env can complete the task for the robot without expending energy!!")
@@ -882,6 +922,8 @@ class GridWorldDynamicGameNoPrime():
        
         # intialize the iteration counter
         layer = 0
+        # iteration bookkeeping
+        self.iteration_bookkeeping = []
 
         # print the initial winning states
         if verbose:
@@ -923,6 +965,9 @@ class GridWorldDynamicGameNoPrime():
             
             if self.check_reached_fixpoint_bdd(curr_winning_states=curr_winning_states, next_winning_states=next_winning_states_opt):
                 print(f"**************************Reached a Fixed Point in {layer} layers**************************")
+                self.logger.comp_time['action_list'] = list(self.action_map_sym.keys())
+                self.logger.comp_time['Iterations'] = layer
+                self.logger.comp_time['Preimage_size'] = {idx: e for idx, e in enumerate(self.iteration_bookkeeping)}
                 init_val = math.inf
                 for sval, sbdd in curr_winning_states.items():
                     if sbdd & self.init_latch.bddPattern() != self.manager.bddZero():

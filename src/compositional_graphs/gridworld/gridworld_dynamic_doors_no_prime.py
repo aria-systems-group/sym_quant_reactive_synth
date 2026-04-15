@@ -81,6 +81,29 @@ class GridWorldDynamicDoorsGameNoPrime(GridWorldDynamicGameNoPrime):
         if verbose:
             print(f'Number of States in Game: \n Sys States: {sys_states:,} \n Env States: {env_states:,} \n Total States: {sys_states + env_states:,}')
         return sys_states, env_states
+    
+
+    def log_game_details(self) -> Dict[str, int]:
+        sys_states, env_states = self.get_number_of_states(False)
+        try:
+            num_opt_svals = self.comp_winning_states.countLeaves()
+        except (AttributeError, TypeError):
+            num_opt_svals = math.inf
+        abs_dict = {
+            'total_latches': len(self.latches) + len(self.rVars),
+            'latches': len(self.latches),
+            'action_vars': len(self.rVars),
+            'turn_vars': len(self.tVars),
+            'error_vars': len(self.eVars),
+            'door_vars': sum([len(dVars) for dVars in self.dVars]),
+            'xVars': sum([len(player_xVars) for player_xVars in self.xVars]),
+            'yVars': sum([len(player_yVars) for player_yVars in self.yVars]),
+            'total_states': sys_states + env_states,
+            'sys_states': sys_states,
+            'env_states': env_states,
+            'num_opt_sVals': num_opt_svals
+            }
+        return abs_dict
 
     
     def get_door_constraint(self, cell: CELL, player: str) -> ADD:
@@ -227,11 +250,13 @@ class GridWorldDynamicDoorsGameNoPrime(GridWorldDynamicGameNoPrime):
                 if d_status == 'env':
                     for pidx in range(self.players['sys']):
                         sys_player_at_door = self.xVar_map_sym[pidx][dx] & self.yVar_map_sym[pidx][dy] & self.not_error_state_cube
-                        bad_state_acts |= super().compute_preimage(sys_player_at_door & self.dVar_map_sym[didx][d_status])
+                        # bad_state_acts |= super().compute_preimage(sys_player_at_door & self.dVar_map_sym[didx][d_status])
+                        bad_state_acts |= (sys_player_at_door & self.dVar_map_sym[didx][d_status]).vectorCompose(self.latches, list(self.transition_relation.values()))
                 elif d_status == 'sys':
                     idx_offset = self.players['sys']
                     env_player_at_door = reduce(lambda a, b: a | b, [self.xVar_map_sym[pidx + idx_offset][dx] & self.yVar_map_sym[pidx + idx_offset][dy] & self.not_error_state_cube for pidx in range(self.players['env'])])
-                    bad_state_acts |= super().compute_preimage(env_player_at_door & self.dVar_map_sym[didx][d_status])
+                    # bad_state_acts |= super().compute_preimage(env_player_at_door & self.dVar_map_sym[didx][d_status])
+                    bad_state_acts |= (env_player_at_door & self.dVar_map_sym[didx][d_status]).vectorCompose(self.latches, list(self.transition_relation.values()))
         
         # remove bad state action pairs
         for var in self.transition_relation.keys():
