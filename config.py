@@ -16,6 +16,7 @@ MONOLITHIC_TR: bool = True  # Set this flag to true when using Monolithic TR dur
 TWO_PLAYER_GAME: bool = True # Set this flag to true when you want to contruct a two-player game env.
 TWO_PLAYER_GAME_BND: bool = False  # Set this flag to true when you want to construct som bounded no. off human interventions.
 GAME_ALGORITHM = 'quant-adv' # choose qual for qualitative game, quant-adv for quantitative adversarial game, and quant-coop for cooperative game
+JUST_ADV_GAME: bool = True  # Set this flag to true when you want to just solve the adversarial game without computing regret minimizing strategy
 
 HUMAN_INT_BND: int = 3
 
