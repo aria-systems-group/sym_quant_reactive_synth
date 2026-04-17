@@ -91,6 +91,8 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
 
         # print progress flag
         self.print_layers = print_layer
+        self.abs_dict = dict({})
+        self.comp_dict = dict({})
 
 
 
@@ -158,6 +160,8 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         if print_facts:
             print(f"******************# of boolean Vars for Human actions: {len(ts_human_act_vars)}******************")
             print(f"******************# of boolean Vars for Robot actions: {len(ts_robot_act_vars)}******************")
+            self.abs_dict['eVars'] = len(ts_human_act_vars)
+            self.abs_dict['rVars'] = len(ts_robot_act_vars)
 
         # build DFA State vars
         dfa_state_vars, dfa_tr = self.create_partitioned_symbolic_dfa_graph(formula=self.formulas[0],
@@ -167,6 +171,7 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
 
         if print_facts:
             print(f"******************# of boolean Vars for DFA state: {len(dfa_state_vars)}******************")
+            self.abs_dict['qVars'] = len(dfa_state_vars)
 
         
         # box_preds has predicates segregated as per boxes
@@ -185,6 +190,8 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         if print_facts:
             count = sum([len(listElem) for listElem in ts_lbl_vars])
             print(f"******************# of boolean Vars for TS lbls: {count}******************")
+            # store than as xVars as that is how they are referred to in the Compositional approach
+            self.abs_dict['xVars'] = count
 
         # The order for the boolean vars is first actions vars, then lbls, then state vars
         curr_vars = self._create_symbolic_lbl_vars(state_lbls=robot_preds,
@@ -193,8 +200,9 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         
         if print_facts:
             print(f"******************# of boolean Vars for Robot Conf: {len(curr_vars)}******************")
-        
-        
+            # store them as pVars as they are referred to in the compositional approach
+            self.abs_dict['pVars'] = len(curr_vars)
+
         return _causal_graph_instance.task, _causal_graph_instance.problem.domain, _causal_graph_instance, curr_vars, \
                 robot_preds, ts_lbl_vars, ts_robot_act_vars, ts_human_act_vars, _seg_action, boxes, box_preds
 
@@ -325,10 +333,13 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         
         stop: float = time.time()
         print("Time took for constructing the abstraction: ", stop - start)
+        # self.comp_dict['TR_time']  = stop - start
         
         if print_facts:
             print(f"******************# of Edges in Franka Abstraction: {sym_tr.ecount}******************")
             print(f"******************# of States in the Original graph: {len(sym_tr.adj_map.keys())}******************")
+            self.abs_dict['states'] = len(sym_tr.adj_map.keys())
+            self.abs_dict['edges'] = sym_tr.ecount
         # sys.exit(-1)
         return sym_tr, ts_curr_vars, ts_robot_vars, ts_human_vars, ts_lbl_vars
     
@@ -355,10 +366,11 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         win_str: ADD = min_max_handle.solve(verbose=verbose)
         stop = time.time()
         print("Time for solving the Adv. game on Original Graph: ", stop - start)
+        self.comp_dict['minmax_Synth_time'] = stop - start
 
-        if win_str:
-            if True:
-                min_max_handle.roll_out_strategy(strategy=win_str, verbose=True)
+        # if win_str:
+        #     if True:
+        #         min_max_handle.roll_out_strategy(strategy=win_str, verbose=True)
         
         # min max value
         self.min_energy_budget = min_max_handle.init_state_value
@@ -368,16 +380,21 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         self.reg_energy_budget = math.ceil(self.min_energy_budget * self.scale_reg_budget)
 
         print(f"************************** Energy Budget: {self.reg_energy_budget} **************************")
+        self.abs_dict['budget'] = self.reg_energy_budget
 
         if just_adv_game:
             # convert bytes to MegaBytes and print the Memory usage
             print(f"Memory in use (MB): {self.manager.readMemoryInUse()/(10**6)}")
-            sys.exit(-1)
+            self.abs_dict['MemoryInUse'] = self.manager.readMemoryInUse()
+            # sys.exit(-1)
+            return
+
 
         # construct additional boolean variables used during the construction of the new graph
         self.prod_utls_vars = self._create_symbolic_lbl_vars(state_lbls=list(range(self.reg_energy_budget + 1)),
                                                              state_var_name='k',
                                                              add_flag=True)
+        self.abs_dict['uVars'] = len(self.prod_utls_vars)
 
         # print(f"# of States in the Original graph: {len(self.ts_handle.adj_map.keys())}")
         # sys.exit(-1)
@@ -397,6 +414,8 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         print("******************Computing Min-Max (aVal) on the original graph******************")
 
         min_max_handle = self.get_energy_budget(verbose=verbose, just_adv_game=just_adv_game, monolithic_tr=monolithic_tr)
+        if just_adv_game:
+            return
 
         # get the max action cost
         max_action_cost: int = min_max_handle._get_max_tr_action_cost()
@@ -433,6 +452,7 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
                                                         debug=True)
         stop: float = time.time()
         print("Time took for constructing the Graph of Utility: ", stop - start)
+        self.comp_dict['GoU_TR_time'] = stop - start
 
         self.graph_of_utls_handle = graph_of_utls_handle
     
@@ -452,6 +472,8 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
 
         # constuct graph of utility
         self.build_add_graph_of_utility(verbose=verbose, just_adv_game=just_adv_game)
+        if just_adv_game:
+            return
         
         
         print("******************Computing cVals on Graph of utility******************")
@@ -473,6 +495,7 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         cvals: ADD = gou_min_min_handle.solve(verbose=False, print_layers=self.print_layers)
         stop: float = time.time()
         print("Time took for computing cVals is: ", stop - start)
+        self.comp_dict['GoU_synth_time'] = stop - start
         # sys.exit(-1)
         print("******************Computing BA Vals on Graph of utility******************")
         start: float = time.time()
@@ -483,11 +506,13 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
                                                         verbose=False)
         stop: float = time.time()
         print("Time took for computing the set of best alternatives: ", stop - start)
+        self.comp_dict['BA_Comp_Time'] = stop - start
 
         # construct additional boolean vars for set of best alternative values
         self.prod_ba_vars: List[ADD] = self._create_symbolic_lbl_vars(state_lbls=self.graph_of_utls_handle.ba_set,
                                                                       state_var_name='r',
                                                                       add_flag=True)
+        self.abs_dict['brVars'] = len(self.prod_ba_vars)
         
         print("******************Constructing Graph of Best Response******************")
         # construct of Best response G^{br}
@@ -519,6 +544,7 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
                                                             debug=True)
         stop: float = time.time()
         print("Time took for costructing the Graph of Best Response: ", stop - start)
+        self.comp_dict['GoBR_TR_Creation_Time'] = stop - start
 
 
         # compute regret-minmizing strategies
@@ -541,6 +567,7 @@ class FrankaRegretSynthesis(FrankaPartitionedWorld):
         reg_str: ADD = gbr_min_max_handle.solve(verbose=False, print_layers=self.print_layers)
         stop: float = time.time()
         print("Time took for computing min-max strs on the Graph of best Response: ", stop - start)
+        self.comp_dict['Synth_time'] = stop - start
 
         if reg_str:
             gbr_min_max_handle.roll_out_strategy(strategy=reg_str, verbose=True, ask_usr_input=run_monitor)

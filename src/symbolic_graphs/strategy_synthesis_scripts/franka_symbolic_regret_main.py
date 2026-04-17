@@ -68,6 +68,8 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
         """
         print("******************Computing Min-Max (aVal) on the original graph******************")
         min_max_handle = self.get_energy_budget(verbose=verbose, just_adv_game=just_adv_game, monolithic_tr=monolithic_tr)
+        if just_adv_game:
+            return
 
         # get the max action cost
         max_action_cost: int = min_max_handle._get_max_tr_action_cost()
@@ -101,6 +103,7 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
                                                    verbose=False)
         stop: float = time.time()
         print("Time took for constructing the Sym TR for Graph of Utility: ", stop - start)
+        self.comp_dict['GoU_TR_time'] = stop - start
 
         # compute reach states from the init state
         start: float = time.time()
@@ -110,7 +113,7 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
                                                                        verbose=False)
         stop: float = time.time()
         print("Time took for constructing Reachable states on Graph of Utility: ", stop - start)
-
+        self.comp_dict['GoU_Reachable_Time'] = stop - start
         self.graph_of_utls_handle = graph_of_utls_handle
     
 
@@ -128,6 +131,8 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
         print("**********************************************************************************************************")
         # constuct graph of utility
         self.build_add_graph_of_utility(verbose=verbose, just_adv_game=just_adv_game, monolithic_tr=monolithic_tr)
+        if just_adv_game:
+            return
 
         print("******************Computing cVals on Graph of utility******************")
 
@@ -149,6 +154,7 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
         cvals: ADD = gou_min_min_handle.solve(verbose=False, print_layers=self.print_layers)
         stop: float = time.time()
         print("Time took for computing cVals is: ", stop - start)
+        self.comp_dict['GoU_synth_time'] = stop - start
 
         # sanity checking
         print("******************Computing BA Vals on Graph of utility******************")
@@ -160,11 +166,12 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
                                                         verbose=False)
         stop: float = time.time()
         print("Time took for computing the set of best alternatives: ", stop - start)
-        
+        self.comp_dict['BA_Comp_Time'] = stop - start
         # construct additional boolean vars for set of best alternative values
         self.prod_ba_vars: List[ADD] = self._create_symbolic_lbl_vars(state_lbls=self.graph_of_utls_handle.ba_set,
                                                                       state_var_name='r',
                                                                       add_flag=True)
+        self.abs_dict['brVars'] = len(self.prod_ba_vars)
 
         print("******************Constructing Graph of Best Response******************")
         # construct of Best response G^{br}
@@ -196,6 +203,7 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
                                                             debug=True)
         stop: float = time.time()
         print("Time took for costructing the Graph of Best Response: ", stop - start)
+        self.comp_dict['GoBR_TR_Creation_Time'] = stop - start
 
 
         # compute regret-minmizing strategies
@@ -218,6 +226,7 @@ class FrankaSymbolicRegretSynthesis(FrankaRegretSynthesis):
         reg_str: ADD = gbr_min_max_handle.solve(verbose=False,  print_layers=self.print_layers)
         stop: float = time.time()
         print("Time took for computing min-max strs on the Graph of best Response: ", stop - start)
+        self.comp_dict['Synth_time'] = stop - start
 
         if reg_str:
             gbr_min_max_handle.roll_out_strategy(strategy=reg_str, verbose=True, ask_usr_input=run_monitor)

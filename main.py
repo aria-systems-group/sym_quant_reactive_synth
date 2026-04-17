@@ -1,7 +1,10 @@
 import sys
+import time
 import warnings
 
 from cudd import Cudd
+
+from src.compositional_graphs.logger import CustomLogger
 
 from src.symbolic_graphs.graph_search_scripts import SimpleGridWorld, FrankaWorld
 from src.symbolic_graphs.strategy_synthesis_scripts import FrankaPartitionedWorld, FrankaRegretSynthesis, FrankaSymbolicRegretSynthesis
@@ -222,10 +225,16 @@ if __name__ == "__main__":
                                                                         plot_obs=False,
                                                                         plot=False)
                         
+            start = time.time()
             regret_synthesis_handle.build_abstraction()
-            regret_synthesis_handle.solve(verbose=False, just_adv_game=False, run_monitor=False, monolithic_tr=MONOLITHIC_TR)
+            stop: float = time.time()
+            regret_synthesis_handle.comp_dict['TR_time'] = stop - start
+            regret_synthesis_handle.solve(verbose=False, just_adv_game=JUST_ADV_GAME, run_monitor=False, monolithic_tr=MONOLITHIC_TR)
+            if not JUST_ADV_GAME:
+                regret_synthesis_handle.comp_dict['TR_time'] -=  regret_synthesis_handle.comp_dict['Synth_time'] 
 
             print(f"****************** # Total Boolean Variables: { cudd_manager.size()} ******************")
+            regret_synthesis_handle.abs_dict['total_latches'] = cudd_manager.size()
 
         else:
             warnings.warn("Please set atleast one flag to True - GRIDWORLD, FRANKAWORLD, STRATEGY_SYNTHESIS, or REGRET_SYNTHESIS!")
@@ -233,3 +242,8 @@ if __name__ == "__main__":
         
         # convert bytes to MegaBytes and print the Memory usage
         print(f"Memory in use (MB): {cudd_manager.readMemoryInUse()/(10**6)}")
+        # log setup
+        logger = CustomLogger()
+        logger.log(setup_dict={}, comp_time=regret_synthesis_handle.comp_dict, abs_dict=regret_synthesis_handle.abs_dict)
+        logger.run_data['MemoryInUse'] = cudd_manager.readMemoryInUse()
+        # game.logger.dump_results_to_yaml(file_path=os.path.join('recuv_logs/coop/dfa_game/no_prime/scenario_1/', f'{BOXES}b_{LOCS}l_{ALGORITHM}_dfa_game'), iteration=run, add_time_stamp=False)
